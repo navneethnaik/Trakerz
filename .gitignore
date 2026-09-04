@@ -1,0 +1,8 @@
+.venv/
+data/*.db
+data/uploads/
+__pycache__/
+*.pyc
+
+# Local design scratch files, not part of the app itself.
+Claude outputs/
