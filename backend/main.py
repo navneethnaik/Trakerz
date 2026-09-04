@@ -9,12 +9,16 @@ import shutil
 import sqlite3
 import uuid
 from datetime import date, datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Optional, List, Dict
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from openpyxl import Workbook
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel
 
 import db
@@ -154,6 +158,59 @@ def _get_customer_or_404(conn, customer_id: int) -> dict:
     return _row_to_dict(row)
 
 
+def _parse_iso_date(s: Optional[str]):
+    """Turn a stored 'YYYY-MM-DD' string into a real date object so Excel
+    treats it as a date (sortable, formattable) instead of plain text."""
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _build_workbook(sheet_title: str, headers: List[str], rows: List[list],
+                     date_cols: tuple = (), currency_cols: tuple = (), widths: Optional[List[int]] = None) -> Workbook:
+    """Shared .xlsx builder for the export endpoints: bold header row, plain
+    data rows, optional date/currency number formatting on 1-indexed
+    column numbers, and optional fixed column widths."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_title
+
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    for row in rows:
+        ws.append(row)
+
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        for col in date_cols:
+            cell = row[col - 1]
+            if cell.value is not None:
+                cell.number_format = "dd-mmm-yyyy"
+        for col in currency_cols:
+            row[col - 1].number_format = "#,##0.00"
+
+    if widths:
+        for i, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+    return wb
+
+
+def _xlsx_response(wb: Workbook, filename: str) -> StreamingResponse:
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def _validate_sow_refs(conn, sow: SowIn):
     if not conn.execute("SELECT 1 FROM customers WHERE id = ?", (sow.customer_id,)).fetchone():
         raise HTTPException(status_code=400, detail="Selected customer does not exist")
@@ -214,6 +271,46 @@ def create_sow(sow: SowIn):
         customers, billing_models, operating_models = _load_lookup_maps(conn)
         row = _attach_names(row, customers, billing_models, operating_models)
         return _enrich_sow(row, [])
+
+
+@app.get("/api/sows/export")
+def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None, q: Optional[str] = None):
+    """Export the SOW list to an .xlsx workbook. Accepts the same filters as
+    GET /api/sows, so exporting from a filtered/searched view downloads
+    exactly what's on screen. Registered before /api/sows/{sow_id} so the
+    literal "export" path isn't swallowed by that route's int converter."""
+    sows = list_sows(status=status, customer_id=customer_id, q=q)
+
+    headers = [
+        "Customer", "Title", "Project title", "Project code", "Contract code",
+        "Opportunity ID", "PO#", "Start date", "End date", "TCV", "Status",
+        "Billing model", "Operating model", "Document link", "Additional information",
+    ]
+    rows = [
+        [
+            s.get("customer_name") or "",
+            s.get("title") or "",
+            s.get("project_title") or "",
+            s.get("project_code") or "",
+            s.get("contract_code") or "",
+            s.get("opportunity_id") or "",
+            s.get("po_number") or "",
+            _parse_iso_date(s.get("start_date")),
+            _parse_iso_date(s.get("end_date")),
+            s.get("total_value") or 0,
+            s.get("status") or "",
+            s.get("billing_model_name") or "",
+            s.get("operating_model_name") or "",
+            s.get("doc_link") or "",
+            s.get("notes") or "",
+        ]
+        for s in sows
+    ]
+    date_cols = (8, 9)
+    currency_cols = (10,)
+    widths = [22, 28, 24, 16, 16, 16, 14, 13, 13, 14, 14, 18, 18, 30, 34]
+    wb = _build_workbook("SOWs", headers, rows, date_cols=date_cols, currency_cols=currency_cols, widths=widths)
+    return _xlsx_response(wb, f"trakerz_sows_{date.today().isoformat()}.xlsx")
 
 
 @app.get("/api/sows/{sow_id}")
@@ -337,6 +434,32 @@ def create_customer(c: CustomerIn):
         except sqlite3.IntegrityError:
             raise HTTPException(status_code=400, detail=f"Customer code '{c.customer_code}' already exists")
         return _get_customer_or_404(conn, cur.lastrowid)
+
+
+@app.get("/api/customers/export")
+def export_customers(q: Optional[str] = None):
+    """Export the customer list to an .xlsx workbook, honoring the same
+    search filter as GET /api/customers. Registered before
+    /api/customers/{customer_id} for the same reason as /api/sows/export."""
+    customers = list_customers(q=q)
+
+    headers = ["Customer code", "Customer name", "Client partner", "Delivery director",
+               "Industry", "Headquarters", "Geo"]
+    rows = [
+        [
+            c.get("customer_code") or "",
+            c.get("customer_name") or "",
+            c.get("client_partner") or "",
+            c.get("delivery_director") or "",
+            c.get("industry") or "",
+            c.get("headquarters") or "",
+            c.get("geo") or "",
+        ]
+        for c in customers
+    ]
+    widths = [18, 28, 22, 22, 20, 22, 14]
+    wb = _build_workbook("Customers", headers, rows, widths=widths)
+    return _xlsx_response(wb, f"trakerz_customers_{date.today().isoformat()}.xlsx")
 
 
 @app.get("/api/customers/{customer_id}")

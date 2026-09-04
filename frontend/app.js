@@ -314,6 +314,19 @@ function escapeHtml(str) {
 // ---------- SOW create/edit modal ----------
 const sowModal = document.getElementById("sowModal");
 document.getElementById("newSowBtn").addEventListener("click", () => openSowModal());
+
+// Exports whatever the SOW table currently shows: the same search/status
+// filter used by loadSows() is appended so a filtered view downloads only
+// the filtered rows, not the whole portfolio.
+document.getElementById("exportSowsBtn").addEventListener("click", () => {
+  const q = document.getElementById("searchInput").value.trim();
+  const status = document.getElementById("statusFilter").value;
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (status) params.set("status", status);
+  const qs = params.toString();
+  window.location.href = `${API}/sows/export${qs ? "?" + qs : ""}`;
+});
 document.getElementById("cancelSowBtn").addEventListener("click", () => (sowModal.hidden = true));
 
 function fillSelect(selectId, items, valueKey, labelKey, placeholder) {
@@ -681,6 +694,14 @@ async function loadCustomers() {
 
 const customerModal = document.getElementById("customerModal");
 document.getElementById("newCustomerBtn").addEventListener("click", () => openCustomerModal());
+
+document.getElementById("exportCustomersBtn").addEventListener("click", () => {
+  const q = document.getElementById("customerSearchInput").value.trim();
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  const qs = params.toString();
+  window.location.href = `${API}/customers/export${qs ? "?" + qs : ""}`;
+});
 document.getElementById("cancelCustomerBtn").addEventListener("click", () => (customerModal.hidden = true));
 
 function openCustomerModal(c) {
