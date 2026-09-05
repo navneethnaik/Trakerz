@@ -4,7 +4,17 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Trakerz</title>
-<link rel="stylesheet" href="style.css?v=7" />
+<script>
+  // Applied before the stylesheet paints anything, so the page never
+  // flashes the light theme before switching to a saved dark preference.
+  (function () {
+    try {
+      var saved = localStorage.getItem("trakerz_theme");
+      if (saved === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    } catch (e) {}
+  })();
+</script>
+<link rel="stylesheet" href="style.css?v=37" />
 </head>
 <body>
 <header class="topbar">
@@ -13,30 +23,42 @@
     Trakerz
   </h1>
   <nav class="tabs">
+    <button class="tab-btn active" data-tab="home">
+      <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+      <span class="icon-text">Dashboard</span>
+    </button>
     <div class="nav-dropdown">
-      <button class="tab-btn dropdown-toggle active" id="managementMenuBtn">
+      <button class="tab-btn dropdown-toggle" id="contractsMenuBtn">
         <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-        <span class="icon-text">Management</span>
+        <span class="icon-text">Contracts / Financials</span>
         <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
       </button>
-      <div class="dropdown-menu" id="managementMenu" hidden>
+      <div class="dropdown-menu" id="contractsMenu" hidden>
         <button class="dropdown-item" data-tab="sows">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
           Statement of Work
         </button>
-        <button class="dropdown-item" data-tab="customers">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-          Customer Management
+        <button class="dropdown-item" data-tab="revenue">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+          Revenue Management
         </button>
       </div>
     </div>
+    <button class="tab-btn" data-tab="resources">
+      <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+      <span class="icon-text">Staffing</span>
+    </button>
     <div class="nav-dropdown">
       <button class="tab-btn dropdown-toggle" id="configMenuBtn">
         <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
-        <span class="icon-text">Configuration</span>
+        <span class="icon-text">Settings</span>
         <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
       </button>
       <div class="dropdown-menu" id="configMenu" hidden>
+        <button class="dropdown-item" data-tab="customers">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          Customer
+        </button>
         <button class="dropdown-item" data-tab="config-locations">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
           Locations
@@ -53,40 +75,141 @@
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
           SOW Status
         </button>
+        <button class="dropdown-item" data-tab="config-employee-types">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          Employee Type
+        </button>
+        <button class="dropdown-item" data-tab="config-bands">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg>
+          Band
+        </button>
       </div>
     </div>
   </nav>
-  <button id="notifBtn" class="ghost-btn" title="Enable desktop reminders">
-    <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-    <span class="icon-text">Enable reminders</span>
+  <button id="themeToggleBtn" class="theme-toggle-btn" title="Toggle dark mode">
+    <svg class="icon icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+    <svg class="icon icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+    <span class="icon-text" id="themeToggleLabel">Dark mode</span>
   </button>
 </header>
 
 <main>
+  <!-- DASHBOARD (landing page) -->
+  <section id="tab-home" class="tab-panel active">
+    <div class="dash-header-row">
+      <h2 class="dash-title">Dashboard</h2>
+      <select id="dashboardCustomerFilter" class="dash-customer-filter">
+        <option value="">All</option>
+      </select>
+    </div>
+
+    <div class="dash-circle-row">
+      <div class="dash-circle-tile circle-indigo">
+        <div class="circle-value" id="dashCircleCustomers">0</div>
+        <div class="circle-label">Customer #</div>
+      </div>
+      <div class="dash-circle-tile circle-emerald">
+        <div class="circle-value" id="dashCircleActiveSows">0</div>
+        <div class="circle-label">SoW #</div>
+      </div>
+      <div class="dash-circle-tile circle-orange">
+        <div class="circle-value" id="dashCircleResources">0</div>
+        <div class="circle-label">Employee #</div>
+      </div>
+      <div class="dash-circle-tile circle-amber">
+        <div class="circle-value" id="dashCircleTcv">$0</div>
+        <div class="circle-label">TCV</div>
+      </div>
+      <div class="dash-circle-tile circle-red">
+        <div class="circle-value" id="dashCircleExpiring">0</div>
+        <div class="circle-label">Expiring in 30 days</div>
+      </div>
+    </div>
+
+    <div class="dash-revenue-row">
+      <div class="chart-card chart-card-wide">
+        <h3><span class="card-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span><span>Monthly Projected vs Invoiced Revenue</span></h3>
+        <div class="chart-canvas-wrap chart-canvas-wrap-wide"><canvas id="chartRevenueTrend"></canvas></div>
+      </div>
+      <div class="list-card">
+        <h3><span class="card-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span>Monthly Projected vs Invoiced &ndash; Variance</h3>
+        <div class="table-scroll-x">
+          <table class="variance-table-horizontal">
+            <thead>
+              <tr>
+                <th></th><th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
+                <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
+              </tr>
+            </thead>
+            <tbody id="homeRevenueVarianceTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="dash-chart-row">
+      <div class="chart-card chart-card-compact">
+        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></span><span>Resources by Location (<span id="homeLocationCount">0</span>)</span></h3>
+        <canvas id="chartResourceLocation" height="160"></canvas>
+      </div>
+      <div class="list-card list-card-compact">
+        <h3><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg></span><span>Resources by Band (<span id="homeBandCount">0</span>)</span></h3>
+        <table>
+          <thead><tr><th>Band</th><th>Resources</th><th>%</th></tr></thead>
+          <tbody id="homeBandTableBody"></tbody>
+        </table>
+      </div>
+      <div class="list-card list-card-compact">
+        <h3><span class="card-icon icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span><span>Resources by Type (<span id="homeResourceTypeCount">0</span>)</span></h3>
+        <table>
+          <thead><tr><th>Type</th><th>Resources</th><th>%</th></tr></thead>
+          <tbody id="homeResourceTypeTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="dash-lists-row">
+      <div class="list-card">
+        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span><span>SOW Status (<span id="homeSowStatusCount">0</span>)</span></h3>
+        <table>
+          <thead><tr><th>Status</th><th>SOWs</th><th>%</th></tr></thead>
+          <tbody id="homeSowStatusTableBody"></tbody>
+        </table>
+      </div>
+      <div class="list-card">
+        <h3><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg></span><span>Billing Models &ndash; Active SOWs (<span id="homeBillingModelCount">0</span>)</span></h3>
+        <table>
+          <thead><tr><th>Billing Model</th><th>Active SOWs</th><th>%</th></tr></thead>
+          <tbody id="homeBillingModelTableBody"></tbody>
+        </table>
+      </div>
+      <div class="list-card">
+        <h3><span class="card-icon icon-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span><span>SOWs Expiring in 30 Days (<span id="homeExpiringCount">0</span>)</span></h3>
+        <table>
+          <thead><tr><th>Account Name</th><th>SOW Name</th><th>Expiring In</th></tr></thead>
+          <tbody id="homeExpiringTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <!-- SOWS LIST -->
-  <section id="tab-sows" class="tab-panel active">
+  <section id="tab-sows" class="tab-panel">
     <div id="alertBanner" class="alert-banner" hidden></div>
-    <div class="stat-row">
+    <div class="stat-row" id="sowStatRow">
       <div class="stat-card stat-indigo">
-        <div class="stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg></div>
-        <div><div class="stat-label">Total SOWs</div><div class="stat-value" id="sowStatTotal">0</div></div>
-      </div>
-      <div class="stat-card stat-emerald">
-        <div class="stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
-        <div><div class="stat-label">Active SOWs</div><div class="stat-value" id="sowStatActive">0</div></div>
-      </div>
-      <div class="stat-card stat-cyan">
-        <div class="stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div>
-        <div><div class="stat-label">Completed SOWs</div><div class="stat-value" id="sowStatCompleted">0</div></div>
+        <div class="stat-value" id="sowStatTotal">0</div>
+        <div class="stat-label">SoW #</div>
       </div>
       <div class="stat-card stat-amber">
-        <div class="stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
-        <div><div class="stat-label">Total TCV</div><div class="stat-value" id="sowStatValue">$0</div></div>
+        <div class="stat-value" id="sowStatValue">$0</div>
+        <div class="stat-label">TCV</div>
       </div>
-      <a href="#" class="stat-card stat-red" id="expiryCard30">
-        <div class="stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>
-        <div><div class="stat-label">Expiring in 30 days</div><div class="stat-value" id="expiryLink30">0</div></div>
-      </a>
+      <div class="stat-card stat-red">
+        <div class="stat-value" id="sowStatExpiring">0</div>
+        <div class="stat-label">Expiring in 30 days</div>
+      </div>
+      <!-- One tile per configured SOW status, built by renderSowStatusTiles() -->
     </div>
     <div class="toolbar">
       <input id="searchInput" type="search" placeholder="Search customer or title..." />
@@ -106,11 +229,11 @@
       <table class="sow-table">
         <thead>
           <tr>
-            <th></th><th>Customer</th><th>Title</th><th>Project title</th><th>Project code</th>
-            <th>Contract code</th><th>Opportunity ID</th><th>PO#</th>
-            <th>Start date</th><th>End date</th><th>TCV</th><th>Status</th>
-            <th>Billing model</th><th>Operating model</th><th>Document link</th>
-            <th>Additional information</th><th></th>
+            <th></th><th class="sortable-th" data-sort-key="customer_name">Customer Name<span class="sort-arrow"></span></th><th>Sow Title</th><th>Project Code (BTP)</th>
+            <th>Contract # (BTP)</th><th>Opportunity ID</th><th>PO#</th>
+            <th class="sortable-th" data-sort-key="start_date">Start date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="end_date">End date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="total_value">TCV (USD)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="status">Status<span class="sort-arrow"></span></th>
+            <th class="sortable-th" data-sort-key="billing_model_name">Billing model<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="operating_model_name">Operating model<span class="sort-arrow"></span></th><th>Document link</th>
+            <th>BTP Project Name</th><th>Additional information</th><th></th>
           </tr>
         </thead>
         <tbody id="sowTableBody"></tbody>
@@ -220,6 +343,123 @@
       </table>
     </div>
   </section>
+
+  <!-- CONFIGURATION: Employee Type -->
+  <section id="tab-config-employee-types" class="tab-panel">
+    <div class="list-card config-card">
+      <div class="toolbar" style="margin-bottom:12px">
+        <h3 style="flex:1;margin:0"><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>Employee Type</h3>
+        <button id="newEmployeeTypeBtn" class="primary-btn">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add Employee Type
+        </button>
+      </div>
+      <table class="sow-table">
+        <thead><tr><th>Employee type</th><th>Employee type details</th><th></th></tr></thead>
+        <tbody id="employeeTypeTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CONFIGURATION: Band -->
+  <section id="tab-config-bands" class="tab-panel">
+    <div class="list-card config-card">
+      <div class="toolbar" style="margin-bottom:12px">
+        <h3 style="flex:1;margin:0"><span class="card-icon icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg></span>Band</h3>
+        <button id="newBandBtn" class="primary-btn">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add Band
+        </button>
+      </div>
+      <table class="sow-table">
+        <thead><tr><th>Band</th><th>Band details</th><th></th></tr></thead>
+        <tbody id="bandTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- RESOURCE MANAGEMENT (Management) -->
+  <section id="tab-resources" class="tab-panel">
+    <div class="toolbar">
+      <input id="resourceSearchInput" type="search" placeholder="Search employee, code, account or project..." />
+      <button id="exportResourcesBtn" type="button" class="ghost-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Export to Excel
+      </button>
+      <button id="newResourceBtn" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        New Resource
+      </button>
+    </div>
+    <div class="table-scroll">
+      <table class="sow-table">
+        <thead>
+          <tr>
+            <th>Account Name</th><th>SoW Name</th><th>WBS ID</th><th>Employee Code</th>
+            <th>Employee Name</th><th>Location</th><th>Employee Type</th><th>Band</th>
+            <th>Allocation Start Date</th><th>Allocation End Date</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="resourceTableBody"></tbody>
+      </table>
+    </div>
+    <div class="staffing-footer-note">
+      Employee # whose allocation is ending in next 30 days: <strong id="staffingEndingSoonCount">0</strong>
+    </div>
+  </section>
+
+  <!-- REVENUE MANAGEMENT (Management) -->
+  <section id="tab-revenue" class="tab-panel">
+    <h3 class="revenue-section-title">
+      <span class="card-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span>
+      Revenue Summary (SoW Level)
+      <span class="section-subtitle">Add, edit or delete monthly projections and invoiced amounts per SOW</span>
+    </h3>
+
+    <div class="toolbar">
+      <select id="revenueCustomerFilter">
+        <option value="">All customers</option>
+      </select>
+      <select id="revenueBillingModelFilter">
+        <option value="">All billing models</option>
+      </select>
+    </div>
+
+    <div class="toolbar">
+      <div style="flex:1"></div>
+      <button id="newRevenueEntryBtn" type="button" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Entry
+      </button>
+      <button id="exportRevenueSowsBtn" type="button" class="ghost-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Export to Excel
+      </button>
+    </div>
+    <div class="table-scroll">
+      <table class="sow-table revenue-table">
+        <thead>
+          <tr>
+            <th rowspan="2">Customer Name</th>
+            <th rowspan="2">SOW Title</th>
+            <th rowspan="2">Billing Model</th>
+            <th class="rev-band-a" colspan="2">Apr</th><th class="rev-band-b" colspan="2">May</th><th class="rev-band-a" colspan="2">Jun</th>
+            <th class="rev-band-b" colspan="2">Jul</th><th class="rev-band-a" colspan="2">Aug</th><th class="rev-band-b" colspan="2">Sep</th>
+            <th class="rev-band-a" colspan="2">Oct</th><th class="rev-band-b" colspan="2">Nov</th><th class="rev-band-a" colspan="2">Dec</th>
+            <th class="rev-band-b" colspan="2">Jan</th><th class="rev-band-a" colspan="2">Feb</th><th class="rev-band-b" colspan="2">Mar</th>
+            <th rowspan="2">Actions</th>
+          </tr>
+          <tr>
+            <th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th><th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th><th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th>
+            <th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th><th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th><th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th>
+            <th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th><th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th><th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th>
+            <th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th><th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th><th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th>
+          </tr>
+        </thead>
+        <tbody id="revenueSowsTableBody"></tbody>
+      </table>
+    </div>
+  </section>
 </main>
 
 <footer class="app-footer">Developed by Navneeth Diwaker Naik</footer>
@@ -227,7 +467,13 @@
 <!-- SOW form modal -->
 <div id="sowModal" class="modal" hidden>
   <div class="modal-box modal-wide">
-    <h2><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></span><span id="sowModalTitle">New SOW</span></h2>
+    <div class="modal-header">
+      <h2><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></span><span id="sowModalTitle">New SOW</span></h2>
+      <div class="modal-header-actions">
+        <button type="button" id="cancelSowBtnTop" class="ghost-btn">Cancel</button>
+        <button type="submit" form="sowForm" class="primary-btn">Save</button>
+      </div>
+    </div>
     <form id="sowForm">
       <input type="hidden" id="sowId" />
       <label>Customer name
@@ -237,9 +483,9 @@
       </label>
       <label>SOW title<input id="f_title" required /></label>
       <div class="three-col">
-        <label>Project Title<input id="f_project_title" /></label>
-        <label>Project Code<input id="f_project_code" /></label>
-        <label>Contract Code<input id="f_contract_code" /></label>
+        <label>Project title<input id="f_project_title" /></label>
+        <label>Project code<input id="f_project_code" /></label>
+        <label>Contract code<input id="f_contract_code" /></label>
       </div>
       <div class="two-col">
         <label>Opportunity ID<input id="f_opportunity" /></label>
@@ -300,7 +546,13 @@
 <!-- Milestone form modal -->
 <div id="milestoneModal" class="modal" hidden>
   <div class="modal-box">
-    <h2><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span><span id="milestoneModalTitle">New Milestone / Invoice</span></h2>
+    <div class="modal-header">
+      <h2><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span><span id="milestoneModalTitle">New Milestone / Invoice</span></h2>
+      <div class="modal-header-actions">
+        <button type="button" id="cancelMilestoneBtnTop" class="ghost-btn">Cancel</button>
+        <button type="submit" form="milestoneForm" class="primary-btn">Save</button>
+      </div>
+    </div>
     <form id="milestoneForm">
       <input type="hidden" id="m_id" />
       <input type="hidden" id="m_sowId" />
@@ -327,33 +579,24 @@
   </div>
 </div>
 
-<!-- Expiring SOWs detail popup -->
-<div id="expiryModal" class="modal" hidden>
-  <div class="modal-box modal-wide">
-    <h2><span class="card-icon icon-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span><span id="expiryModalTitle">SOWs expiring in 30 days</span></h2>
-    <div class="table-scroll">
-      <table class="sow-table">
-        <thead><tr><th>Customer</th><th>Title</th><th>End date</th><th>Days left</th><th>TCV</th><th>Status</th></tr></thead>
-        <tbody id="expiryModalBody"></tbody>
-      </table>
-    </div>
-    <div class="modal-actions">
-      <button type="button" id="closeExpiryModalBtn" class="ghost-btn">Close</button>
-    </div>
-  </div>
-</div>
 
 <!-- Customer form modal -->
 <div id="customerModal" class="modal" hidden>
   <div class="modal-box">
-    <h2><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></span><span id="customerModalTitle">New Customer</span></h2>
+    <div class="modal-header">
+      <h2><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></span><span id="customerModalTitle">New Customer</span></h2>
+      <div class="modal-header-actions">
+        <button type="button" id="cancelCustomerBtnTop" class="ghost-btn">Cancel</button>
+        <button type="submit" form="customerForm" class="primary-btn">Save</button>
+      </div>
+    </div>
     <form id="customerForm">
       <input type="hidden" id="c_id" />
-      <label>Customer Code<input id="c_code" required /></label>
-      <label>Customer Name<input id="c_name" required /></label>
+      <label>Customer code<input id="c_code" required /></label>
+      <label>Customer name<input id="c_name" required /></label>
       <div class="two-col">
-        <label>Client Partner<input id="c_partner" /></label>
-        <label>Delivery Director<input id="c_director" /></label>
+        <label>Client partner<input id="c_partner" /></label>
+        <label>Delivery director<input id="c_director" /></label>
       </div>
       <label>Industry<input id="c_industry" /></label>
       <div class="two-col">
@@ -374,8 +617,8 @@
     <h2><span class="card-icon icon-pink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></span><span id="locationModalTitle">New Location</span></h2>
     <form id="locationForm">
       <input type="hidden" id="loc_id" />
-      <label>Location Name<input id="loc_name" required /></label>
-      <label>Location Details<textarea id="loc_details" rows="2"></textarea></label>
+      <label>Location name<input id="loc_name" required /></label>
+      <label>Location details<textarea id="loc_details" rows="2"></textarea></label>
       <div class="modal-actions">
         <button type="button" id="cancelLocationBtn" class="ghost-btn">Cancel</button>
         <button type="submit" class="primary-btn">Save</button>
@@ -390,8 +633,8 @@
     <h2><span class="card-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg></span><span id="billingModelModalTitle">New Billing Model</span></h2>
     <form id="billingModelForm">
       <input type="hidden" id="bm_id" />
-      <label>Billing Model Name<input id="bm_name" required /></label>
-      <label>Billing Model Description<textarea id="bm_details" rows="2"></textarea></label>
+      <label>Billing model name<input id="bm_name" required /></label>
+      <label>Billing model description<textarea id="bm_details" rows="2"></textarea></label>
       <div class="modal-actions">
         <button type="button" id="cancelBillingModelBtn" class="ghost-btn">Cancel</button>
         <button type="submit" class="primary-btn">Save</button>
@@ -406,8 +649,8 @@
     <h2><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg></span><span id="operatingModelModalTitle">New Operating Model</span></h2>
     <form id="operatingModelForm">
       <input type="hidden" id="om_id" />
-      <label>Operating Model Name<input id="om_name" required /></label>
-      <label>Operating Model Details<textarea id="om_details" rows="2"></textarea></label>
+      <label>Operating model name<input id="om_name" required /></label>
+      <label>Operating model details<textarea id="om_details" rows="2"></textarea></label>
       <div class="modal-actions">
         <button type="button" id="cancelOperatingModelBtn" class="ghost-btn">Cancel</button>
         <button type="submit" class="primary-btn">Save</button>
@@ -422,8 +665,8 @@
     <h2><span class="card-icon icon-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span><span id="statusModalTitle">New Status</span></h2>
     <form id="statusForm">
       <input type="hidden" id="st_id" />
-      <label>Status Name<input id="st_name" required /></label>
-      <label>SOW Status Details<textarea id="st_details" rows="2"></textarea></label>
+      <label>Status name<input id="st_name" required /></label>
+      <label>SOW status details<textarea id="st_details" rows="2"></textarea></label>
       <div class="modal-actions">
         <button type="button" id="cancelStatusBtn" class="ghost-btn">Cancel</button>
         <button type="submit" class="primary-btn">Save</button>
@@ -432,6 +675,89 @@
   </div>
 </div>
 
-<script src="app.js?v=7"></script>
+<!-- Employee Type form modal -->
+<div id="employeeTypeModal" class="modal" hidden>
+  <div class="modal-box">
+    <h2><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span><span id="employeeTypeModalTitle">New Employee Type</span></h2>
+    <form id="employeeTypeForm">
+      <input type="hidden" id="et_id" />
+      <label>Employee type name<input id="et_name" required /></label>
+      <label>Employee type details<textarea id="et_details" rows="2"></textarea></label>
+      <div class="modal-actions">
+        <button type="button" id="cancelEmployeeTypeBtn" class="ghost-btn">Cancel</button>
+        <button type="submit" class="primary-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Band form modal -->
+<div id="bandModal" class="modal" hidden>
+  <div class="modal-box">
+    <h2><span class="card-icon icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg></span><span id="bandModalTitle">New Band</span></h2>
+    <form id="bandForm">
+      <input type="hidden" id="bd_id" />
+      <label>Band name<input id="bd_name" required /></label>
+      <label>Band details<textarea id="bd_details" rows="2"></textarea></label>
+      <div class="modal-actions">
+        <button type="button" id="cancelBandBtn" class="ghost-btn">Cancel</button>
+        <button type="submit" class="primary-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Resource form modal -->
+<div id="resourceModal" class="modal" hidden>
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg></span><span id="resourceModalTitle">New Resource</span></h2>
+      <div class="modal-header-actions">
+        <button type="button" id="cancelResourceBtnTop" class="ghost-btn">Cancel</button>
+        <button type="submit" form="resourceForm" class="primary-btn">Save</button>
+      </div>
+    </div>
+    <form id="resourceForm">
+      <input type="hidden" id="r_id" />
+      <div class="two-col">
+        <label>Account name<input id="r_account" /></label>
+        <label>SoW name<input id="r_project" /></label>
+      </div>
+      <div class="two-col">
+        <label>WBS ID<input id="r_wbs" /></label>
+        <label>Employee code<input id="r_empcode" /></label>
+      </div>
+      <label>Employee name<input id="r_empname" required /></label>
+      <div class="three-col">
+        <label>Location
+          <select id="r_location">
+            <option value="">Select location&hellip;</option>
+          </select>
+        </label>
+        <label>Employee type
+          <select id="r_emptype">
+            <option value="">Select employee type&hellip;</option>
+          </select>
+        </label>
+        <label>Band
+          <select id="r_band">
+            <option value="">Select band&hellip;</option>
+          </select>
+        </label>
+      </div>
+      <div class="two-col">
+        <label>Allocation start date<input id="r_start" type="date" /></label>
+        <label>Allocation end date<input id="r_end" type="date" /></label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="cancelResourceBtn" class="ghost-btn">Cancel</button>
+        <button type="submit" class="primary-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="vendor/chart.umd.min.js"></script>
+<script src="app.js?v=36"></script>
 </body>
 </html>

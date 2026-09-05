@@ -88,6 +88,38 @@ class NameIn(BaseModel):
     details: Optional[str] = None
 
 
+class ResourceIn(BaseModel):
+    account_name: Optional[str] = None
+    project_name: Optional[str] = None
+    wbs_id: Optional[str] = None
+    employee_code: Optional[str] = None
+    employee_name: str
+    location_id: Optional[int] = None
+    employee_type_id: Optional[int] = None
+    band_id: Optional[int] = None
+    allocation_start_date: Optional[str] = None
+    allocation_end_date: Optional[str] = None
+
+
+class RevenueCellIn(BaseModel):
+    sow_id: int
+    fiscal_year: int
+    fiscal_month: int          # 1-12, fiscal position: 1=Apr ... 9=Dec, 10=Jan, 11=Feb, 12=Mar
+    projection: float = 0
+    invoiced: float = 0
+
+
+class RevenueSowIn(BaseModel):
+    sow_id: int
+    fiscal_year: int
+
+
+# Revenue Management's fiscal year runs Apr-Mar. fiscal_month is a 1-12
+# position within that year (not the calendar month), so this list is
+# indexed the same way: FISCAL_MONTH_LABELS[0] is fiscal_month 1 (Apr).
+FISCAL_MONTH_LABELS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
+
+
 # ---------- helpers ----------
 
 def _row_to_dict(row):
@@ -222,6 +254,45 @@ def _validate_sow_refs(conn, sow: SowIn):
         "SELECT 1 FROM operating_models WHERE id = ?", (sow.operating_model_id,)
     ).fetchone():
         raise HTTPException(status_code=400, detail="Selected operating model does not exist")
+
+
+def _get_resource_or_404(conn, resource_id: int) -> dict:
+    row = conn.execute("SELECT * FROM resources WHERE id = ?", (resource_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    return _row_to_dict(row)
+
+
+def _load_resource_lookup_maps(conn):
+    """Return {id: name} maps for the three dropdowns on the Resource
+    Management form, so a list of resources can be annotated with
+    human-readable names without one query per foreign key per row."""
+    locations = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM locations")}
+    employee_types = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM employee_types")}
+    bands = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM bands")}
+    return locations, employee_types, bands
+
+
+def _attach_resource_names(resource: dict, locations: Dict[int, str], employee_types: Dict[int, str], bands: Dict[int, str]) -> dict:
+    resource["location_name"] = locations.get(resource.get("location_id"))
+    resource["employee_type_name"] = employee_types.get(resource.get("employee_type_id"))
+    resource["band_name"] = bands.get(resource.get("band_id"))
+    return resource
+
+
+def _validate_resource_refs(conn, r: ResourceIn):
+    if r.location_id is not None and not conn.execute(
+        "SELECT 1 FROM locations WHERE id = ?", (r.location_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected location does not exist")
+    if r.employee_type_id is not None and not conn.execute(
+        "SELECT 1 FROM employee_types WHERE id = ?", (r.employee_type_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected employee type does not exist")
+    if r.band_id is not None and not conn.execute(
+        "SELECT 1 FROM bands WHERE id = ?", (r.band_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected band does not exist")
 
 
 # ---------- SOW endpoints ----------
@@ -493,6 +564,339 @@ def delete_customer(customer_id: int):
     return None
 
 
+# ---------- Resource endpoints (Management > Resource Management) ----------
+
+@app.get("/api/resources")
+def list_resources(q: Optional[str] = None):
+    with db.get_db() as conn:
+        rows = conn.execute("SELECT * FROM resources ORDER BY employee_name COLLATE NOCASE").fetchall()
+        resources = [_row_to_dict(r) for r in rows]
+        locations, employee_types, bands = _load_resource_lookup_maps(conn)
+        resources = [_attach_resource_names(r, locations, employee_types, bands) for r in resources]
+        if q:
+            ql = q.lower()
+            resources = [
+                r for r in resources
+                if ql in (r["employee_name"] or "").lower()
+                or ql in (r["employee_code"] or "").lower()
+                or ql in (r["account_name"] or "").lower()
+                or ql in (r["project_name"] or "").lower()
+            ]
+        return resources
+
+
+@app.get("/api/resources/export")
+def export_resources(q: Optional[str] = None):
+    """Export the Resource Management list to an .xlsx workbook, honoring
+    the same search filter as GET /api/resources. Registered before
+    /api/resources/{resource_id} for the same route-ordering reason as the
+    SOW/Customer export endpoints above."""
+    resources = list_resources(q=q)
+
+    headers = ["Account Name", "SoW Name", "WBS ID", "Employee Code", "Employee Name",
+               "Location", "Employee Type", "Band", "Allocation Start Date", "Allocation End Date"]
+    rows = [
+        [
+            r.get("account_name") or "",
+            r.get("project_name") or "",
+            r.get("wbs_id") or "",
+            r.get("employee_code") or "",
+            r.get("employee_name") or "",
+            r.get("location_name") or "",
+            r.get("employee_type_name") or "",
+            r.get("band_name") or "",
+            _parse_iso_date(r.get("allocation_start_date")),
+            _parse_iso_date(r.get("allocation_end_date")),
+        ]
+        for r in resources
+    ]
+    date_cols = (9, 10)
+    widths = [22, 22, 14, 16, 22, 16, 16, 12, 20, 20]
+    wb = _build_workbook("Resources", headers, rows, date_cols=date_cols, widths=widths)
+    return _xlsx_response(wb, f"trakerz_resources_{date.today().isoformat()}.xlsx")
+
+
+@app.post("/api/resources", status_code=201)
+def create_resource(r: ResourceIn):
+    with db.get_db() as conn:
+        _validate_resource_refs(conn, r)
+        cur = conn.execute(
+            """INSERT INTO resources (account_name, project_name, wbs_id, employee_code, employee_name,
+               location_id, employee_type_id, band_id, allocation_start_date, allocation_end_date, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (r.account_name, r.project_name, r.wbs_id, r.employee_code, r.employee_name,
+             r.location_id, r.employee_type_id, r.band_id, r.allocation_start_date, r.allocation_end_date),
+        )
+        new_id = cur.lastrowid
+        row = _get_resource_or_404(conn, new_id)
+        locations, employee_types, bands = _load_resource_lookup_maps(conn)
+        return _attach_resource_names(row, locations, employee_types, bands)
+
+
+@app.get("/api/resources/{resource_id}")
+def get_resource(resource_id: int):
+    with db.get_db() as conn:
+        row = _get_resource_or_404(conn, resource_id)
+        locations, employee_types, bands = _load_resource_lookup_maps(conn)
+        return _attach_resource_names(row, locations, employee_types, bands)
+
+
+@app.put("/api/resources/{resource_id}")
+def update_resource(resource_id: int, r: ResourceIn):
+    with db.get_db() as conn:
+        _get_resource_or_404(conn, resource_id)
+        _validate_resource_refs(conn, r)
+        conn.execute(
+            """UPDATE resources SET account_name=?, project_name=?, wbs_id=?, employee_code=?, employee_name=?,
+               location_id=?, employee_type_id=?, band_id=?, allocation_start_date=?, allocation_end_date=?,
+               updated_at=datetime('now') WHERE id=?""",
+            (r.account_name, r.project_name, r.wbs_id, r.employee_code, r.employee_name,
+             r.location_id, r.employee_type_id, r.band_id, r.allocation_start_date, r.allocation_end_date,
+             resource_id),
+        )
+        row = _get_resource_or_404(conn, resource_id)
+        locations, employee_types, bands = _load_resource_lookup_maps(conn)
+        return _attach_resource_names(row, locations, employee_types, bands)
+
+
+@app.delete("/api/resources/{resource_id}", status_code=204)
+def delete_resource(resource_id: int):
+    with db.get_db() as conn:
+        _get_resource_or_404(conn, resource_id)
+        conn.execute("DELETE FROM resources WHERE id = ?", (resource_id,))
+    return None
+
+
+# ---------- Revenue Management (Management > Revenue Management) ----------
+# Two views over the same underlying data. "SoW Level" is where revenue is
+# actually entered - add/edit/delete a row per SOW, exactly like SOWs and
+# Resources. "Account Level" is a read-only rollup of those same SOW numbers
+# grouped by customer; it has no storage of its own, it's a join+sum below.
+
+def _current_fiscal_year() -> int:
+    """The fiscal year (Apr-start) that today falls in, e.g. Feb 2027 is
+    still fiscal_year 2026 (the FY that started Apr 2026)."""
+    today = date.today()
+    return today.year if today.month >= 4 else today.year - 1
+
+
+def _fiscal_months(entries: Dict[int, dict]) -> List[dict]:
+    months = []
+    for fm in range(1, 13):
+        cell = entries.get(fm, {"projection": 0, "invoiced": 0})
+        months.append({
+            "fiscal_month": fm,
+            "month_label": FISCAL_MONTH_LABELS[fm - 1],
+            "projection": cell["projection"],
+            "invoiced": cell["invoiced"],
+        })
+    return months
+
+
+@app.get("/api/revenue/sows")
+def list_revenue_sows(fiscal_year: Optional[int] = None):
+    """SoW Level grid: one row per SOW explicitly added to revenue tracking
+    for this fiscal year (see POST /api/revenue/sows), each with all 12
+    fiscal months (Apr-Mar) - months with no entry yet default to 0 so the
+    grid is ready to type into immediately after a row is added."""
+    fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
+    with db.get_db() as conn:
+        tracked = conn.execute(
+            """SELECT s.id AS sow_id, s.title AS sow_title, s.customer_id, c.customer_name,
+                      bm.name AS billing_model_name
+               FROM revenue_sow_accounts ra
+               JOIN sows s ON s.id = ra.sow_id
+               LEFT JOIN customers c ON c.id = s.customer_id
+               LEFT JOIN billing_models bm ON bm.id = s.billing_model_id
+               WHERE ra.fiscal_year = ?
+               ORDER BY c.customer_name COLLATE NOCASE, s.title COLLATE NOCASE""",
+            (fy,),
+        ).fetchall()
+        entries = conn.execute(
+            "SELECT sow_id, fiscal_month, projection, invoiced FROM revenue_entries WHERE fiscal_year = ?",
+            (fy,),
+        ).fetchall()
+
+        by_sow: Dict[int, Dict[int, dict]] = {}
+        for e in entries:
+            by_sow.setdefault(e["sow_id"], {})[e["fiscal_month"]] = {
+                "projection": e["projection"], "invoiced": e["invoiced"],
+            }
+
+        rows = [
+            {
+                "sow_id": s["sow_id"],
+                "sow_title": s["sow_title"],
+                "customer_id": s["customer_id"],
+                "customer_name": s["customer_name"] or "Unassigned",
+                "billing_model_name": s["billing_model_name"],
+                "months": _fiscal_months(by_sow.get(s["sow_id"], {})),
+            }
+            for s in tracked
+        ]
+        return {"fiscal_year": fy, "rows": rows}
+
+
+@app.get("/api/revenue/summary")
+def revenue_summary(fiscal_year: Optional[int] = None):
+    """Account Level summary: read-only rollup of every tracked SOW's
+    monthly numbers, grouped by customer. Nothing to add/edit/delete here -
+    it's entirely derived from the SoW Level data above."""
+    fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
+    sow_data = list_revenue_sows(fiscal_year=fy)
+
+    by_customer: Dict[int, dict] = {}
+    order: List[int] = []
+    for row in sow_data["rows"]:
+        cid = row["customer_id"] or 0
+        if cid not in by_customer:
+            by_customer[cid] = {
+                "customer_id": row["customer_id"],
+                "customer_name": row["customer_name"],
+                "months": [
+                    {"fiscal_month": fm, "month_label": FISCAL_MONTH_LABELS[fm - 1], "projection": 0, "invoiced": 0}
+                    for fm in range(1, 13)
+                ],
+            }
+            order.append(cid)
+        for i, m in enumerate(row["months"]):
+            by_customer[cid]["months"][i]["projection"] += m["projection"]
+            by_customer[cid]["months"][i]["invoiced"] += m["invoiced"]
+
+    accounts = sorted((by_customer[cid] for cid in order), key=lambda a: (a["customer_name"] or "").lower())
+    return {"fiscal_year": fy, "accounts": accounts}
+
+
+@app.post("/api/revenue/sows")
+def add_revenue_sow(payload: RevenueSowIn):
+    """Add a SOW to the SoW Level Revenue Management grid for a fiscal year
+    (an explicit "Add Entry" action, mirroring how SOWs/Resources are added)."""
+    with db.get_db() as conn:
+        sow = conn.execute(
+            """SELECT s.id, s.title, s.customer_id, c.customer_name, bm.name AS billing_model_name
+               FROM sows s
+               LEFT JOIN customers c ON c.id = s.customer_id
+               LEFT JOIN billing_models bm ON bm.id = s.billing_model_id
+               WHERE s.id = ?""",
+            (payload.sow_id,),
+        ).fetchone()
+        if not sow:
+            raise HTTPException(status_code=400, detail="Selected SOW does not exist")
+        conn.execute(
+            "INSERT OR IGNORE INTO revenue_sow_accounts (sow_id, fiscal_year) VALUES (?, ?)",
+            (payload.sow_id, payload.fiscal_year),
+        )
+        entries = {
+            e["fiscal_month"]: e
+            for e in conn.execute(
+                "SELECT fiscal_month, projection, invoiced FROM revenue_entries WHERE sow_id=? AND fiscal_year=?",
+                (payload.sow_id, payload.fiscal_year),
+            ).fetchall()
+        }
+        return {
+            "sow_id": sow["id"],
+            "sow_title": sow["title"],
+            "customer_id": sow["customer_id"],
+            "customer_name": sow["customer_name"] or "Unassigned",
+            "billing_model_name": sow["billing_model_name"],
+            "months": _fiscal_months(entries),
+        }
+
+
+@app.delete("/api/revenue/sows/{sow_id}/{fiscal_year}", status_code=204)
+def delete_revenue_sow(sow_id: int, fiscal_year: int):
+    """Remove a SOW from the Revenue Management grid for a fiscal year,
+    deleting all of its month entries for that year along with it."""
+    with db.get_db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM revenue_sow_accounts WHERE sow_id=? AND fiscal_year=?",
+            (sow_id, fiscal_year),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Revenue row not found")
+        conn.execute("DELETE FROM revenue_entries WHERE sow_id=? AND fiscal_year=?", (sow_id, fiscal_year))
+        conn.execute("DELETE FROM revenue_sow_accounts WHERE sow_id=? AND fiscal_year=?", (sow_id, fiscal_year))
+    return None
+
+
+@app.get("/api/revenue/sows/export")
+def export_revenue_sows(fiscal_year: Optional[int] = None):
+    fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
+    data = list_revenue_sows(fiscal_year=fy)
+
+    headers = ["Account Name", "SOW Title", "Billing Model"]
+    for label in FISCAL_MONTH_LABELS:
+        headers.append(f"{label} projections")
+        headers.append(f"{label} invoiced")
+
+    rows = []
+    for r in data["rows"]:
+        row = [r["customer_name"], r["sow_title"], r["billing_model_name"] or ""]
+        for m in r["months"]:
+            row.append(m["projection"])
+            row.append(m["invoiced"])
+        rows.append(row)
+
+    currency_cols = tuple(range(4, len(headers) + 1))
+    widths = [24, 28, 18] + [14] * (len(headers) - 3)
+    wb = _build_workbook(f"Revenue SoW Level FY{fy}", headers, rows, currency_cols=currency_cols, widths=widths)
+    return _xlsx_response(wb, f"trakerz_revenue_sow_level_fy{fy}_{date.today().isoformat()}.xlsx")
+
+
+@app.get("/api/revenue/summary/export")
+def export_revenue_summary(fiscal_year: Optional[int] = None):
+    fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
+    data = revenue_summary(fiscal_year=fy)
+
+    headers = ["Account Name"]
+    for label in FISCAL_MONTH_LABELS:
+        headers.append(f"{label} projections")
+        headers.append(f"{label} invoiced")
+
+    rows = []
+    for acc in data["accounts"]:
+        row = [acc["customer_name"]]
+        for m in acc["months"]:
+            row.append(m["projection"])
+            row.append(m["invoiced"])
+        rows.append(row)
+
+    currency_cols = tuple(range(2, len(headers) + 1))
+    widths = [24] + [14] * (len(headers) - 1)
+    wb = _build_workbook(f"Revenue Account Summary FY{fy}", headers, rows, currency_cols=currency_cols, widths=widths)
+    return _xlsx_response(wb, f"trakerz_revenue_account_summary_fy{fy}_{date.today().isoformat()}.xlsx")
+
+
+@app.put("/api/revenue/sows")
+def upsert_revenue_cell(cell: RevenueCellIn):
+    """Upsert one (SOW, fiscal month) cell - the inline grid calls this once
+    per cell on blur rather than saving the whole grid at once."""
+    if not 1 <= cell.fiscal_month <= 12:
+        raise HTTPException(status_code=400, detail="fiscal_month must be between 1 and 12")
+    with db.get_db() as conn:
+        if not conn.execute("SELECT 1 FROM sows WHERE id = ?", (cell.sow_id,)).fetchone():
+            raise HTTPException(status_code=400, detail="Selected SOW does not exist")
+        # Defensive: keep the row tracked even if this cell was saved out of
+        # band (e.g. a stale grid) rather than through the Add Entry flow.
+        conn.execute(
+            "INSERT OR IGNORE INTO revenue_sow_accounts (sow_id, fiscal_year) VALUES (?, ?)",
+            (cell.sow_id, cell.fiscal_year),
+        )
+        conn.execute(
+            """INSERT INTO revenue_entries (sow_id, fiscal_year, fiscal_month, projection, invoiced, updated_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(sow_id, fiscal_year, fiscal_month)
+               DO UPDATE SET projection = excluded.projection, invoiced = excluded.invoiced, updated_at = datetime('now')""",
+            (cell.sow_id, cell.fiscal_year, cell.fiscal_month, cell.projection, cell.invoiced),
+        )
+        row = conn.execute(
+            """SELECT sow_id, fiscal_year, fiscal_month, projection, invoiced FROM revenue_entries
+               WHERE sow_id=? AND fiscal_year=? AND fiscal_month=?""",
+            (cell.sow_id, cell.fiscal_year, cell.fiscal_month),
+        ).fetchone()
+        return _row_to_dict(row)
+
+
 # ---------- Configuration lookups: Locations, Billing Models, Operating Models ----------
 # All are simple named master lists, so they share one CRUD implementation.
 
@@ -550,6 +954,8 @@ _register_lookup_crud("locations", "locations", "Location")
 _register_lookup_crud("billing-models", "billing_models", "Billing model")
 _register_lookup_crud("operating-models", "operating_models", "Operating model")
 _register_lookup_crud("statuses", "statuses", "Status")
+_register_lookup_crud("employee-types", "employee_types", "Employee type")
+_register_lookup_crud("bands", "bands", "Band")
 
 
 # ---------- File uploads (SOW documents) ----------

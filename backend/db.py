@@ -55,6 +55,22 @@ CREATE TABLE IF NOT EXISTS statuses (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS employee_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    details TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS bands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    details TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS sows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_id INTEGER REFERENCES customers(id),
@@ -88,9 +104,59 @@ CREATE TABLE IF NOT EXISTS milestones (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS resources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_name TEXT,
+    project_name TEXT,
+    wbs_id TEXT,
+    employee_code TEXT,
+    employee_name TEXT NOT NULL,
+    location_id INTEGER REFERENCES locations(id),
+    employee_type_id INTEGER REFERENCES employee_types(id),
+    band_id INTEGER REFERENCES bands(id),
+    allocation_start_date TEXT,
+    allocation_end_date TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Revenue Management (Management > Revenue Management) tracks monthly
+-- projections/invoiced at the SOW level; the Account-level summary is a
+-- read-only rollup computed by joining these rows up through sows.customer_id
+-- (see /api/revenue/summary), not a separately-stored table. fiscal_year is
+-- the calendar year the fiscal year STARTS in (e.g. fiscal_year=2026 covers
+-- Apr 2026 - Mar 2027). fiscal_month is the 1-12 position within that fiscal
+-- year, not the calendar month: 1=Apr, 2=May, ... 9=Dec, 10=Jan, 11=Feb,
+-- 12=Mar. One row per SOW per fiscal month.
+CREATE TABLE IF NOT EXISTS revenue_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sow_id INTEGER NOT NULL REFERENCES sows(id) ON DELETE CASCADE,
+    fiscal_year INTEGER NOT NULL,
+    fiscal_month INTEGER NOT NULL,
+    projection REAL NOT NULL DEFAULT 0,
+    invoiced REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(sow_id, fiscal_year, fiscal_month)
+);
+
+-- Which (SOW, fiscal year) rows are explicitly tracked on the SOW-level
+-- Revenue Management grid - like SOWs/Resources, rows must be added on
+-- purpose and can be removed, rather than every SOW auto-appearing.
+CREATE TABLE IF NOT EXISTS revenue_sow_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sow_id INTEGER NOT NULL REFERENCES sows(id) ON DELETE CASCADE,
+    fiscal_year INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(sow_id, fiscal_year)
+);
+
 CREATE INDEX IF NOT EXISTS idx_milestones_sow_id ON milestones(sow_id);
 CREATE INDEX IF NOT EXISTS idx_customers_code ON customers(customer_code);
 CREATE INDEX IF NOT EXISTS idx_sows_customer_id ON sows(customer_id);
+CREATE INDEX IF NOT EXISTS idx_resources_employee_code ON resources(employee_code);
+CREATE INDEX IF NOT EXISTS idx_revenue_entries_sow_fy ON revenue_entries(sow_id, fiscal_year);
+CREATE INDEX IF NOT EXISTS idx_revenue_sow_accounts_fy ON revenue_sow_accounts(fiscal_year);
 """
 
 
@@ -170,16 +236,27 @@ def _migrate(conn):
         if _table_exists(conn, table) and not _column_exists(conn, table, "details"):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN details TEXT")
 
+    if _table_exists(conn, "revenue_entries") and _column_exists(conn, "revenue_entries", "customer_id"):
+        # Revenue Management moved from tracking monthly numbers directly on
+        # an account to tracking them per SOW (with the account-level view
+        # now a read-only rollup computed from SOWs). A customer-keyed month
+        # can't be automatically attributed to one of that customer's SOWs,
+        # so - per explicit instruction - old account-level entries are
+        # dropped rather than migrated.
+        conn.execute("DROP TABLE IF EXISTS revenue_entries")
+        conn.execute("DROP TABLE IF EXISTS revenue_accounts")
+
 
 DEFAULT_STATUSES = ["draft", "active", "completed", "expired", "cancelled"]
+DEFAULT_EMPLOYEE_TYPES = ["FTE", "Contractor"]
 
 
 def _seed_defaults(conn):
-    """Populate the statuses master list with the values the app has always
-    used, but only the first time (an empty table) so a user who deletes one
-    on purpose doesn't have it silently reappear on next launch. These exact
-    lowercase names matter: badge/tag CSS classes and the "active" alert
-    check key off of them."""
+    """Populate a couple of master lists with sensible starting values, but
+    only the first time (an empty table) so a user who deletes one on
+    purpose doesn't have it silently reappear on next launch. The statuses
+    names matter beyond display: badge/tag CSS classes and the "active"
+    alert check key off of them (lowercase, exact match)."""
     count = conn.execute("SELECT COUNT(*) FROM statuses").fetchone()[0]
     if count == 0:
         conn.executemany(
@@ -187,9 +264,27 @@ def _seed_defaults(conn):
             [(s,) for s in DEFAULT_STATUSES],
         )
 
+    et_count = conn.execute("SELECT COUNT(*) FROM employee_types").fetchone()[0]
+    if et_count == 0:
+        conn.executemany(
+            "INSERT INTO employee_types (name, updated_at) VALUES (?, datetime('now'))",
+            [(t,) for t in DEFAULT_EMPLOYEE_TYPES],
+        )
+
+
+def _backfill_revenue_accounts(conn):
+    """Make sure every (SOW, fiscal year) pair that already has month entries
+    also has a revenue_sow_accounts row, so data entered before the
+    add/delete-row feature existed doesn't silently disappear from the grid."""
+    conn.execute(
+        """INSERT OR IGNORE INTO revenue_sow_accounts (sow_id, fiscal_year)
+           SELECT DISTINCT sow_id, fiscal_year FROM revenue_entries"""
+    )
+
 
 def init_db():
     with get_db() as conn:
         _migrate(conn)
         conn.executescript(SCHEMA)
         _seed_defaults(conn)
+        _backfill_revenue_accounts(conn)
