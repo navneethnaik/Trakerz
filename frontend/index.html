@@ -14,7 +14,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=37" />
+<link rel="stylesheet" href="style.css?v=40" />
 </head>
 <body>
 <header class="topbar">
@@ -423,9 +423,6 @@
       <select id="revenueBillingModelFilter">
         <option value="">All billing models</option>
       </select>
-    </div>
-
-    <div class="toolbar">
       <div style="flex:1"></div>
       <button id="newRevenueEntryBtn" type="button" class="primary-btn">
         <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -440,20 +437,22 @@
       <table class="sow-table revenue-table">
         <thead>
           <tr>
-            <th rowspan="2">Customer Name</th>
-            <th rowspan="2">SOW Title</th>
-            <th rowspan="2">Billing Model</th>
-            <th class="rev-band-a" colspan="2">Apr</th><th class="rev-band-b" colspan="2">May</th><th class="rev-band-a" colspan="2">Jun</th>
-            <th class="rev-band-b" colspan="2">Jul</th><th class="rev-band-a" colspan="2">Aug</th><th class="rev-band-b" colspan="2">Sep</th>
-            <th class="rev-band-a" colspan="2">Oct</th><th class="rev-band-b" colspan="2">Nov</th><th class="rev-band-a" colspan="2">Dec</th>
-            <th class="rev-band-b" colspan="2">Jan</th><th class="rev-band-a" colspan="2">Feb</th><th class="rev-band-b" colspan="2">Mar</th>
-            <th rowspan="2">Actions</th>
-          </tr>
-          <tr>
-            <th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th><th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th><th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th>
-            <th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th><th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th><th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th>
-            <th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th><th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th><th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th>
-            <th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th><th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th><th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th>
+            <th>Customer Name</th>
+            <th>SOW Title</th>
+            <th>Billing Model</th>
+            <th class="rev-band-a">Apr Projections</th><th class="rev-band-a">Apr Invoiced</th>
+            <th class="rev-band-b">May Projections</th><th class="rev-band-b">May Invoiced</th>
+            <th class="rev-band-a">Jun Projections</th><th class="rev-band-a">Jun Invoiced</th>
+            <th class="rev-band-b">Jul Projections</th><th class="rev-band-b">Jul Invoiced</th>
+            <th class="rev-band-a">Aug Projections</th><th class="rev-band-a">Aug Invoiced</th>
+            <th class="rev-band-b">Sep Projections</th><th class="rev-band-b">Sep Invoiced</th>
+            <th class="rev-band-a">Oct Projections</th><th class="rev-band-a">Oct Invoiced</th>
+            <th class="rev-band-b">Nov Projections</th><th class="rev-band-b">Nov Invoiced</th>
+            <th class="rev-band-a">Dec Projections</th><th class="rev-band-a">Dec Invoiced</th>
+            <th class="rev-band-b">Jan Projections</th><th class="rev-band-b">Jan Invoiced</th>
+            <th class="rev-band-a">Feb Projections</th><th class="rev-band-a">Feb Invoiced</th>
+            <th class="rev-band-b">Mar Projections</th><th class="rev-band-b">Mar Invoiced</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody id="revenueSowsTableBody"></tbody>
@@ -758,6 +757,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=36"></script>
+<script src="app.js?v=39"></script>
 </body>
 </html>

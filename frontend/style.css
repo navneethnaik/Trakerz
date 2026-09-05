@@ -86,6 +86,14 @@ main { padding: 14px 20px; max-width: none; margin: 0; flex: 1 0 auto; width: 10
 .tab-panel { display: none; }
 .tab-panel.active { display: flex; flex-direction: column; flex: 1 0 auto; }
 
+/* #backToList is a direct child of the (flex, column) #tab-detail panel
+   above, so without this it stretches to the panel's full width (the
+   column flex container's default align-items: stretch) instead of
+   hugging its own text like every other ghost-btn. align-self overrides
+   that per-item; flex-end also moves it to the right side of its row,
+   mirroring where the Edit SOW button sits on the header row below it. */
+#backToList { align-self: flex-end; }
+
 /* ---------- SOWs / Staffing / Revenue Management pages: frozen stat tiles,
    toolbar and table header (scroll-locked) ----------
    Applied only while one of these tabs is open (toggled in app.js's
@@ -113,13 +121,10 @@ body.scroll-locked #tab-revenue .table-scroll {
 #tab-resources .sow-table,
 #tab-revenue .sow-table { overflow: visible; }
 
-/* The Revenue Management table has two stacked header rows (month names,
-   then a Projections/Invoiced sub-row per month) instead of one, so each row
-   needs its own sticky offset rather than both sticking to top:0 - otherwise
-   the second row would sit on top of the first instead of below it. The
-   24px offset matches the first row's rendered height (measured). */
-#tab-revenue .revenue-table thead tr:first-child th { position: sticky; top: 0; z-index: 3; }
-#tab-revenue .revenue-table thead tr:last-child th { position: sticky; top: 24px; z-index: 2; }
+/* The Revenue Management table has a single header row (each month's name
+   folded into its Projections/Invoiced column labels), so it just sticks to
+   the top of the scroll container. */
+#tab-revenue .revenue-table thead tr th { position: sticky; top: 0; z-index: 3; }
 
 .alert-banner {
   background: linear-gradient(90deg, #fff7ed, #fef2f2);
@@ -424,6 +429,27 @@ html[data-theme="dark"] .revenue-table tbody td.rev-band-b { background: transpa
 .revenue-table tbody tr.revenue-editing-row td.rev-band-b { background: #fffbea; }
 html[data-theme="dark"] .revenue-table tbody tr.revenue-editing-row td.rev-band-a,
 html[data-theme="dark"] .revenue-table tbody tr.revenue-editing-row td.rev-band-b { background: #33301a; }
+/* Bottom "Total" row - sums Projections/Invoiced per month across the
+   currently filtered rows (see buildRevenueTotalsRow() in app.js). Its own
+   solid background + top border wins over the alternating band colors,
+   same specificity trick as the editing-row override above, so the totals
+   read as a clear footer rather than blending into the last data row. */
+.revenue-table tbody tr.revenue-total-row td {
+  font-weight: 700;
+  border-top: 2px solid var(--border);
+  background: var(--bg);
+}
+.revenue-table tbody tr.revenue-total-row td.rev-band-a,
+.revenue-table tbody tr.revenue-total-row td.rev-band-b { background: var(--bg); }
+html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td.rev-band-a,
+html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td.rev-band-b { background: #1a2333; }
+html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td { background: #1a2333; }
+/* The sticky first column normally gets its own background (var(--surface))
+   so it stays opaque while scrolling horizontally - override it here too,
+   so the "Total" label cell matches the rest of the totals row instead of
+   looking like a leftover data cell. */
+.revenue-table tbody tr.revenue-total-row td:first-child { background: var(--bg); }
+html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:first-child { background: #1a2333; }
 .revenue-section-title {
   display: flex; align-items: center; gap: 10px; margin: 0 0 4px; font-size: 15px; font-weight: 700; color: var(--text);
 }
@@ -493,6 +519,11 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-editing-row td.rev-band-
 .modal-box form input, .modal-box form select, .modal-box form textarea {
   width: 100%; margin-top: 4px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
   font-size: 14px; font-family: inherit; color: var(--text); font-weight: 400;
+  /* Explicit background so these fields follow the theme - without it they
+     fall back to the browser's default white input background, which in
+     dark mode paired with var(--text)'s light color makes typed text and
+     placeholders unreadable (light-on-white). */
+  background: var(--surface);
 }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -583,6 +614,11 @@ html[data-theme="dark"] {
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, .35);
   --shadow-md: 0 6px 20px rgba(0, 0, 0, .45);
   --table-border: #3a4459;
+  /* Lets the browser render native form-control chrome (date-picker icon,
+     select dropdown arrow, etc) in a light-on-dark style instead of its
+     default dark-on-transparent, which would otherwise go invisible now
+     that these fields have a dark background applied above. */
+  color-scheme: dark;
 }
 html[data-theme="dark"] #tab-home {
   --border: #2c3648;

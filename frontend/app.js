@@ -106,7 +106,17 @@ document.addEventListener("click", (e) => {
   });
 });
 
+// Remembers the last tab the user had open so a browser refresh lands back
+// where they were instead of always resetting to the Dashboard (see the
+// restore call in the init section at the bottom of this file).
+function rememberLastTab(name) {
+  try {
+    localStorage.setItem("trakerz_last_tab", name);
+  } catch (e) {}
+}
+
 function showTab(name) {
+  rememberLastTab(name);
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
   const topLevelBtn = document.querySelector(`.tab-btn[data-tab="${name}"]`);
   if (topLevelBtn) {
@@ -658,6 +668,10 @@ async function openDetail(id) {
 
 async function renderDetail() {
   const s = await fetch(`${API}/sows/${currentSowId}`).then((r) => r.json());
+  // Milestones/Invoices only make sense for Fixed Price SOWs (matches the
+  // same "Fixed Price" substring check used to show/hide the inline
+  // milestones capture in the SOW create/edit modal - see isFixedPriceSelected()).
+  const isFixedPrice = (s.billing_model_name || "").toLowerCase().includes("fixed price");
   const container = document.getElementById("detailContent");
   container.innerHTML = `
     <div class="detail-header">
@@ -683,17 +697,21 @@ async function renderDetail() {
     ${s.doc_link ? `<p><strong>Document:</strong> ${renderDocLink(s.doc_link)}</p>` : ""}
     ${s.notes ? `<p><strong>Additional information:</strong> ${escapeHtml(s.notes)}</p>` : ""}
 
-    <div class="toolbar" style="margin-top:24px">
-      <h3 style="flex:1;margin:0">Milestones / Invoices</h3>
-      <button class="primary-btn" id="newMilestoneBtn"><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Add milestone</button>
-    </div>
-    <table class="milestone-table">
-      <thead><tr><th>Description</th><th>Amount</th><th>Status</th><th>Due</th><th>Billed date</th><th></th></tr></thead>
-      <tbody id="milestoneBody"></tbody>
-    </table>
+    ${isFixedPrice ? `
+      <div class="toolbar" style="margin-top:24px">
+        <h3 style="flex:1;margin:0">Milestones / Invoices</h3>
+        <button class="primary-btn" id="newMilestoneBtn"><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Add milestone</button>
+      </div>
+      <table class="milestone-table">
+        <thead><tr><th>Description</th><th>Amount</th><th>Status</th><th>Due</th><th>Billed date</th><th></th></tr></thead>
+        <tbody id="milestoneBody"></tbody>
+      </table>
+    ` : ""}
   `;
 
   document.getElementById("editSowBtn").addEventListener("click", () => openSowModal(s));
+  if (!isFixedPrice) return;
+
   document.getElementById("newMilestoneBtn").addEventListener("click", () => openMilestoneModal());
 
   const mbody = document.getElementById("milestoneBody");
@@ -1487,7 +1505,28 @@ async function loadRevenueSows() {
     }</td></tr>`;
   } else {
     filteredRows.forEach((r) => tbody.appendChild(buildRevenueSowRow(r, false)));
+    const totals = aggregateMonthlyRevenue(filteredRows);
+    tbody.appendChild(buildRevenueTotalsRow(totals));
   }
+}
+
+// Bottom "Total" row summing Projections and Invoiced per month across all
+// currently visible (filtered) rows. Rebuilt every time loadRevenueSows()
+// runs, so it always reflects the active Customer/Billing Model filters.
+function buildRevenueTotalsRow(totals) {
+  const tr = document.createElement("tr");
+  tr.className = "revenue-total-row";
+  let cells = `<td colspan="3">Total</td>`;
+  for (let i = 0; i < 12; i++) {
+    const band = i % 2 === 0 ? "rev-band-a" : "rev-band-b";
+    cells += `
+      <td class="rev-readonly-cell ${band}">${fmtPlain(totals.projections[i])}</td>
+      <td class="rev-readonly-cell ${band}">${fmtPlain(totals.invoiced[i])}</td>
+    `;
+  }
+  cells += `<td></td>`;
+  tr.innerHTML = cells;
+  return tr;
 }
 
 // Builds one <tr> for the SoW-level grid. editing=false renders plain
@@ -1853,8 +1892,19 @@ function loadEmployeeTypes() { employeeTypeManager.load(); }
 function loadBands() { bandManager.load(); }
 
 // ---------- init ----------
-// Home is the landing page; SOW-page-specific setup (status filter options)
-// is cheap and harmless to run up front so the SOWs tab is ready whenever
-// it's opened.
-loadHome();
+// Home is the landing page, but a refresh should land back on whatever tab
+// the user was last viewing (see rememberLastTab()/showTab() above) rather
+// than always resetting to it. Falls back to Home if nothing was stored yet,
+// or if the stored tab no longer exists (e.g. after a future page removal).
+// SOW-page-specific setup (status filter options) is cheap and harmless to
+// run up front so the SOWs tab is ready whenever it's opened.
+let lastTab = null;
+try {
+  lastTab = localStorage.getItem("trakerz_last_tab");
+} catch (e) {}
+if (lastTab && lastTab !== "home" && document.getElementById("tab-" + lastTab)) {
+  showTab(lastTab);
+} else {
+  loadHome();
+}
 refreshStatusFilterOptions();
