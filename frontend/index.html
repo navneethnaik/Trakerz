@@ -14,7 +14,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=50" />
+<link rel="stylesheet" href="style.css?v=51" />
 </head>
 <body>
 <header class="topbar">
@@ -423,11 +423,11 @@
       <table class="sow-table">
         <thead>
           <tr>
-            <th>Sl. No</th><th></th><th class="sortable-th" data-sort-key="customer_name">Customer Name<span class="sort-arrow"></span></th><th>Sow Title</th><th>Project Code (BTP)</th>
+            <th></th><th>Sl. No</th><th></th><th class="sortable-th" data-sort-key="customer_name">Customer Name<span class="sort-arrow"></span></th><th>Sow Title</th><th>Project Code (BTP)</th>
             <th>Contract # (BTP)</th><th>Opportunity ID</th><th>PO#</th>
             <th class="sortable-th" data-sort-key="start_date">Start date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="end_date">End date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="total_value">TCV (USD)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="status">Status<span class="sort-arrow"></span></th>
             <th class="sortable-th" data-sort-key="billing_model_name">Billing model<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="operating_model_name">Operating model<span class="sort-arrow"></span></th><th>Document link</th>
-            <th>BTP Project Name</th><th>Additional information</th><th></th>
+            <th>BTP Project Name</th><th>Additional information</th>
           </tr>
         </thead>
         <tbody id="sowTableBody"></tbody>
@@ -631,6 +631,7 @@
       <table class="sow-table revenue-table">
         <thead>
           <tr>
+            <th rowspan="2">Actions</th>
             <th rowspan="2">Sl. No</th>
             <th rowspan="2">Customer Name</th>
             <th rowspan="2">SOW Title</th>
@@ -647,7 +648,6 @@
             <th class="rev-band-b" colspan="2">Jan</th>
             <th class="rev-band-a" colspan="2">Feb</th>
             <th class="rev-band-b" colspan="2">Mar</th>
-            <th rowspan="2">Actions</th>
           </tr>
           <tr>
             <th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th>
@@ -1002,6 +1002,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=51"></script>
+<script src="app.js?v=53"></script>
 </body>
 </html>

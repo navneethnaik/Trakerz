@@ -456,24 +456,24 @@ a.stat-card { cursor: pointer; }
 
 /* ---------- Revenue Management ---------- */
 .revenue-table th, .revenue-table td { white-space: nowrap; text-align: center; padding: 5px 8px; }
-/* Sl. No (1st column) is narrow and just scrolls with the rest of the
-   table; Customer Name (2nd column) is the one that stays pinned while
-   scrolling through the 24 month columns, so all the sticky/left-align
-   treatment that used to target :first-child now targets :nth-child(2).
-   The header's th versions are scoped to thead's first row only - with the
-   header now two rows tall (a month name spanning its Projections/Invoiced
-   pair), the second row's own first/second cells are just that month's
-   Projections/Invoiced labels, not Sl. No/Customer Name, and must not pick
-   up this styling. */
-.revenue-table td:first-child,
-.revenue-table thead tr:first-child th:first-child { color: var(--text-muted); width: 44px; }
+/* Actions (1st column) just scrolls with the rest of the table like any
+   plain cell; Sl. No (2nd column) is narrow/muted and also non-sticky;
+   Customer Name (3rd column) is the one that stays pinned while scrolling
+   through the 24 month columns, so all the sticky/left-align treatment
+   targets :nth-child(3). The header's th versions are scoped to thead's
+   first row only - with the header two rows tall (a month name spanning
+   its Projections/Invoiced pair), the second row's own leading cells are
+   just that month's Projections/Invoiced labels, not Actions/Sl. No/
+   Customer Name, and must not pick up this styling. */
 .revenue-table td:nth-child(2),
-.revenue-table thead tr:first-child th:nth-child(2) { text-align: left; padding: 7px 14px; }
-.revenue-table td:nth-child(2),
-.revenue-table thead tr:first-child th:nth-child(2) {
+.revenue-table thead tr:first-child th:nth-child(2) { color: var(--text-muted); width: 44px; }
+.revenue-table td:nth-child(3),
+.revenue-table thead tr:first-child th:nth-child(3) { text-align: left; padding: 7px 14px; }
+.revenue-table td:nth-child(3),
+.revenue-table thead tr:first-child th:nth-child(3) {
   position: sticky; left: 0; z-index: 1; background: var(--surface);
 }
-.revenue-table thead tr:first-child th:nth-child(2) { z-index: 2; background: var(--table-header-bg); }
+.revenue-table thead tr:first-child th:nth-child(3) { z-index: 2; background: var(--table-header-bg); }
 .revenue-table input[type=number] {
   width: 90px; padding: 4px 6px; font-size: 12.5px; text-align: right;
   border: 1px solid var(--border); border-radius: 6px; font-family: inherit; color: var(--text); margin-top: 0;
@@ -504,7 +504,7 @@ a.stat-card { cursor: pointer; }
 .revenue-table thead tr:last-child th.rev-band-b { box-shadow: inset 0 -3px 0 transparent; }
 html[data-theme="dark"] .revenue-table tbody td.rev-band-a { background: rgba(255, 255, 255, .045); }
 html[data-theme="dark"] .revenue-table tbody td.rev-band-b { background: transparent; }
-.revenue-editing-row td:not(:first-child) { background: #fffbea; }
+.revenue-editing-row td:not(:nth-child(2)) { background: #fffbea; }
 /* Editing highlight always wins over the month band while a row is open
    for editing (higher specificity than the rev-band-a/b rules above, which
    otherwise would since they target more specific td.class selectors). */
@@ -527,12 +527,12 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-editing-row td.rev-band-
 html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td.rev-band-a,
 html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td.rev-band-b { background: #1a2333; }
 html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td { background: #1a2333; }
-/* The sticky first column normally gets its own background (var(--surface))
-   so it stays opaque while scrolling horizontally - override it here too,
-   so the "Total" label cell matches the rest of the totals row instead of
-   looking like a leftover data cell. */
-.revenue-table tbody tr.revenue-total-row td:first-child { background: var(--bg); }
-html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:first-child { background: #1a2333; }
+/* The sticky Customer Name column normally gets its own background
+   (var(--surface)) so it stays opaque while scrolling horizontally -
+   override it here too, so the "Total" label cell matches the rest of the
+   totals row instead of looking like a leftover data cell. */
+.revenue-table tbody tr.revenue-total-row td:nth-child(3) { background: var(--bg); }
+html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3) { background: #1a2333; }
 .revenue-section-title {
   display: flex; align-items: center; gap: 10px; margin: 0 0 4px; font-size: 15px; font-weight: 700; color: var(--text);
 }

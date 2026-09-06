@@ -221,13 +221,15 @@ function initLandingCarousel() {
 }
 initLandingCarousel();
 
-// ---------- Overdue/expiring/over-budget banner (data comes from /api/dashboard,
-// fetched by loadSowStats() every time the Statement of Work page loads) ----------
+// ---------- Overdue/expiring/over-budget banner (computed client-side from
+// the currently-filtered SOW list by loadSowStats() every time the
+// Statement of Work page's search/status/customer filters change) ----------
 // User-dismissible: closing it hides it for the rest of this session as long
 // as the underlying counts don't change. If a later refresh produces a
-// different message (a new SOW becomes overdue, one gets paid down, etc.)
-// the signature no longer matches and the banner reappears - a plain closed
-// flag would otherwise hide genuinely new alerts too.
+// different message (a new SOW becomes overdue, one gets paid down, a
+// filter is changed, etc.) the signature no longer matches and the banner
+// reappears - a plain closed flag would otherwise hide genuinely new alerts
+// too.
 let dismissedAlertSignature = null;
 
 function renderAlertBanner(data) {
@@ -313,10 +315,20 @@ function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 
-// Portfolio-wide counts shown at the top of the SOWs page (independent of the
-// search box / status filter below, same spirit as the Dashboard's header cards).
-// Order: Total SOWs, Total TCV, then one tile per configured SOW status (even
-// statuses with zero SOWs), built dynamically since statuses are user-editable
+// Statuses that don't count towards "expiring soon"/"overdue" alerts even
+// past their end date - mirrors CLOSED_STATUSES in backend/main.py exactly,
+// since these tile/banner numbers are now computed client-side from the
+// already-enriched (and already search/status/customer-filtered) SOW list
+// rather than a separate unfiltered /api/dashboard call.
+const CLOSED_STATUSES = ["completed", "cancelled", "expired"];
+
+// Tiles at the top of the SOWs page now reflect whatever the search box /
+// status filter / customer filter currently narrow the table down to
+// (rather than always showing portfolio-wide totals), so switching filters
+// updates "SoW #", "TCV", "Expiring in 30 days" and the per-status counts
+// together with the table below them. Order: Total SOWs, Total TCV, then
+// one tile per configured SOW status (even statuses with zero matches in
+// the current filter), built dynamically since statuses are user-editable
 // master data. Cycles through the stat-card color classes since there's no
 // fixed number of statuses.
 const SOW_STATUS_TILE_COLORS = ["stat-emerald", "stat-cyan", "stat-red", "stat-orange", "stat-indigo", "stat-amber"];
@@ -337,22 +349,38 @@ function renderSowStatusTiles(statuses, statusCounts) {
   });
 }
 
-async function loadSowStats() {
-  const [data, statuses] = await Promise.all([
-    fetch(`${API}/dashboard`).then((r) => r.json()),
-    fetch(`${API}/statuses`).then((r) => r.json()),
-  ]);
-  const counts = data.status_counts || {};
-  document.getElementById("sowStatTotal").textContent = data.sow_count ?? 0;
+// sows here is the already-filtered list loadSows() just fetched from
+// /api/sows (search/status/customer applied server-side) - each row already
+// carries days_to_end/alerts/status/total_value from the backend's
+// _enrich_sow(), so every tile and the alert banner can be derived from it
+// directly instead of a second, unfiltered /api/dashboard round trip.
+async function loadSowStats(sows) {
+  const statuses = await fetch(`${API}/statuses`).then((r) => r.json());
+
+  document.getElementById("sowStatTotal").textContent = sows.length;
+  const totalValue = sows.reduce((sum, s) => sum + (s.total_value || 0), 0);
   // Abbreviated ($22.5M) rather than fmt()'s full "$22,474,000.00" - the
   // full figure overflowed the circular tile. Full precision is still one
   // hover away via the title tooltip.
   const sowStatValueEl = document.getElementById("sowStatValue");
-  sowStatValueEl.textContent = fmtCompact(data.total_value);
-  sowStatValueEl.title = fmt(data.total_value);
-  document.getElementById("sowStatExpiring").textContent = (data.expiring_soon || []).length;
-  renderSowStatusTiles(statuses, counts);
-  renderAlertBanner(data);
+  sowStatValueEl.textContent = fmtCompact(totalValue);
+  sowStatValueEl.title = fmt(totalValue);
+
+  const expiringCount = sows.filter((s) => {
+    if (CLOSED_STATUSES.includes((s.status || "").trim().toLowerCase())) return false;
+    return s.days_to_end !== null && s.days_to_end !== undefined && s.days_to_end >= 0 && s.days_to_end <= 30;
+  }).length;
+  document.getElementById("sowStatExpiring").textContent = expiringCount;
+
+  const statusCounts = {};
+  sows.forEach((s) => { statusCounts[s.status] = (statusCounts[s.status] || 0) + 1; });
+  renderSowStatusTiles(statuses, statusCounts);
+
+  renderAlertBanner({
+    overdue: sows.filter((s) => (s.alerts || []).includes("overdue")),
+    expiring_soon: sows.filter((s) => (s.alerts || []).includes("expiring_soon")),
+    over_budget: sows.filter((s) => (s.alerts || []).includes("over_budget")),
+  });
 }
 
 // Column sorting for the SOW table - client-side only, since /api/sows has
@@ -414,7 +442,6 @@ document.querySelectorAll("#tab-sows .sow-table thead th.sortable-th").forEach((
 });
 
 async function loadSows() {
-  loadSowStats();
   const q = document.getElementById("searchInput").value.trim();
   const status = document.getElementById("statusFilter").value;
   const customerId = document.getElementById("sowCustomerFilter").value;
@@ -424,6 +451,10 @@ async function loadSows() {
   if (customerId) params.set("customer_id", customerId);
   currentSows = await fetch(`${API}/sows?${params}`).then((r) => r.json());
   renderSowsTable(currentSows);
+  // Tiles/banner reflect this same filtered list, so they stay in sync with
+  // whatever the search box / status filter / customer filter narrowed the
+  // table down to.
+  loadSowStats(currentSows);
 }
 
 function renderSowsTable(sowsIn) {
@@ -446,6 +477,11 @@ function renderSowsTable(sowsIn) {
       else if (s.days_to_end >= 16 && s.days_to_end <= 50) tr.classList.add("expiry-amber");
     }
     tr.innerHTML = `
+      <td class="row-actions">
+        <button class="ghost-btn btn-edit icon-btn copy-btn" title="Copy">${icon("copy")}</button>
+        <button class="ghost-btn btn-edit icon-btn edit-btn" title="Edit">${icon("edit")}</button>
+        <button class="ghost-btn btn-danger icon-btn del-btn" data-id="${s.id}" title="Delete">${icon("trash")}</button>
+      </td>
       <td class="sl-no-cell">${idx + 1}</td>
       <td>${isFixedPrice ? `<button type="button" class="expand-btn" title="Show milestones">${icon("chevron")}</button>` : ""}</td>
       <td>${escapeHtml(s.customer_name)}</td>
@@ -463,11 +499,6 @@ function renderSowsTable(sowsIn) {
       <td>${s.doc_link ? `<span class="truncate-cell">${renderDocLink(s.doc_link)}</span>` : "—"}</td>
       <td>${escapeHtml(s.project_title) || "—"}</td>
       <td>${s.notes ? `<span class="truncate-cell" title="${escapeHtml(s.notes)}">${escapeHtml(s.notes)}</span>` : "—"}</td>
-      <td class="row-actions">
-        <button class="ghost-btn btn-edit icon-btn copy-btn" title="Copy">${icon("copy")}</button>
-        <button class="ghost-btn btn-edit icon-btn edit-btn" title="Edit">${icon("edit")}</button>
-        <button class="ghost-btn btn-danger icon-btn del-btn" data-id="${s.id}" title="Delete">${icon("trash")}</button>
-      </td>
     `;
     tr.addEventListener("click", (e) => {
       if (e.target.closest(".del-btn") || e.target.closest(".edit-btn") || e.target.closest(".copy-btn") || e.target.closest(".expand-btn") || e.target.closest("a")) return;
@@ -1712,7 +1743,9 @@ function renumberRevenueRows() {
 function buildRevenueTotalsRow(totals) {
   const tr = document.createElement("tr");
   tr.className = "revenue-total-row";
-  let cells = `<td></td><td colspan="3">Total</td>`;
+  // Blank Actions cell, blank Sl. No cell, then "Total" spanning
+  // Customer Name/SOW Title/Billing Model.
+  let cells = `<td></td><td></td><td colspan="3">Total</td>`;
   for (let i = 0; i < 12; i++) {
     const band = i % 2 === 0 ? "rev-band-a" : "rev-band-b";
     cells += `
@@ -1720,7 +1753,6 @@ function buildRevenueTotalsRow(totals) {
       <td class="rev-readonly-cell ${band}">${fmtPlain(totals.invoiced[i])}</td>
     `;
   }
-  cells += `<td></td>`;
   tr.innerHTML = cells;
   return tr;
 }
@@ -1743,10 +1775,20 @@ function replaceRevenueRow(oldTr, newTr) {
 function buildRevenueSowRow(r, editing) {
   const tr = document.createElement("tr");
   if (editing) tr.classList.add("revenue-editing-row");
-  // Sl. No is left blank here and filled in by renumberRevenueRows() based
-  // on the row's actual position in the table - this function rebuilds a
-  // single row in place for edit/cancel toggling without knowing its index.
-  let cells = `<td class="rev-sl-no"></td><td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title)}</td><td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
+  // Actions come first (matches the SOW list table's convention), then
+  // Sl. No - left blank here and filled in by renumberRevenueRows() based
+  // on the row's actual position in the table, since this function rebuilds
+  // a single row in place for edit/cancel toggling without knowing its index.
+  let cells = editing
+    ? `<td class="row-actions">
+        <button type="button" class="ghost-btn btn-edit icon-btn rev-save-btn" title="Save">${icon("check")}</button>
+        <button type="button" class="ghost-btn icon-btn rev-cancel-btn" title="Cancel">${icon("x")}</button>
+      </td>`
+    : `<td class="row-actions">
+        <button type="button" class="ghost-btn btn-edit icon-btn rev-edit-btn" title="Edit">${icon("edit")}</button>
+        <button type="button" class="ghost-btn btn-danger icon-btn rev-del-btn" title="Delete">${icon("trash")}</button>
+      </td>`;
+  cells += `<td class="rev-sl-no"></td><td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title)}</td><td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
   // Alternating background per month (both its Projections and Invoiced
   // columns share the same band) so adjacent months are visually grouped
   // and easy to tell apart across 24 otherwise-identical columns - matches
@@ -1765,15 +1807,6 @@ function buildRevenueSowRow(r, editing) {
       `;
     }
   });
-  cells += editing
-    ? `<td class="row-actions">
-        <button type="button" class="ghost-btn btn-edit rev-save-btn">${icon("check")}<span>Save</span></button>
-        <button type="button" class="ghost-btn rev-cancel-btn">${icon("x")}<span>Cancel</span></button>
-      </td>`
-    : `<td class="row-actions">
-        <button type="button" class="ghost-btn btn-edit icon-btn rev-edit-btn" title="Edit">${icon("edit")}</button>
-        <button type="button" class="ghost-btn btn-danger icon-btn rev-del-btn" title="Delete">${icon("trash")}</button>
-      </td>`;
   tr.innerHTML = cells;
 
   if (editing) {
@@ -1839,9 +1872,37 @@ document.getElementById("exportRevenueSowsBtn").addEventListener("click", () => 
   window.location.href = `${API}/revenue/sows/export?fiscal_year=${currentFiscalYear}`;
 });
 
+// Builds the 24 month <td>s (Projections+Invoiced x 12) for the "Add Entry"
+// draft row - read-only "—" placeholders before a SOW is picked, real number
+// inputs once one is (see setDraftMonthsEditable() below). Mirrors the same
+// fiscal-month/band pattern buildRevenueSowRow() uses for a tracked row, but
+// starting from blank/zero values since nothing has been saved yet.
+function draftMonthCellsHtml(editable) {
+  let html = "";
+  for (let fm = 1; fm <= 12; fm++) {
+    const band = (fm - 1) % 2 === 0 ? "rev-band-a" : "rev-band-b";
+    html += editable
+      ? `
+        <td class="${band} draft-month-cell">
+          <input type="number" step="0.01" class="rev-cell draft-projection-input" data-fiscal-month="${fm}" data-field="projection" value="0" />
+        </td>
+        <td class="${band} draft-month-cell">
+          <input type="number" step="0.01" class="rev-cell draft-invoiced-input" data-fiscal-month="${fm}" data-field="invoiced" value="0" />
+        </td>
+      `
+      : `
+        <td class="rev-readonly-cell ${band} draft-month-cell">—</td>
+        <td class="rev-readonly-cell ${band} draft-month-cell">—</td>
+      `;
+  }
+  return html;
+}
+
 // Add Entry - adds a new row directly in the datatable (no popup): a
-// Customer dropdown narrows a SOW dropdown to that customer's SOWs, and
-// Save/Cancel replace the row's normal Delete button until it's confirmed.
+// Customer dropdown narrows a SOW dropdown to that customer's SOWs. The
+// month columns start out read-only ("—") and switch to editable inputs as
+// soon as a SOW is chosen, so Save commits everything typed in in one shot
+// instead of a separate "register, then edit, then save again" round trip.
 document.getElementById("newRevenueEntryBtn").addEventListener("click", async () => {
   if (currentFiscalYear === null) currentFiscalYear = fiscalYearForToday();
 
@@ -1860,6 +1921,10 @@ document.getElementById("newRevenueEntryBtn").addEventListener("click", async ()
   const tr = document.createElement("tr");
   tr.className = "revenue-draft-row";
   tr.innerHTML = `
+    <td class="row-actions">
+      <button type="button" class="ghost-btn btn-edit icon-btn draft-save-btn" disabled title="Save">${icon("check")}</button>
+      <button type="button" class="ghost-btn icon-btn draft-cancel-btn" title="Cancel">${icon("x")}</button>
+    </td>
     <td></td>
     <td>
       <select class="draft-account-select">
@@ -1873,11 +1938,7 @@ document.getElementById("newRevenueEntryBtn").addEventListener("click", async ()
       </select>
     </td>
     <td class="draft-billing-model">&mdash;</td>
-    <td colspan="24" class="empty-state empty-state-left">Pick a customer and SOW, then save this row.</td>
-    <td class="row-actions">
-      <button type="button" class="ghost-btn btn-edit draft-save-btn" disabled>${icon("check")}<span>Save</span></button>
-      <button type="button" class="ghost-btn draft-cancel-btn">${icon("x")}<span>Cancel</span></button>
-    </td>
+    ${draftMonthCellsHtml(false)}
   `;
   tbody.insertBefore(tr, tbody.firstChild);
 
@@ -1886,10 +1947,16 @@ document.getElementById("newRevenueEntryBtn").addEventListener("click", async ()
   const billingModelCell = tr.querySelector(".draft-billing-model");
   const saveBtn = tr.querySelector(".draft-save-btn");
 
+  function setDraftMonthsEditable(editable) {
+    tr.querySelectorAll(".draft-month-cell").forEach((td) => td.remove());
+    billingModelCell.insertAdjacentHTML("afterend", draftMonthCellsHtml(editable));
+  }
+
   accountSelect.addEventListener("change", () => {
     const val = accountSelect.value;
     saveBtn.disabled = true;
     billingModelCell.textContent = "—";
+    setDraftMonthsEditable(false);
     if (!val) {
       sowSelect.disabled = true;
       sowSelect.innerHTML = '<option value="">Select customer first&hellip;</option>';
@@ -1908,9 +1975,11 @@ document.getElementById("newRevenueEntryBtn").addEventListener("click", async ()
   });
 
   sowSelect.addEventListener("change", () => {
-    saveBtn.disabled = !sowSelect.value;
+    const hasSow = !!sowSelect.value;
+    saveBtn.disabled = !hasSow;
     const selectedSow = sows.find((s) => String(s.id) === sowSelect.value);
     billingModelCell.textContent = (selectedSow && selectedSow.billing_model_name) || "—";
+    setDraftMonthsEditable(hasSow);
   });
 
   tr.querySelector(".draft-cancel-btn").addEventListener("click", () => {
@@ -1921,25 +1990,53 @@ document.getElementById("newRevenueEntryBtn").addEventListener("click", async ()
   saveBtn.addEventListener("click", async () => {
     const sowId = sowSelect.value;
     if (!sowId) return;
+    const selectedSow = sows.find((s) => String(s.id) === sowId);
+    const cancelBtn = tr.querySelector(".draft-cancel-btn");
     saveBtn.disabled = true;
-    const resp = await fetch(`${API}/revenue/sows`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sow_id: parseInt(sowId, 10), fiscal_year: currentFiscalYear }),
+    cancelBtn.disabled = true;
+
+    // Collect whatever was typed into the (now-editable) month inputs and
+    // persist all 12 months in one go - the PUT endpoint registers the SOW
+    // into revenue tracking for this fiscal year as a side effect, so no
+    // separate "create" call is needed first.
+    const projectionInputs = tr.querySelectorAll(".draft-projection-input");
+    const months = Array.from(projectionInputs).map((projectionInput) => {
+      const fiscalMonth = parseInt(projectionInput.dataset.fiscalMonth, 10);
+      const invoicedInput = tr.querySelector(`.draft-invoiced-input[data-fiscal-month="${fiscalMonth}"]`);
+      return {
+        fiscal_month: fiscalMonth,
+        projection: parseFloat(projectionInput.value) || 0,
+        invoiced: parseFloat(invoicedInput.value) || 0,
+      };
     });
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      alert(formatApiError(err, "Failed to add this entry."));
+
+    const responses = await Promise.all(months.map((m) =>
+      fetch(`${API}/revenue/sows`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sow_id: parseInt(sowId, 10), fiscal_year: currentFiscalYear, ...m }),
+      })
+    ));
+    const failed = responses.find((resp) => !resp.ok);
+    if (failed) {
+      const err = await failed.json().catch(() => ({}));
+      alert(formatApiError(err, "Failed to save this entry."));
       saveBtn.disabled = false;
+      cancelBtn.disabled = false;
       return;
     }
-    // Land the new row directly in edit mode so the projection/invoiced
-    // boxes the user expects to fill in are immediately visible, instead of
-    // reloading into read-only display with nothing typed yet.
-    const newRow = await resp.json();
+
+    const newRow = {
+      sow_id: selectedSow.id,
+      sow_title: selectedSow.title,
+      customer_id: selectedSow.customer_id,
+      customer_name: selectedSow.customer_name || "Unassigned",
+      billing_model_name: selectedSow.billing_model_name,
+      months,
+    };
     revenueTrackedSowIds.add(newRow.sow_id);
     revenueSowsCache.set(newRow.sow_id, newRow);
-    tr.replaceWith(buildRevenueSowRow(newRow, true));
+    tr.replaceWith(buildRevenueSowRow(newRow, false));
     renumberRevenueRows();
   });
 });
