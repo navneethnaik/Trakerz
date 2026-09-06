@@ -196,6 +196,8 @@ a.stat-card { cursor: pointer; }
 .stat-card.stat-amber { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #edab2f, #a56b06); }
 .stat-card.stat-red { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f87171, #b91c1c); }
 .stat-card.stat-orange { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f0863f, #b04f14); }
+.stat-card.stat-violet { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #a78bfa, #6d28d9); }
+.stat-card.stat-pink { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f472b6, #be185d); }
 .stat-value { font-size: 22px; font-weight: 800; color: var(--text); line-height: 1.1; }
 /* SOW detail page's "Start -> end" tile shows a date range rather than a
    short number/currency value, so it needs a smaller size to fit. */
@@ -224,6 +226,21 @@ a.stat-card { cursor: pointer; }
 #sowStatRow .stat-card.stat-amber { border-top-color: #edab2f; }
 #sowStatRow .stat-card.stat-red { border-top-color: #f87171; }
 #sowStatRow .stat-card.stat-orange { border-top-color: #f0863f; }
+#sowStatRow .stat-card.stat-violet { border-top-color: #a78bfa; }
+#sowStatRow .stat-card.stat-pink { border-top-color: #f472b6; }
+
+/* Grouping wrapper for the SOW page's KPI tiles: "SoW & TCV" / "SOW Status"
+   (incl. Expiring in 30 days) / "Opportunity Type" each get their own labeled
+   section, separated by a vertical divider, so the tile row reads as three
+   distinct groups rather than one flat strip. */
+#sowStatRow.stat-row { align-items: stretch; }
+.stat-section { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-width: 0; }
+.stat-section-label {
+  font-size: 12px; font-weight: 800; text-align: center;
+  color: var(--text);
+}
+.stat-section-tiles { display: flex; flex-wrap: wrap; gap: 12px; flex: 1; }
+.stat-divider { width: 1px; align-self: stretch; background: var(--border); flex: 0 0 auto; }
 
 /* ---------- Charts / lists ---------- */
 .chart-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }

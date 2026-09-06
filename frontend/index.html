@@ -14,7 +14,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=52" />
+<link rel="stylesheet" href="style.css?v=55" />
 </head>
 <body>
 <header class="topbar">
@@ -392,19 +392,37 @@
   <section id="tab-sows" class="tab-panel">
     <div id="alertBanner" class="alert-banner" hidden></div>
     <div class="stat-row" id="sowStatRow">
-      <div class="stat-card stat-indigo">
-        <div class="stat-value" id="sowStatTotal">0</div>
-        <div class="stat-label">SoW #</div>
+      <div class="stat-section">
+        <div class="stat-section-label">SoW &amp; TCV</div>
+        <div class="stat-section-tiles">
+          <div class="stat-card stat-indigo">
+            <div class="stat-value" id="sowStatTotal">0</div>
+            <div class="stat-label">SoW #</div>
+          </div>
+          <div class="stat-card stat-amber">
+            <div class="stat-value" id="sowStatValue">$0</div>
+            <div class="stat-label">TCV</div>
+          </div>
+        </div>
       </div>
-      <div class="stat-card stat-amber">
-        <div class="stat-value" id="sowStatValue">$0</div>
-        <div class="stat-label">TCV</div>
+      <div class="stat-divider"></div>
+      <div class="stat-section">
+        <div class="stat-section-label">SoW status</div>
+        <div class="stat-section-tiles" id="sowStatusTiles">
+          <div class="stat-card stat-red">
+            <div class="stat-value" id="sowStatExpiring">0</div>
+            <div class="stat-label">Expiring in 30 days</div>
+          </div>
+          <!-- One tile per configured SOW status, built by renderSowStatusTiles() -->
+        </div>
       </div>
-      <div class="stat-card stat-red">
-        <div class="stat-value" id="sowStatExpiring">0</div>
-        <div class="stat-label">Expiring in 30 days</div>
+      <div class="stat-divider"></div>
+      <div class="stat-section">
+        <div class="stat-section-label">Opportunity type</div>
+        <div class="stat-section-tiles" id="sowOpportunityTypeTiles">
+          <!-- One tile per configured Opportunity Type, built by renderSowOpportunityTypeTiles() -->
+        </div>
       </div>
-      <!-- One tile per configured SOW status, built by renderSowStatusTiles() -->
     </div>
     <div class="toolbar">
       <input id="searchInput" type="search" placeholder="Search customer or title..." />
@@ -1050,6 +1068,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=55"></script>
+<script src="app.js?v=57"></script>
 </body>
 </html>

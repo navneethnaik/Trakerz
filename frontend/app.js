@@ -335,7 +335,7 @@ const CLOSED_STATUSES = ["completed", "cancelled", "expired"];
 const SOW_STATUS_TILE_COLORS = ["stat-emerald", "stat-cyan", "stat-red", "stat-orange", "stat-indigo", "stat-amber"];
 
 function renderSowStatusTiles(statuses, statusCounts) {
-  const row = document.getElementById("sowStatRow");
+  const row = document.getElementById("sowStatusTiles");
   row.querySelectorAll(".sow-status-tile").forEach((el) => el.remove());
   (statuses || []).forEach((status, i) => {
     const count = countStatusCI(statusCounts, status.name);
@@ -350,13 +350,40 @@ function renderSowStatusTiles(statuses, statusCounts) {
   });
 }
 
+// Same idea as the per-status tiles above, but one tile per configured
+// Opportunity Type (New/Extension/Amendment/...) - also user-editable master
+// data (Settings > Opportunity Type), so built dynamically rather than
+// hardcoded. Appended after the status tiles; uses a separate marker class
+// (sow-opptype-tile) so the two groups can each be cleared/rebuilt on every
+// filter change without touching one another.
+const SOW_OPPTYPE_TILE_COLORS = ["stat-violet", "stat-pink", "stat-cyan", "stat-amber", "stat-emerald", "stat-orange"];
+
+function renderSowOpportunityTypeTiles(opportunityTypes, typeCounts) {
+  const row = document.getElementById("sowOpportunityTypeTiles");
+  row.querySelectorAll(".sow-opptype-tile").forEach((el) => el.remove());
+  (opportunityTypes || []).forEach((type, i) => {
+    const count = countStatusCI(typeCounts, type.name);
+    const color = SOW_OPPTYPE_TILE_COLORS[i % SOW_OPPTYPE_TILE_COLORS.length];
+    const tile = document.createElement("div");
+    tile.className = `stat-card ${color} sow-opptype-tile`;
+    tile.innerHTML = `
+      <div class="stat-value">${count}</div>
+      <div class="stat-label">${escapeHtml(capitalize(type.name))}</div>
+    `;
+    row.appendChild(tile);
+  });
+}
+
 // sows here is the already-filtered list loadSows() just fetched from
 // /api/sows (search/status/customer applied server-side) - each row already
 // carries days_to_end/alerts/status/total_value from the backend's
 // _enrich_sow(), so every tile and the alert banner can be derived from it
 // directly instead of a second, unfiltered /api/dashboard round trip.
 async function loadSowStats(sows) {
-  const statuses = await fetch(`${API}/statuses`).then((r) => r.json());
+  const [statuses, opportunityTypes] = await Promise.all([
+    fetch(`${API}/statuses`).then((r) => r.json()),
+    fetch(`${API}/opportunity-types`).then((r) => r.json()),
+  ]);
 
   document.getElementById("sowStatTotal").textContent = sows.length;
   const totalValue = sows.reduce((sum, s) => sum + (s.total_value || 0), 0);
@@ -376,6 +403,13 @@ async function loadSowStats(sows) {
   const statusCounts = {};
   sows.forEach((s) => { statusCounts[s.status] = (statusCounts[s.status] || 0) + 1; });
   renderSowStatusTiles(statuses, statusCounts);
+
+  const opportunityTypeCounts = {};
+  sows.forEach((s) => {
+    const name = s.opportunity_type_name;
+    if (name) opportunityTypeCounts[name] = (opportunityTypeCounts[name] || 0) + 1;
+  });
+  renderSowOpportunityTypeTiles(opportunityTypes, opportunityTypeCounts);
 
   renderAlertBanner({
     overdue: sows.filter((s) => (s.alerts || []).includes("overdue")),
