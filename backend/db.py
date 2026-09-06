@@ -71,6 +71,17 @@ CREATE TABLE IF NOT EXISTS bands (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- What kind of SOW record this is (a brand-new SOW vs. an extension/
+-- amendment of an existing one) - a simple named master list like Locations/
+-- Billing Models/etc, managed under Settings.
+CREATE TABLE IF NOT EXISTS opportunity_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    details TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS sows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_id INTEGER REFERENCES customers(id),
@@ -79,6 +90,7 @@ CREATE TABLE IF NOT EXISTS sows (
     project_code TEXT,
     contract_code TEXT,
     opportunity_id TEXT,
+    opportunity_type_id INTEGER REFERENCES opportunity_types(id),
     po_number TEXT,
     start_date TEXT,
     end_date TEXT,
@@ -230,6 +242,10 @@ def _migrate(conn):
             if not _column_exists(conn, "sows", col):
                 conn.execute(f"ALTER TABLE sows ADD COLUMN {col} TEXT")
 
+    # Additive: which Opportunity Type (New/Extension/Amendment/...) a SOW is.
+    if _table_exists(conn, "sows") and not _column_exists(conn, "sows", "opportunity_type_id"):
+        conn.execute("ALTER TABLE sows ADD COLUMN opportunity_type_id INTEGER")
+
     # Additive: a free-text "details" column on each simple master list
     # (Locations, Billing Models, Operating Models, SOW Status).
     for table in ("locations", "billing_models", "operating_models", "statuses"):
@@ -249,6 +265,7 @@ def _migrate(conn):
 
 DEFAULT_STATUSES = ["draft", "active", "completed", "expired", "cancelled"]
 DEFAULT_EMPLOYEE_TYPES = ["FTE", "Contractor"]
+DEFAULT_OPPORTUNITY_TYPES = ["New", "Extension", "Amendment"]
 
 
 def _seed_defaults(conn):
@@ -269,6 +286,13 @@ def _seed_defaults(conn):
         conn.executemany(
             "INSERT INTO employee_types (name, updated_at) VALUES (?, datetime('now'))",
             [(t,) for t in DEFAULT_EMPLOYEE_TYPES],
+        )
+
+    ot_count = conn.execute("SELECT COUNT(*) FROM opportunity_types").fetchone()[0]
+    if ot_count == 0:
+        conn.executemany(
+            "INSERT INTO opportunity_types (name, updated_at) VALUES (?, datetime('now'))",
+            [(t,) for t in DEFAULT_OPPORTUNITY_TYPES],
         )
 
 

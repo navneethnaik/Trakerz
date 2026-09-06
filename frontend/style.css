@@ -247,6 +247,7 @@ a.stat-card { cursor: pointer; }
 .card-icon.icon-orange { background: linear-gradient(135deg, #fb923c, #ea580c); }
 .card-icon.icon-cyan { background: linear-gradient(135deg, #22d3ee, #0891b2); }
 .card-icon.icon-pink { background: linear-gradient(135deg, #f472b6, #db2777); }
+.card-icon.icon-violet { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
 
 .lists-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .list-card {

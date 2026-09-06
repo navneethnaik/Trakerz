@@ -149,6 +149,7 @@ function showTab(name) {
   if (name === "config-statuses") loadStatuses();
   if (name === "config-employee-types") loadEmployeeTypes();
   if (name === "config-bands") loadBands();
+  if (name === "config-opportunity-types") loadOpportunityTypes();
 }
 
 document.getElementById("backToList").addEventListener("click", () => showTab("sows"));
@@ -463,7 +464,7 @@ function renderSowsTable(sowsIn) {
   const tbody = document.getElementById("sowTableBody");
   tbody.innerHTML = "";
   if (!sows.length) {
-    tbody.innerHTML = '<tr><td colspan="18" class="empty-state">No SOWs yet. Click "New SOW" to add one.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="19" class="empty-state">No SOWs yet. Click "New SOW" to add one.</td></tr>';
     return;
   }
   sows.forEach((s, idx) => {
@@ -489,6 +490,7 @@ function renderSowsTable(sowsIn) {
       <td>${escapeHtml(s.project_code) || "—"}</td>
       <td>${escapeHtml(s.contract_code) || "—"}</td>
       <td>${escapeHtml(s.opportunity_id) || "—"}</td>
+      <td>${escapeHtml(s.opportunity_type_name) || "—"}</td>
       <td>${escapeHtml(s.po_number) || "—"}</td>
       <td>${fmtDate(s.start_date)}</td>
       <td>${fmtDate(s.end_date)}</td>
@@ -581,7 +583,7 @@ async function toggleMilestoneSubrow(tr, s) {
   const milestones = await fetch(`${API}/sows/${s.id}/milestones`).then((r) => r.json());
   const subTr = document.createElement("tr");
   subTr.className = "milestone-subrow";
-  subTr.innerHTML = `<td colspan="18">${renderMilestoneSubtable(milestones)}</td>`;
+  subTr.innerHTML = `<td colspan="19">${renderMilestoneSubtable(milestones)}</td>`;
   tr.after(subTr);
 }
 
@@ -631,16 +633,18 @@ let currentBillingModels = [];
 let originalMilestoneIdsAtOpen = [];
 
 async function populateSowDropdowns() {
-  const [customers, billingModels, operatingModels, statuses] = await Promise.all([
+  const [customers, billingModels, operatingModels, statuses, opportunityTypes] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/billing-models`).then((r) => r.json()),
     fetch(`${API}/operating-models`).then((r) => r.json()),
     fetch(`${API}/statuses`).then((r) => r.json()),
+    fetch(`${API}/opportunity-types`).then((r) => r.json()),
   ]);
   currentBillingModels = billingModels;
   fillSelect("f_customer", customers, "id", "customer_name", "Select customer&hellip;");
   fillSelect("f_billing_model", billingModels, "id", "name", "Select billing model&hellip;");
   fillSelect("f_operating_model", operatingModels, "id", "name", "Select operating model&hellip;");
+  fillSelect("f_opportunity_type", opportunityTypes, "id", "name", "Select opportunity type&hellip;");
 
   const statusSel = document.getElementById("f_status");
   statusSel.innerHTML = statuses.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(capitalize(s.name))}</option>`).join("");
@@ -732,6 +736,7 @@ async function openSowModal(sowStub) {
   document.getElementById("f_project_code").value = sow?.project_code ?? "";
   document.getElementById("f_contract_code").value = sow?.contract_code ?? "";
   document.getElementById("f_opportunity").value = sow?.opportunity_id ?? "";
+  document.getElementById("f_opportunity_type").value = sow?.opportunity_type_id ?? "";
   document.getElementById("f_po").value = sow?.po_number ?? "";
   document.getElementById("f_start").value = sow?.start_date ?? "";
   document.getElementById("f_end").value = sow?.end_date ?? "";
@@ -761,6 +766,7 @@ document.getElementById("sowForm").addEventListener("submit", async (e) => {
   if (!customerVal) { alert("Please select a customer."); return; }
   const billingVal = document.getElementById("f_billing_model").value;
   const operatingVal = document.getElementById("f_operating_model").value;
+  const opportunityTypeVal = document.getElementById("f_opportunity_type").value;
   const payload = {
     customer_id: parseInt(customerVal, 10),
     title: document.getElementById("f_title").value,
@@ -768,6 +774,7 @@ document.getElementById("sowForm").addEventListener("submit", async (e) => {
     project_code: document.getElementById("f_project_code").value || null,
     contract_code: document.getElementById("f_contract_code").value || null,
     opportunity_id: document.getElementById("f_opportunity").value || null,
+    opportunity_type_id: opportunityTypeVal ? parseInt(opportunityTypeVal, 10) : null,
     po_number: document.getElementById("f_po").value || null,
     start_date: document.getElementById("f_start").value || null,
     end_date: document.getElementById("f_end").value || null,
@@ -2200,12 +2207,31 @@ const bandManager = makeSimpleListManager({
   itemLabel: "Band",
 });
 
+// What kind of SOW record something is - a brand-new SOW vs. an extension/
+// amendment of an existing one - managed here the same way as any other
+// simple master list (Locations, Billing Models, etc).
+const opportunityTypeManager = makeSimpleListManager({
+  apiPath: "opportunity-types",
+  tableBodyId: "opportunityTypeTableBody",
+  newBtnId: "newOpportunityTypeBtn",
+  modal: document.getElementById("opportunityTypeModal"),
+  modalTitleId: "opportunityTypeModalTitle",
+  formId: "opportunityTypeForm",
+  idFieldId: "ot_id",
+  nameFieldId: "ot_name",
+  detailsFieldId: "ot_details",
+  cancelBtnId: "cancelOpportunityTypeBtn",
+  topCancelBtnId: "cancelOpportunityTypeBtnTop",
+  itemLabel: "Opportunity Type",
+});
+
 function loadLocations() { locationManager.load(); }
 function loadBillingModels() { billingModelManager.load(); }
 function loadOperatingModels() { operatingModelManager.load(); }
 function loadStatuses() { statusManager.load(); }
 function loadEmployeeTypes() { employeeTypeManager.load(); }
 function loadBands() { bandManager.load(); }
+function loadOpportunityTypes() { opportunityTypeManager.load(); }
 
 // ---------- init ----------
 // A refresh should land back on whatever tab the user was actually working

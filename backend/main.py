@@ -62,6 +62,7 @@ class SowIn(BaseModel):
     project_code: Optional[str] = None
     contract_code: Optional[str] = None
     opportunity_id: Optional[str] = None
+    opportunity_type_id: Optional[int] = None
     po_number: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
@@ -127,19 +128,21 @@ def _row_to_dict(row):
 
 
 def _load_lookup_maps(conn):
-    """Return {id: name} maps for customers, billing_models, operating_models
-    so SOW rows can be annotated with human-readable names without one query
-    per foreign key per row."""
+    """Return {id: name} maps for customers, billing_models, operating_models,
+    opportunity_types so SOW rows can be annotated with human-readable names
+    without one query per foreign key per row."""
     customers = {r["id"]: r["customer_name"] for r in conn.execute("SELECT id, customer_name FROM customers")}
     billing_models = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM billing_models")}
     operating_models = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM operating_models")}
-    return customers, billing_models, operating_models
+    opportunity_types = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM opportunity_types")}
+    return customers, billing_models, operating_models, opportunity_types
 
 
-def _attach_names(sow: dict, customers: Dict[int, str], billing_models: Dict[int, str], operating_models: Dict[int, str]) -> dict:
+def _attach_names(sow: dict, customers: Dict[int, str], billing_models: Dict[int, str], operating_models: Dict[int, str], opportunity_types: Dict[int, str]) -> dict:
     sow["customer_name"] = customers.get(sow.get("customer_id"))
     sow["billing_model_name"] = billing_models.get(sow.get("billing_model_id"))
     sow["operating_model_name"] = operating_models.get(sow.get("operating_model_id"))
+    sow["opportunity_type_name"] = opportunity_types.get(sow.get("opportunity_type_id"))
     return sow
 
 
@@ -254,6 +257,10 @@ def _validate_sow_refs(conn, sow: SowIn):
         "SELECT 1 FROM operating_models WHERE id = ?", (sow.operating_model_id,)
     ).fetchone():
         raise HTTPException(status_code=400, detail="Selected operating model does not exist")
+    if sow.opportunity_type_id is not None and not conn.execute(
+        "SELECT 1 FROM opportunity_types WHERE id = ?", (sow.opportunity_type_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected opportunity type does not exist")
 
 
 def _get_resource_or_404(conn, resource_id: int) -> dict:
@@ -302,8 +309,8 @@ def list_sows(status: Optional[str] = None, customer_id: Optional[int] = None, q
     with db.get_db() as conn:
         rows = conn.execute("SELECT * FROM sows ORDER BY end_date IS NULL, end_date ASC").fetchall()
         sows = [_row_to_dict(r) for r in rows]
-        customers, billing_models, operating_models = _load_lookup_maps(conn)
-        sows = [_attach_names(s, customers, billing_models, operating_models) for s in sows]
+        customers, billing_models, operating_models, opportunity_types = _load_lookup_maps(conn)
+        sows = [_attach_names(s, customers, billing_models, operating_models, opportunity_types) for s in sows]
 
         if status:
             sows = [s for s in sows if s["status"] == status]
@@ -330,17 +337,17 @@ def create_sow(sow: SowIn):
         _validate_sow_refs(conn, sow)
         cur = conn.execute(
             """INSERT INTO sows (customer_id, title, project_title, project_code, contract_code,
-               opportunity_id, po_number, start_date, end_date,
+               opportunity_id, opportunity_type_id, po_number, start_date, end_date,
                total_value, billing_model_id, operating_model_id, status, notes, doc_link, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (sow.customer_id, sow.title, sow.project_title, sow.project_code, sow.contract_code,
-             sow.opportunity_id, sow.po_number, sow.start_date, sow.end_date,
+             sow.opportunity_id, sow.opportunity_type_id, sow.po_number, sow.start_date, sow.end_date,
              sow.total_value, sow.billing_model_id, sow.operating_model_id, sow.status, sow.notes, sow.doc_link),
         )
         new_id = cur.lastrowid
         row = _get_sow_or_404(conn, new_id)
-        customers, billing_models, operating_models = _load_lookup_maps(conn)
-        row = _attach_names(row, customers, billing_models, operating_models)
+        customers, billing_models, operating_models, opportunity_types = _load_lookup_maps(conn)
+        row = _attach_names(row, customers, billing_models, operating_models, opportunity_types)
         return _enrich_sow(row, [])
 
 
@@ -354,7 +361,7 @@ def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None,
 
     headers = [
         "Customer", "Title", "Project title", "Project code", "Contract code",
-        "Opportunity ID", "PO#", "Start date", "End date", "TCV", "Status",
+        "Opportunity ID", "Opportunity Type", "PO#", "Start date", "End date", "TCV", "Status",
         "Billing model", "Operating model", "Document link", "Additional information",
     ]
     rows = [
@@ -365,6 +372,7 @@ def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None,
             s.get("project_code") or "",
             s.get("contract_code") or "",
             s.get("opportunity_id") or "",
+            s.get("opportunity_type_name") or "",
             s.get("po_number") or "",
             _parse_iso_date(s.get("start_date")),
             _parse_iso_date(s.get("end_date")),
@@ -377,9 +385,9 @@ def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None,
         ]
         for s in sows
     ]
-    date_cols = (8, 9)
-    currency_cols = (10,)
-    widths = [22, 28, 24, 16, 16, 16, 14, 13, 13, 14, 14, 18, 18, 30, 34]
+    date_cols = (9, 10)
+    currency_cols = (11,)
+    widths = [22, 28, 24, 16, 16, 16, 16, 14, 13, 13, 14, 14, 18, 18, 30, 34]
     wb = _build_workbook("SOWs", headers, rows, date_cols=date_cols, currency_cols=currency_cols, widths=widths)
     return _xlsx_response(wb, f"trakerz_sows_{date.today().isoformat()}.xlsx")
 
@@ -388,8 +396,8 @@ def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None,
 def get_sow(sow_id: int):
     with db.get_db() as conn:
         sow = _get_sow_or_404(conn, sow_id)
-        customers, billing_models, operating_models = _load_lookup_maps(conn)
-        sow = _attach_names(sow, customers, billing_models, operating_models)
+        customers, billing_models, operating_models, opportunity_types = _load_lookup_maps(conn)
+        sow = _attach_names(sow, customers, billing_models, operating_models, opportunity_types)
         m_rows = conn.execute("SELECT * FROM milestones WHERE sow_id = ? ORDER BY due_date IS NULL, due_date ASC", (sow_id,)).fetchall()
         milestones = [_row_to_dict(m) for m in m_rows]
         enriched = _enrich_sow(sow, milestones)
@@ -404,17 +412,17 @@ def update_sow(sow_id: int, sow: SowIn):
         _validate_sow_refs(conn, sow)
         conn.execute(
             """UPDATE sows SET customer_id=?, title=?, project_title=?, project_code=?, contract_code=?,
-               opportunity_id=?, po_number=?, start_date=?, end_date=?,
+               opportunity_id=?, opportunity_type_id=?, po_number=?, start_date=?, end_date=?,
                total_value=?, billing_model_id=?, operating_model_id=?, status=?, notes=?, doc_link=?,
                updated_at=datetime('now') WHERE id=?""",
             (sow.customer_id, sow.title, sow.project_title, sow.project_code, sow.contract_code,
-             sow.opportunity_id, sow.po_number, sow.start_date, sow.end_date,
+             sow.opportunity_id, sow.opportunity_type_id, sow.po_number, sow.start_date, sow.end_date,
              sow.total_value, sow.billing_model_id, sow.operating_model_id, sow.status, sow.notes, sow.doc_link,
              sow_id),
         )
         row = _get_sow_or_404(conn, sow_id)
-        customers, billing_models, operating_models = _load_lookup_maps(conn)
-        row = _attach_names(row, customers, billing_models, operating_models)
+        customers, billing_models, operating_models, opportunity_types = _load_lookup_maps(conn)
+        row = _attach_names(row, customers, billing_models, operating_models, opportunity_types)
         m_rows = conn.execute("SELECT * FROM milestones WHERE sow_id = ?", (sow_id,)).fetchall()
         return _enrich_sow(row, [_row_to_dict(m) for m in m_rows])
 
@@ -956,6 +964,7 @@ _register_lookup_crud("operating-models", "operating_models", "Operating model")
 _register_lookup_crud("statuses", "statuses", "Status")
 _register_lookup_crud("employee-types", "employee_types", "Employee type")
 _register_lookup_crud("bands", "bands", "Band")
+_register_lookup_crud("opportunity-types", "opportunity_types", "Opportunity type")
 
 
 # ---------- File uploads (SOW documents) ----------
@@ -986,11 +995,11 @@ def dashboard():
     with db.get_db() as conn:
         sow_rows = conn.execute("SELECT * FROM sows").fetchall()
         sows = [_row_to_dict(r) for r in sow_rows]
-        customers, billing_models, operating_models = _load_lookup_maps(conn)
+        customers, billing_models, operating_models, opportunity_types = _load_lookup_maps(conn)
 
         enriched = []
         for s in sows:
-            s = _attach_names(s, customers, billing_models, operating_models)
+            s = _attach_names(s, customers, billing_models, operating_models, opportunity_types)
             m_rows = conn.execute("SELECT * FROM milestones WHERE sow_id = ?", (s["id"],)).fetchall()
             enriched.append(_enrich_sow(s, [_row_to_dict(m) for m in m_rows]))
 

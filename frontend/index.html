@@ -14,7 +14,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=51" />
+<link rel="stylesheet" href="style.css?v=52" />
 </head>
 <body>
 <header class="topbar">
@@ -82,6 +82,10 @@
         <button class="dropdown-item" data-tab="config-bands">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg>
           Band
+        </button>
+        <button class="dropdown-item" data-tab="config-opportunity-types">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+          Opportunity Type
         </button>
       </div>
     </div>
@@ -424,7 +428,7 @@
         <thead>
           <tr>
             <th></th><th>Sl. No</th><th></th><th class="sortable-th" data-sort-key="customer_name">Customer Name<span class="sort-arrow"></span></th><th>Sow Title</th><th>Project Code (BTP)</th>
-            <th>Contract # (BTP)</th><th>Opportunity ID</th><th>PO#</th>
+            <th>Contract # (BTP)</th><th>Opportunity ID</th><th>Opportunity Type</th><th>PO#</th>
             <th class="sortable-th" data-sort-key="start_date">Start date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="end_date">End date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="total_value">TCV (USD)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="status">Status<span class="sort-arrow"></span></th>
             <th class="sortable-th" data-sort-key="billing_model_name">Billing model<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="operating_model_name">Operating model<span class="sort-arrow"></span></th><th>Document link</th>
             <th>BTP Project Name</th><th>Additional information</th>
@@ -572,6 +576,23 @@
     </div>
   </section>
 
+  <!-- CONFIGURATION: Opportunity Type -->
+  <section id="tab-config-opportunity-types" class="tab-panel">
+    <div class="list-card config-card">
+      <div class="toolbar">
+        <h3><span class="card-icon icon-violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg></span>Opportunity Type</h3>
+        <button id="newOpportunityTypeBtn" class="primary-btn">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add Opportunity Type
+        </button>
+      </div>
+      <table class="sow-table">
+        <thead><tr><th>Sl. No</th><th>Opportunity Type</th><th>Description</th><th></th></tr></thead>
+        <tbody id="opportunityTypeTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
   <!-- RESOURCE MANAGEMENT (Management) -->
   <section id="tab-resources" class="tab-panel">
     <div class="toolbar">
@@ -695,8 +716,13 @@
         <label>Project code<input id="f_project_code" /></label>
         <label>Contract code<input id="f_contract_code" /></label>
       </div>
-      <div class="two-col">
+      <div class="three-col">
         <label>Opportunity ID<input id="f_opportunity" /></label>
+        <label>Opportunity Type
+          <select id="f_opportunity_type">
+            <option value="">Select opportunity type&hellip;</option>
+          </select>
+        </label>
         <label>PO#<input id="f_po" /></label>
       </div>
       <div class="two-col">
@@ -951,6 +977,28 @@
   </div>
 </div>
 
+<!-- Opportunity Type form modal -->
+<div id="opportunityTypeModal" class="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2><span class="card-icon icon-violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg></span><span id="opportunityTypeModalTitle">New Opportunity Type</span></h2>
+      <div class="modal-header-actions">
+        <button type="button" id="cancelOpportunityTypeBtnTop" class="ghost-btn">Cancel</button>
+        <button type="submit" form="opportunityTypeForm" class="primary-btn">Save</button>
+      </div>
+    </div>
+    <form id="opportunityTypeForm">
+      <input type="hidden" id="ot_id" />
+      <label>Opportunity Type<input id="ot_name" required /></label>
+      <label>Description<textarea id="ot_details" rows="2"></textarea></label>
+      <div class="modal-actions">
+        <button type="button" id="cancelOpportunityTypeBtn" class="ghost-btn">Cancel</button>
+        <button type="submit" class="primary-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Resource form modal -->
 <div id="resourceModal" class="modal" hidden>
   <div class="modal-box modal-wide">
@@ -1002,6 +1050,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=53"></script>
+<script src="app.js?v=55"></script>
 </body>
 </html>
