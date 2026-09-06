@@ -66,6 +66,7 @@ function formatApiError(err, fallback) {
 const ICON_PATHS = {
   edit: '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>',
   trash: '<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line>',
+  copy: '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>',
   chevron: '<polyline points="9 18 15 12 9 6"></polyline>',
   check: '<polyline points="20 6 9 17 4 12"></polyline>',
   x: '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>',
@@ -152,20 +153,104 @@ function showTab(name) {
 
 document.getElementById("backToList").addEventListener("click", () => showTab("sows"));
 
+// ---------- About / landing page (opened via the Trakerz logo) ----------
+// Not one of the regular nav tabs (no data-tab button), so it's wired up
+// separately here rather than through the .tab-btn click handlers below.
+function openLandingPage() { showTab("landing"); }
+const logoHomeBtn = document.getElementById("logoHomeBtn");
+logoHomeBtn.addEventListener("click", openLandingPage);
+logoHomeBtn.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openLandingPage(); }
+});
+document.getElementById("landingGetStartedBtn").addEventListener("click", () => showTab("home"));
+document.getElementById("landingViewSowsBtn").addEventListener("click", () => showTab("sows"));
+document.getElementById("landingFooterCtaBtn").addEventListener("click", () => showTab("home"));
+
+// ---------- Landing page hero filmstrip (5 product screenshots) ----------
+// .landing-carousel-track holds 5 slides side by side at 500% total width;
+// showing slide N is just translateX(-N * 20%). Advances automatically every
+// 5s, but any manual interaction (arrows, dots, or just hovering the frame)
+// pauses/resets the timer so it never fights someone actively browsing it.
+const LANDING_CAROUSEL_CAPTIONS = [
+  "Dashboard — KPIs, revenue trend and status breakdowns at a glance",
+  "Statement of Work — every SOW, sortable and searchable",
+  "Revenue Management — Projections vs Invoiced, month by month",
+  "Staffing — see who's assigned to what, at a glance",
+  "Settings — your own customers and master data",
+];
+let landingSlideIndex = 0;
+let landingAutoplayTimer = null;
+
+function goToLandingSlide(index) {
+  const slideCount = LANDING_CAROUSEL_CAPTIONS.length;
+  landingSlideIndex = (index + slideCount) % slideCount;
+  const track = document.getElementById("landingCarouselTrack");
+  if (track) track.style.transform = `translateX(-${landingSlideIndex * (100 / slideCount)}%)`;
+  document.querySelectorAll(".landing-carousel-dot").forEach((dot, i) => {
+    dot.classList.toggle("active", i === landingSlideIndex);
+  });
+  const caption = document.getElementById("landingCarouselCaption");
+  if (caption) caption.textContent = LANDING_CAROUSEL_CAPTIONS[landingSlideIndex];
+}
+
+function restartLandingAutoplay() {
+  clearInterval(landingAutoplayTimer);
+  landingAutoplayTimer = setInterval(() => goToLandingSlide(landingSlideIndex + 1), 5000);
+}
+
+function initLandingCarousel() {
+  const carousel = document.getElementById("landingCarousel");
+  if (!carousel) return;
+  document.getElementById("landingCarouselPrev").addEventListener("click", () => {
+    goToLandingSlide(landingSlideIndex - 1);
+    restartLandingAutoplay();
+  });
+  document.getElementById("landingCarouselNext").addEventListener("click", () => {
+    goToLandingSlide(landingSlideIndex + 1);
+    restartLandingAutoplay();
+  });
+  document.querySelectorAll(".landing-carousel-dot").forEach((dot, i) => {
+    dot.addEventListener("click", () => {
+      goToLandingSlide(i);
+      restartLandingAutoplay();
+    });
+  });
+  carousel.addEventListener("mouseenter", () => clearInterval(landingAutoplayTimer));
+  carousel.addEventListener("mouseleave", restartLandingAutoplay);
+  restartLandingAutoplay();
+}
+initLandingCarousel();
+
 // ---------- Overdue/expiring/over-budget banner (data comes from /api/dashboard,
 // fetched by loadSowStats() every time the Statement of Work page loads) ----------
+// User-dismissible: closing it hides it for the rest of this session as long
+// as the underlying counts don't change. If a later refresh produces a
+// different message (a new SOW becomes overdue, one gets paid down, etc.)
+// the signature no longer matches and the banner reappears - a plain closed
+// flag would otherwise hide genuinely new alerts too.
+let dismissedAlertSignature = null;
+
 function renderAlertBanner(data) {
   const el = document.getElementById("alertBanner");
   const parts = [];
   if (data.overdue.length) parts.push(`${data.overdue.length} SOW(s) overdue`);
   if (data.expiring_soon.length) parts.push(`${data.expiring_soon.length} expiring within 30 days`);
   if (data.over_budget.length) parts.push(`${data.over_budget.length} over budget`);
-  if (parts.length) {
-    el.hidden = false;
-    el.innerHTML = `<svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg><span>${parts.join(" • ")}</span>`;
-  } else {
+  if (!parts.length) {
     el.hidden = true;
+    return;
   }
+  const signature = parts.join(" • ");
+  if (dismissedAlertSignature === signature) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML = `<svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg><span>${signature}</span><button type="button" class="alert-banner-close" id="alertBannerCloseBtn" title="Dismiss" aria-label="Dismiss">&times;</button>`;
+  document.getElementById("alertBannerCloseBtn").addEventListener("click", () => {
+    dismissedAlertSignature = signature;
+    el.hidden = true;
+  });
 }
 
 // ---------- Dark mode toggle ----------
@@ -187,6 +272,12 @@ document.getElementById("themeToggleBtn").addEventListener("click", () => {
   const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
   try { localStorage.setItem("trakerz_theme", next); } catch (e) {}
   applyTheme(next);
+  // The revenue trend chart's legend text color is picked at chart-build
+  // time based on the theme (see renderRevenueTrendChart), so it doesn't
+  // follow a plain CSS variable - reload the Dashboard's data/charts here
+  // (only if it's the visible tab) so a mid-session toggle is reflected
+  // immediately instead of only on the next tab visit.
+  if (document.getElementById("tab-home").classList.contains("active")) loadHome();
 });
 
 // ---------- SOWs list ----------
@@ -324,10 +415,10 @@ function renderSowsTable(sowsIn) {
   const tbody = document.getElementById("sowTableBody");
   tbody.innerHTML = "";
   if (!sows.length) {
-    tbody.innerHTML = '<tr><td colspan="17" class="empty-state">No SOWs yet. Click "New SOW" to add one.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="18" class="empty-state">No SOWs yet. Click "New SOW" to add one.</td></tr>';
     return;
   }
-  sows.forEach((s) => {
+  sows.forEach((s, idx) => {
     const isFixedPrice = (s.billing_model_name || "").toLowerCase().includes("fixed price");
     const tr = document.createElement("tr");
     // Highlight rows by how soon the SOW's end date is coming up: 0-15 days
@@ -338,6 +429,7 @@ function renderSowsTable(sowsIn) {
       else if (s.days_to_end >= 16 && s.days_to_end <= 50) tr.classList.add("expiry-amber");
     }
     tr.innerHTML = `
+      <td class="sl-no-cell">${idx + 1}</td>
       <td>${isFixedPrice ? `<button type="button" class="expand-btn" title="Show milestones">${icon("chevron")}</button>` : ""}</td>
       <td>${escapeHtml(s.customer_name)}</td>
       <td>${escapeHtml(s.title)}</td>
@@ -355,12 +447,13 @@ function renderSowsTable(sowsIn) {
       <td>${escapeHtml(s.project_title) || "—"}</td>
       <td>${s.notes ? `<span class="truncate-cell" title="${escapeHtml(s.notes)}">${escapeHtml(s.notes)}</span>` : "—"}</td>
       <td class="row-actions">
-        <button class="ghost-btn btn-edit edit-btn">${icon("edit")}<span>Edit</span></button>
-        <button class="ghost-btn btn-danger del-btn" data-id="${s.id}">${icon("trash")}<span>Delete</span></button>
+        <button class="ghost-btn btn-edit icon-btn copy-btn" title="Copy">${icon("copy")}</button>
+        <button class="ghost-btn btn-edit icon-btn edit-btn" title="Edit">${icon("edit")}</button>
+        <button class="ghost-btn btn-danger icon-btn del-btn" data-id="${s.id}" title="Delete">${icon("trash")}</button>
       </td>
     `;
     tr.addEventListener("click", (e) => {
-      if (e.target.closest(".del-btn") || e.target.closest(".edit-btn") || e.target.closest(".expand-btn") || e.target.closest("a")) return;
+      if (e.target.closest(".del-btn") || e.target.closest(".edit-btn") || e.target.closest(".copy-btn") || e.target.closest(".expand-btn") || e.target.closest("a")) return;
       openDetail(s.id);
     });
     if (isFixedPrice) {
@@ -372,6 +465,28 @@ function renderSowsTable(sowsIn) {
     tr.querySelector(".edit-btn").addEventListener("click", (e) => {
       e.stopPropagation();
       openSowModal(s);
+    });
+    // Opens the New/Edit SOW modal pre-filled with this SOW's values (title
+    // gets a "(Copy)" suffix) plus its milestones, but with no id anywhere -
+    // openSowModal() treats an id-less sow object as a fresh "New SOW", so
+    // Save creates a new record instead of overwriting the original, and the
+    // user can review/edit anything before it's actually saved.
+    tr.querySelector(".copy-btn").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const full = await fetch(`${API}/sows/${s.id}`).then((r) => r.json());
+      openSowModal({
+        ...full,
+        id: null,
+        title: `${full.title} (Copy)`,
+        milestones: (full.milestones || []).map((m) => ({
+          id: null,
+          description: m.description,
+          amount: m.amount,
+          due_date: m.due_date,
+          status: "pending",
+          billed_date: null,
+        })),
+      });
     });
     tr.querySelector(".del-btn").addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -388,7 +503,7 @@ const MILESTONE_BADGE_CLASS = { paid: "completed", invoiced: "active", pending: 
 
 function renderMilestoneSubtable(milestones) {
   if (!milestones.length) {
-    return '<div class="empty-state" style="padding:6px 0">No milestones yet.</div>';
+    return '<div class="empty-state empty-state-tight">No milestones yet.</div>';
   }
   const rows = milestones.map((m) => `
     <tr>
@@ -418,8 +533,18 @@ async function toggleMilestoneSubrow(tr, s) {
   const milestones = await fetch(`${API}/sows/${s.id}/milestones`).then((r) => r.json());
   const subTr = document.createElement("tr");
   subTr.className = "milestone-subrow";
-  subTr.innerHTML = `<td colspan="17">${renderMilestoneSubtable(milestones)}</td>`;
+  subTr.innerHTML = `<td colspan="18">${renderMilestoneSubtable(milestones)}</td>`;
   tr.after(subTr);
+}
+
+// Wires up any number of Cancel buttons (a modal's top-of-header one and its
+// bottom-of-form one) to simply hide the given modal - shared by every modal
+// below instead of repeating the same addEventListener call per button.
+function wireModalCancel(modal, ...btnIds) {
+  btnIds.forEach((btnId) => {
+    const btn = document.getElementById(btnId);
+    if (btn) btn.addEventListener("click", () => (modal.hidden = true));
+  });
 }
 
 function escapeHtml(str) {
@@ -444,8 +569,7 @@ document.getElementById("exportSowsBtn").addEventListener("click", () => {
   const qs = params.toString();
   window.location.href = `${API}/sows/export${qs ? "?" + qs : ""}`;
 });
-document.getElementById("cancelSowBtn").addEventListener("click", () => (sowModal.hidden = true));
-document.getElementById("cancelSowBtnTop").addEventListener("click", () => (sowModal.hidden = true));
+wireModalCancel(sowModal, "cancelSowBtn", "cancelSowBtnTop");
 
 function fillSelect(selectId, items, valueKey, labelKey, placeholder) {
   const sel = document.getElementById(selectId);
@@ -546,7 +670,11 @@ async function openSowModal(sowStub) {
   if (sowStub && sowStub.id) {
     sow = await fetch(`${API}/sows/${sowStub.id}`).then((r) => r.json());
   }
-  document.getElementById("sowModalTitle").textContent = sow ? "Edit SOW" : "New SOW";
+  // A "Copy" draft (see the SOW table's copy-btn handler) is a sow-shaped
+  // object with every field pre-filled but no id, so it must fall into the
+  // same "New SOW" / create-on-save path as a blank form - checking sow?.id
+  // rather than just sow's truthiness is what makes that distinction.
+  document.getElementById("sowModalTitle").textContent = sow?.id ? "Edit SOW" : "New SOW";
   document.getElementById("sowId").value = sow?.id ?? "";
   document.getElementById("f_customer").value = sow?.customer_id ?? "";
   document.getElementById("f_title").value = sow?.title ?? "";
@@ -564,7 +692,12 @@ async function openSowModal(sowStub) {
   document.getElementById("f_doclink").value = sow?.doc_link ?? "";
   document.getElementById("f_notes").value = sow?.notes ?? "";
 
-  originalMilestoneIdsAtOpen = (sow?.milestones || []).map((m) => m.id);
+  // .filter(Boolean) matters for a "Copy" draft (see the copy-btn handler
+  // above): its milestones all carry id: null since none exist in the
+  // database yet, and without the filter those nulls would end up in
+  // syncMilestonesForSow()'s "delete anything missing" diff and fire
+  // DELETE requests against a nonsensical /api/milestones/null.
+  originalMilestoneIdsAtOpen = (sow?.milestones || []).map((m) => m.id).filter(Boolean);
   renderMilestoneRows(sow?.milestones || []);
   updateMilestonesVisibility();
 
@@ -682,11 +815,11 @@ async function renderDetail() {
         </div>
       </div>
       <div>
-        <button class="ghost-btn btn-edit" id="editSowBtn">${icon("edit")}<span>Edit SOW</span></button>
+        <button class="ghost-btn btn-edit icon-btn" id="editSowBtn" title="Edit SOW">${icon("edit")}</button>
       </div>
     </div>
     <div class="detail-cards">
-      <div class="stat-card"><div class="stat-label">Start &rarr; end</div><div class="stat-value" style="font-size:16px">${fmtDate(s.start_date)} &rarr; ${fmtDate(s.end_date)}</div></div>
+      <div class="stat-card"><div class="stat-label">Start &rarr; end</div><div class="stat-value stat-value-sm">${fmtDate(s.start_date)} &rarr; ${fmtDate(s.end_date)}</div></div>
       <div class="stat-card"><div class="stat-label">TCV (USD)</div><div class="stat-value">${fmt(s.total_value)}</div></div>
       <div class="stat-card"><div class="stat-label">Billed</div><div class="stat-value">${fmt(s.billed_total)}</div></div>
       <div class="stat-card"><div class="stat-label">Remaining</div><div class="stat-value">${fmt(s.remaining_budget)}</div></div>
@@ -698,8 +831,8 @@ async function renderDetail() {
     ${s.notes ? `<p><strong>Additional information:</strong> ${escapeHtml(s.notes)}</p>` : ""}
 
     ${isFixedPrice ? `
-      <div class="toolbar" style="margin-top:24px">
-        <h3 style="flex:1;margin:0">Milestones / Invoices</h3>
+      <div class="toolbar milestones-toolbar">
+        <h3>Milestones / Invoices</h3>
         <button class="primary-btn" id="newMilestoneBtn"><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Add milestone</button>
       </div>
       <table class="milestone-table">
@@ -728,8 +861,8 @@ async function renderDetail() {
         <td>${fmtDate(m.due_date)}</td>
         <td>${fmtDate(m.billed_date)}</td>
         <td class="row-actions">
-          <button class="ghost-btn btn-edit edit-m-btn">${icon("edit")}<span>Edit</span></button>
-          <button class="ghost-btn btn-danger del-m-btn">${icon("trash")}<span>Delete</span></button>
+          <button class="ghost-btn btn-edit icon-btn edit-m-btn" title="Edit">${icon("edit")}</button>
+          <button class="ghost-btn btn-danger icon-btn del-m-btn" title="Delete">${icon("trash")}</button>
         </td>
       `;
       tr.querySelector(".edit-m-btn").addEventListener("click", () => openMilestoneModal(m));
@@ -745,8 +878,7 @@ async function renderDetail() {
 }
 
 const milestoneModal = document.getElementById("milestoneModal");
-document.getElementById("cancelMilestoneBtn").addEventListener("click", () => (milestoneModal.hidden = true));
-document.getElementById("cancelMilestoneBtnTop").addEventListener("click", () => (milestoneModal.hidden = true));
+wireModalCancel(milestoneModal, "cancelMilestoneBtn", "cancelMilestoneBtnTop");
 
 function openMilestoneModal(m) {
   document.getElementById("milestoneModalTitle").textContent = m ? "Edit Milestone" : "New Milestone / Invoice";
@@ -790,12 +922,13 @@ async function loadCustomers() {
   const tbody = document.getElementById("customerTableBody");
   tbody.innerHTML = "";
   if (!customers.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No customers yet. Click "New Customer" to add one.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No customers yet. Click "New Customer" to add one.</td></tr>';
     return;
   }
-  customers.forEach((c) => {
+  customers.forEach((c, idx) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
+      <td class="sl-no-cell">${idx + 1}</td>
       <td>${escapeHtml(c.customer_code)}</td>
       <td>${escapeHtml(c.customer_name)}</td>
       <td>${escapeHtml(c.client_partner) || "—"}</td>
@@ -804,8 +937,8 @@ async function loadCustomers() {
       <td>${escapeHtml(c.headquarters) || "—"}</td>
       <td>${escapeHtml(c.geo) || "—"}</td>
       <td class="row-actions">
-        <button class="ghost-btn btn-edit edit-c-btn">${icon("edit")}<span>Edit</span></button>
-        <button class="ghost-btn btn-danger del-c-btn">${icon("trash")}<span>Delete</span></button>
+        <button class="ghost-btn btn-edit icon-btn edit-c-btn" title="Edit">${icon("edit")}</button>
+        <button class="ghost-btn btn-danger icon-btn del-c-btn" title="Delete">${icon("trash")}</button>
       </td>
     `;
     tr.querySelector(".edit-c-btn").addEventListener("click", () => openCustomerModal(c));
@@ -829,8 +962,7 @@ document.getElementById("exportCustomersBtn").addEventListener("click", () => {
   const qs = params.toString();
   window.location.href = `${API}/customers/export${qs ? "?" + qs : ""}`;
 });
-document.getElementById("cancelCustomerBtn").addEventListener("click", () => (customerModal.hidden = true));
-document.getElementById("cancelCustomerBtnTop").addEventListener("click", () => (customerModal.hidden = true));
+wireModalCancel(customerModal, "cancelCustomerBtn", "cancelCustomerBtnTop");
 
 function openCustomerModal(c) {
   document.getElementById("customerModalTitle").textContent = c ? "Edit Customer" : "New Customer";
@@ -900,12 +1032,13 @@ async function loadResources() {
   const tbody = document.getElementById("resourceTableBody");
   tbody.innerHTML = "";
   if (!resources.length) {
-    tbody.innerHTML = '<tr><td colspan="11" class="empty-state">No resources yet. Click "New Resource" to add one.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="empty-state">No resources yet. Click "New Resource" to add one.</td></tr>';
     return;
   }
-  resources.forEach((r) => {
+  resources.forEach((r, idx) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
+      <td class="sl-no-cell">${idx + 1}</td>
       <td>${escapeHtml(r.account_name) || "—"}</td>
       <td>${escapeHtml(r.project_name) || "—"}</td>
       <td>${escapeHtml(r.wbs_id) || "—"}</td>
@@ -917,8 +1050,8 @@ async function loadResources() {
       <td>${fmtDate(r.allocation_start_date)}</td>
       <td>${fmtDate(r.allocation_end_date)}</td>
       <td class="row-actions">
-        <button class="ghost-btn btn-edit edit-r-btn">${icon("edit")}<span>Edit</span></button>
-        <button class="ghost-btn btn-danger del-r-btn">${icon("trash")}<span>Delete</span></button>
+        <button class="ghost-btn btn-edit icon-btn edit-r-btn" title="Edit">${icon("edit")}</button>
+        <button class="ghost-btn btn-danger icon-btn del-r-btn" title="Delete">${icon("trash")}</button>
       </td>
     `;
     tr.querySelector(".edit-r-btn").addEventListener("click", () => openResourceModal(r));
@@ -942,8 +1075,7 @@ document.getElementById("exportResourcesBtn").addEventListener("click", () => {
   const qs = params.toString();
   window.location.href = `${API}/resources/export${qs ? "?" + qs : ""}`;
 });
-document.getElementById("cancelResourceBtn").addEventListener("click", () => (resourceModal.hidden = true));
-document.getElementById("cancelResourceBtnTop").addEventListener("click", () => (resourceModal.hidden = true));
+wireModalCancel(resourceModal, "cancelResourceBtn", "cancelResourceBtnTop");
 
 async function populateResourceDropdowns() {
   const [locations, employeeTypes, bands] = await Promise.all([
@@ -1106,7 +1238,18 @@ const lineLabelPlugin = {
 // serves both the Dashboard's chart and Revenue Management's own copy of
 // it - two separate <canvas> elements, since a Chart.js instance is tied
 // to one canvas and both tabs can be visited independently.
+// Saffron accent for this chart's legend text in dark mode - the default
+// Chart.js legend color is a mid-gray tuned for a light background, which
+// reads as too low-contrast against the dark card. Chart.js renders its
+// legend on <canvas> rather than as styled DOM text, so this can't be a
+// plain CSS rule - the color has to be picked at chart-construction time
+// based on the current theme instead.
+const SAFFRON = "#F4C430";
+
 function renderRevenueTrendChart(canvasId, projections, invoiced) {
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  const legendLabels = { boxWidth: 10, font: { size: 11 } };
+  if (isDark) legendLabels.color = SAFFRON;
   return new Chart(document.getElementById(canvasId), {
     type: "line",
     data: {
@@ -1126,7 +1269,7 @@ function renderRevenueTrendChart(canvasId, projections, invoiced) {
       // edge - most noticeable on Apr/Mar, the first/last points.
       layout: { padding: { top: 16, bottom: 8, left: 20, right: 20 } },
       scales: { y: { beginAtZero: true } },
-      plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } },
+      plugins: { legend: { position: "bottom", labels: legendLabels } },
     },
     plugins: [lineLabelPlugin],
   });
@@ -1416,6 +1559,18 @@ async function loadHome() {
   const { projections, invoiced } = aggregateMonthlyRevenue(filteredAccounts);
   homeCharts.revenueTrend = renderRevenueTrendChart("chartRevenueTrend", projections, invoiced);
   renderRevenueVarianceTable("homeRevenueVarianceTableBody", projections, invoiced);
+
+  // Projections/Invoiced circle tiles - fiscal-year totals for the same
+  // (possibly customer-filtered) accounts feeding the chart/variance table
+  // right above, so all three always agree with each other.
+  const totalProjections = projections.reduce((sum, v) => sum + (v || 0), 0);
+  const totalInvoiced = invoiced.reduce((sum, v) => sum + (v || 0), 0);
+  const dashCircleProjectionsEl = document.getElementById("dashCircleProjections");
+  dashCircleProjectionsEl.textContent = fmtCompact(totalProjections);
+  dashCircleProjectionsEl.title = fmt(totalProjections);
+  const dashCircleInvoicedEl = document.getElementById("dashCircleInvoiced");
+  dashCircleInvoicedEl.textContent = fmtCompact(totalInvoiced);
+  dashCircleInvoicedEl.title = fmt(totalInvoiced);
 }
 
 // ---------- Revenue Management (Management) ----------
@@ -1500,14 +1655,34 @@ async function loadRevenueSows() {
   const tbody = document.getElementById("revenueSowsTableBody");
   tbody.innerHTML = "";
   if (!filteredRows.length) {
-    tbody.innerHTML = `<tr><td colspan="28" class="empty-state">${
+    tbody.innerHTML = `<tr><td colspan="29" class="empty-state">${
       data.rows.length ? "No entries match the selected filters." : 'No entries yet. Click "Add Entry" to start tracking revenue for a SOW.'
     }</td></tr>`;
   } else {
     filteredRows.forEach((r) => tbody.appendChild(buildRevenueSowRow(r, false)));
     const totals = aggregateMonthlyRevenue(filteredRows);
     tbody.appendChild(buildRevenueTotalsRow(totals));
+    renumberRevenueRows();
   }
+}
+
+// Fills in the leading "Sl. No" cell of every data row (skipping the Total
+// row and any in-progress "Add Entry" draft row) based on current DOM
+// order. Re-run after anything that changes the row set or order - a full
+// reload (loadRevenueSows()) or splicing in a newly-saved entry - rather
+// than baking a fixed number into each row, since edit/cancel toggle a row
+// in place (see buildRevenueSowRow()) without knowing its position.
+function renumberRevenueRows() {
+  const tbody = document.getElementById("revenueSowsTableBody");
+  let n = 0;
+  tbody.querySelectorAll("tr").forEach((tr) => {
+    if (tr.classList.contains("revenue-total-row") || tr.classList.contains("revenue-draft-row")) return;
+    const cell = tr.querySelector(".rev-sl-no");
+    if (cell) {
+      n += 1;
+      cell.textContent = n;
+    }
+  });
 }
 
 // Bottom "Total" row summing Projections and Invoiced per month across all
@@ -1516,7 +1691,7 @@ async function loadRevenueSows() {
 function buildRevenueTotalsRow(totals) {
   const tr = document.createElement("tr");
   tr.className = "revenue-total-row";
-  let cells = `<td colspan="3">Total</td>`;
+  let cells = `<td></td><td colspan="3">Total</td>`;
   for (let i = 0; i < 12; i++) {
     const band = i % 2 === 0 ? "rev-band-a" : "rev-band-b";
     cells += `
@@ -1529,13 +1704,28 @@ function buildRevenueTotalsRow(totals) {
   return tr;
 }
 
+// Swaps a row for a rebuilt version of itself (used when toggling a row
+// between read-only and editing) while preserving its already-assigned
+// Sl. No, since the rebuilt row starts with that cell blank (see
+// buildRevenueSowRow()) and the row's position/count isn't changing here so
+// a full renumberRevenueRows() pass isn't needed.
+function replaceRevenueRow(oldTr, newTr) {
+  const oldCell = oldTr.querySelector(".rev-sl-no");
+  const newCell = newTr.querySelector(".rev-sl-no");
+  if (oldCell && newCell) newCell.textContent = oldCell.textContent;
+  oldTr.replaceWith(newTr);
+}
+
 // Builds one <tr> for the SoW-level grid. editing=false renders plain
 // read-only month text with Edit/Delete actions; editing=true renders
 // number inputs for the 12 months with Save/Cancel actions.
 function buildRevenueSowRow(r, editing) {
   const tr = document.createElement("tr");
   if (editing) tr.classList.add("revenue-editing-row");
-  let cells = `<td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title)}</td><td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
+  // Sl. No is left blank here and filled in by renumberRevenueRows() based
+  // on the row's actual position in the table - this function rebuilds a
+  // single row in place for edit/cancel toggling without knowing its index.
+  let cells = `<td class="rev-sl-no"></td><td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title)}</td><td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
   // Alternating background per month (both its Projections and Invoiced
   // columns share the same band) so adjacent months are visually grouped
   // and easy to tell apart across 24 otherwise-identical columns - matches
@@ -1560,8 +1750,8 @@ function buildRevenueSowRow(r, editing) {
         <button type="button" class="ghost-btn rev-cancel-btn">${icon("x")}<span>Cancel</span></button>
       </td>`
     : `<td class="row-actions">
-        <button type="button" class="ghost-btn btn-edit rev-edit-btn">${icon("edit")}<span>Edit</span></button>
-        <button type="button" class="ghost-btn btn-danger rev-del-btn">${icon("trash")}<span>Delete</span></button>
+        <button type="button" class="ghost-btn btn-edit icon-btn rev-edit-btn" title="Edit">${icon("edit")}</button>
+        <button type="button" class="ghost-btn btn-danger icon-btn rev-del-btn" title="Delete">${icon("trash")}</button>
       </td>`;
   tr.innerHTML = cells;
 
@@ -1569,11 +1759,11 @@ function buildRevenueSowRow(r, editing) {
     tr.querySelector(".rev-save-btn").addEventListener("click", () => saveRevenueRow(r.sow_id, tr));
     tr.querySelector(".rev-cancel-btn").addEventListener("click", () => {
       const cached = revenueSowsCache.get(r.sow_id) || r;
-      tr.replaceWith(buildRevenueSowRow(cached, false));
+      replaceRevenueRow(tr, buildRevenueSowRow(cached, false));
     });
   } else {
     tr.querySelector(".rev-edit-btn").addEventListener("click", () => {
-      tr.replaceWith(buildRevenueSowRow(r, true));
+      replaceRevenueRow(tr, buildRevenueSowRow(r, true));
     });
     tr.querySelector(".rev-del-btn").addEventListener("click", async () => {
       if (confirm(`Remove "${r.sow_title}" (${r.customer_name}) from Revenue Management for ${fyLabelText(currentFiscalYear)}? This deletes all of its months for this fiscal year.`)) {
@@ -1649,6 +1839,7 @@ document.getElementById("newRevenueEntryBtn").addEventListener("click", async ()
   const tr = document.createElement("tr");
   tr.className = "revenue-draft-row";
   tr.innerHTML = `
+    <td></td>
     <td>
       <select class="draft-account-select">
         <option value="">Select customer&hellip;</option>
@@ -1661,9 +1852,9 @@ document.getElementById("newRevenueEntryBtn").addEventListener("click", async ()
       </select>
     </td>
     <td class="draft-billing-model">&mdash;</td>
-    <td colspan="24" class="empty-state" style="text-align:left">Pick a customer and SOW, then save this row.</td>
+    <td colspan="24" class="empty-state empty-state-left">Pick a customer and SOW, then save this row.</td>
     <td class="row-actions">
-      <button type="button" class="ghost-btn draft-save-btn" disabled>${icon("check")}<span>Save</span></button>
+      <button type="button" class="ghost-btn btn-edit draft-save-btn" disabled>${icon("check")}<span>Save</span></button>
       <button type="button" class="ghost-btn draft-cancel-btn">${icon("x")}<span>Cancel</span></button>
     </td>
   `;
@@ -1728,6 +1919,7 @@ document.getElementById("newRevenueEntryBtn").addEventListener("click", async ()
     revenueTrackedSowIds.add(newRow.sow_id);
     revenueSowsCache.set(newRow.sow_id, newRow);
     tr.replaceWith(buildRevenueSowRow(newRow, true));
+    renumberRevenueRows();
   });
 });
 
@@ -1736,7 +1928,7 @@ function makeSimpleListManager(opts) {
   const { apiPath, tableBodyId, newBtnId, modal, modalTitleId, formId, idFieldId, nameFieldId, detailsFieldId, cancelBtnId, topCancelBtnId, itemLabel, onChange } = opts;
   const tbody = document.getElementById(tableBodyId);
   const form = document.getElementById(formId);
-  const colCount = detailsFieldId ? 3 : 2;
+  const colCount = detailsFieldId ? 4 : 3;
 
   function openModal(item) {
     document.getElementById(modalTitleId).textContent = item ? `Edit ${itemLabel}` : `New ${itemLabel}`;
@@ -1753,14 +1945,15 @@ function makeSimpleListManager(opts) {
       tbody.innerHTML = `<tr><td colspan="${colCount}" class="empty-state">No ${itemLabel.toLowerCase()}s yet.</td></tr>`;
       return;
     }
-    items.forEach((item) => {
+    items.forEach((item, idx) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
+        <td class="sl-no-cell">${idx + 1}</td>
         <td>${escapeHtml(item.name)}</td>
         ${detailsFieldId ? `<td>${escapeHtml(item.details) || "—"}</td>` : ""}
         <td class="row-actions">
-          <button class="ghost-btn btn-edit edit-btn">${icon("edit")}<span>Edit</span></button>
-          <button class="ghost-btn btn-danger del-btn">${icon("trash")}<span>Delete</span></button>
+          <button class="ghost-btn btn-edit icon-btn edit-btn" title="Edit">${icon("edit")}</button>
+          <button class="ghost-btn btn-danger icon-btn del-btn" title="Delete">${icon("trash")}</button>
         </td>
       `;
       tr.querySelector(".edit-btn").addEventListener("click", () => openModal(item));
@@ -1776,8 +1969,7 @@ function makeSimpleListManager(opts) {
   }
 
   document.getElementById(newBtnId).addEventListener("click", () => openModal());
-  document.getElementById(cancelBtnId).addEventListener("click", () => (modal.hidden = true));
-  if (topCancelBtnId) document.getElementById(topCancelBtnId).addEventListener("click", () => (modal.hidden = true));
+  wireModalCancel(modal, cancelBtnId, topCancelBtnId);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = document.getElementById(idFieldId).value;
@@ -1810,6 +2002,7 @@ const locationManager = makeSimpleListManager({
   nameFieldId: "loc_name",
   detailsFieldId: "loc_details",
   cancelBtnId: "cancelLocationBtn",
+  topCancelBtnId: "cancelLocationBtnTop",
   itemLabel: "Location",
 });
 
@@ -1824,6 +2017,7 @@ const billingModelManager = makeSimpleListManager({
   nameFieldId: "bm_name",
   detailsFieldId: "bm_details",
   cancelBtnId: "cancelBillingModelBtn",
+  topCancelBtnId: "cancelBillingModelBtnTop",
   itemLabel: "Billing Model",
 });
 
@@ -1838,6 +2032,7 @@ const operatingModelManager = makeSimpleListManager({
   nameFieldId: "om_name",
   detailsFieldId: "om_details",
   cancelBtnId: "cancelOperatingModelBtn",
+  topCancelBtnId: "cancelOperatingModelBtnTop",
   itemLabel: "Operating Model",
 });
 
@@ -1852,6 +2047,7 @@ const statusManager = makeSimpleListManager({
   nameFieldId: "st_name",
   detailsFieldId: "st_details",
   cancelBtnId: "cancelStatusBtn",
+  topCancelBtnId: "cancelStatusBtnTop",
   itemLabel: "Status",
   onChange: refreshStatusFilterOptions,
 });
@@ -1867,6 +2063,7 @@ const employeeTypeManager = makeSimpleListManager({
   nameFieldId: "et_name",
   detailsFieldId: "et_details",
   cancelBtnId: "cancelEmployeeTypeBtn",
+  topCancelBtnId: "cancelEmployeeTypeBtnTop",
   itemLabel: "Employee Type",
 });
 
@@ -1881,6 +2078,7 @@ const bandManager = makeSimpleListManager({
   nameFieldId: "bd_name",
   detailsFieldId: "bd_details",
   cancelBtnId: "cancelBandBtn",
+  topCancelBtnId: "cancelBandBtnTop",
   itemLabel: "Band",
 });
 
@@ -1892,19 +2090,19 @@ function loadEmployeeTypes() { employeeTypeManager.load(); }
 function loadBands() { bandManager.load(); }
 
 // ---------- init ----------
-// Home is the landing page, but a refresh should land back on whatever tab
-// the user was last viewing (see rememberLastTab()/showTab() above) rather
-// than always resetting to it. Falls back to Home if nothing was stored yet,
-// or if the stored tab no longer exists (e.g. after a future page removal).
-// SOW-page-specific setup (status filter options) is cheap and harmless to
-// run up front so the SOWs tab is ready whenever it's opened.
+// A refresh should land back on whatever tab the user was actually working
+// in (see rememberLastTab()/showTab() above) - the landing/About page is
+// only the fallback for a genuinely fresh visit, when nothing has been
+// stored yet (or the stored tab no longer exists, e.g. after a future page
+// removal). SOW-page-specific setup (status filter options) is cheap and
+// harmless to run up front so the SOWs tab is ready whenever it's opened.
 let lastTab = null;
 try {
   lastTab = localStorage.getItem("trakerz_last_tab");
 } catch (e) {}
-if (lastTab && lastTab !== "home" && document.getElementById("tab-" + lastTab)) {
+if (lastTab && document.getElementById("tab-" + lastTab)) {
   showTab(lastTab);
 } else {
-  loadHome();
+  showTab("landing");
 }
 refreshStatusFilterOptions();
