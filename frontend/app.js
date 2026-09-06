@@ -283,6 +283,7 @@ document.getElementById("themeToggleBtn").addEventListener("click", () => {
 // ---------- SOWs list ----------
 document.getElementById("searchInput").addEventListener("input", debounce(loadSows, 250));
 document.getElementById("statusFilter").addEventListener("change", loadSows);
+document.getElementById("sowCustomerFilter").addEventListener("change", loadSows);
 
 async function refreshStatusFilterOptions() {
   const statuses = await fetch(`${API}/statuses`).then((r) => r.json());
@@ -291,6 +292,20 @@ async function refreshStatusFilterOptions() {
   sel.innerHTML = '<option value="">All statuses</option>' +
     statuses.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(capitalize(s.name))}</option>`).join("");
   if (statuses.some((s) => s.name === prevVal)) sel.value = prevVal;
+}
+
+// Customer filter for the SOWs table - refreshed here (called at startup)
+// and again after any customer is added/edited/deleted on the Customers
+// page (see openCustomerModal()'s save handler and the delete button below),
+// same "onChange" spirit as refreshStatusFilterOptions() above so the
+// dropdown never goes stale just because the edit happened on another tab.
+async function refreshSowCustomerFilterOptions() {
+  const customers = await fetch(`${API}/customers`).then((r) => r.json());
+  const sel = document.getElementById("sowCustomerFilter");
+  const prevVal = sel.value;
+  sel.innerHTML = '<option value="">All customers</option>' +
+    customers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
+  if (customers.some((c) => String(c.id) === prevVal)) sel.value = prevVal;
 }
 
 function debounce(fn, ms) {
@@ -402,9 +417,11 @@ async function loadSows() {
   loadSowStats();
   const q = document.getElementById("searchInput").value.trim();
   const status = document.getElementById("statusFilter").value;
+  const customerId = document.getElementById("sowCustomerFilter").value;
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (status) params.set("status", status);
+  if (customerId) params.set("customer_id", customerId);
   currentSows = await fetch(`${API}/sows?${params}`).then((r) => r.json());
   renderSowsTable(currentSows);
 }
@@ -563,9 +580,11 @@ document.getElementById("newSowBtn").addEventListener("click", () => openSowModa
 document.getElementById("exportSowsBtn").addEventListener("click", () => {
   const q = document.getElementById("searchInput").value.trim();
   const status = document.getElementById("statusFilter").value;
+  const customerId = document.getElementById("sowCustomerFilter").value;
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (status) params.set("status", status);
+  if (customerId) params.set("customer_id", customerId);
   const qs = params.toString();
   window.location.href = `${API}/sows/export${qs ? "?" + qs : ""}`;
 });
@@ -946,6 +965,7 @@ async function loadCustomers() {
       if (confirm(`Delete customer "${c.customer_name}" (${c.customer_code})?`)) {
         await fetch(`${API}/customers/${c.id}`, { method: "DELETE" });
         loadCustomers();
+        refreshSowCustomerFilterOptions();
       }
     });
     tbody.appendChild(tr);
@@ -999,6 +1019,7 @@ document.getElementById("customerForm").addEventListener("submit", async (e) => 
   }
   customerModal.hidden = true;
   loadCustomers();
+  refreshSowCustomerFilterOptions();
 });
 
 // ---------- Resource Management (Management) ----------
@@ -2094,8 +2115,9 @@ function loadBands() { bandManager.load(); }
 // in (see rememberLastTab()/showTab() above) - the landing/About page is
 // only the fallback for a genuinely fresh visit, when nothing has been
 // stored yet (or the stored tab no longer exists, e.g. after a future page
-// removal). SOW-page-specific setup (status filter options) is cheap and
-// harmless to run up front so the SOWs tab is ready whenever it's opened.
+// removal). SOW-page-specific setup (status/customer filter options) is
+// cheap and harmless to run up front so the SOWs tab is ready whenever it's
+// opened.
 let lastTab = null;
 try {
   lastTab = localStorage.getItem("trakerz_last_tab");
@@ -2106,3 +2128,4 @@ if (lastTab && document.getElementById("tab-" + lastTab)) {
   showTab("landing");
 }
 refreshStatusFilterOptions();
+refreshSowCustomerFilterOptions();
