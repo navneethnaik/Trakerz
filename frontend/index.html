@@ -14,7 +14,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=55" />
+<link rel="stylesheet" href="style.css?v=62" />
 </head>
 <body>
 <header class="topbar">
@@ -27,21 +27,47 @@
       <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
       <span class="icon-text">Dashboard</span>
     </button>
+    <button class="tab-btn" data-tab="sows">
+      <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+      <span class="icon-text">Contract</span>
+    </button>
     <div class="nav-dropdown">
-      <button class="tab-btn dropdown-toggle" id="contractsMenuBtn">
-        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-        <span class="icon-text">Contracts / Financials</span>
+      <button class="tab-btn dropdown-toggle" id="financialMenuBtn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+        <span class="icon-text">Financial</span>
         <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
       </button>
-      <div class="dropdown-menu" id="contractsMenu" hidden>
-        <button class="dropdown-item" data-tab="sows">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-          Statement of Work
-        </button>
-        <button class="dropdown-item" data-tab="revenue">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
-          Revenue Management
-        </button>
+      <!-- Two-level menu: Projections/Actuals are themselves submenu triggers
+           (data-toggle-submenu, wired generically in app.js), each opening a
+           flyout with the two billing-model presets. Every leaf item still
+           uses the plain .dropdown-item[data-tab] convention the generic nav
+           handler already understands, plus data-revenue-view/
+           data-revenue-billing-model so the click also pre-sets the Financial
+           table's view mode and billing-model filter (see
+           applyRevenueMenuPreset() in app.js) before navigating there. -->
+      <div class="dropdown-menu" id="financialMenu" hidden>
+        <div class="dropdown-item-group">
+          <button type="button" class="dropdown-item" data-toggle-submenu="financialProjectionsSubmenu">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+            <span class="dropdown-item-label">Projections</span>
+            <svg class="icon submenu-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <div class="dropdown-submenu" id="financialProjectionsSubmenu" hidden>
+            <button class="dropdown-item" data-tab="revenue" data-revenue-view="projections" data-revenue-billing-model="Time and Material">Time and Material</button>
+            <button class="dropdown-item" data-tab="revenue" data-revenue-view="projections" data-revenue-billing-model="Managed Services">Managed Services</button>
+          </div>
+        </div>
+        <div class="dropdown-item-group">
+          <button type="button" class="dropdown-item" data-toggle-submenu="financialActualsSubmenu">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span class="dropdown-item-label">Actuals</span>
+            <svg class="icon submenu-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <div class="dropdown-submenu" id="financialActualsSubmenu" hidden>
+            <button class="dropdown-item" data-tab="revenue" data-revenue-view="actuals" data-revenue-billing-model="Time and Material">Time and Material</button>
+            <button class="dropdown-item" data-tab="revenue" data-revenue-view="actuals" data-revenue-billing-model="Managed Services">Managed Services</button>
+          </div>
+        </div>
       </div>
     </div>
     <button class="tab-btn" data-tab="resources">
@@ -49,16 +75,33 @@
       <span class="icon-text">Staffing</span>
     </button>
     <div class="nav-dropdown">
-      <button class="tab-btn dropdown-toggle" id="configMenuBtn">
-        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
-        <span class="icon-text">Settings</span>
+      <button class="tab-btn dropdown-toggle" id="customerSettingsMenuBtn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        <span class="icon-text">Customer Configuration</span>
         <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
       </button>
-      <div class="dropdown-menu" id="configMenu" hidden>
+      <div class="dropdown-menu" id="customerSettingsMenu" hidden>
         <button class="dropdown-item" data-tab="customers">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           Customer
         </button>
+        <button class="dropdown-item" data-tab="config-billing-hours">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          Billing Hours Configuration
+        </button>
+        <button class="dropdown-item" data-tab="config-holidays">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          Holiday Calendar
+        </button>
+      </div>
+    </div>
+    <div class="nav-dropdown">
+      <button class="tab-btn dropdown-toggle" id="configMenuBtn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+        <span class="icon-text">Global Settings</span>
+        <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </button>
+      <div class="dropdown-menu" id="configMenu" hidden>
         <button class="dropdown-item" data-tab="config-locations">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
           Locations
@@ -86,6 +129,10 @@
         <button class="dropdown-item" data-tab="config-opportunity-types">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
           Opportunity Type
+        </button>
+        <button class="dropdown-item" data-tab="config-revenue-types">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+          Revenue Type
         </button>
       </div>
     </div>
@@ -118,7 +165,7 @@
         </p>
         <div class="landing-hero-actions">
           <button type="button" class="primary-btn landing-cta" id="landingGetStartedBtn">Open Dashboard</button>
-          <button type="button" class="ghost-btn landing-cta" id="landingViewSowsBtn">View Statement of Work</button>
+          <button type="button" class="ghost-btn landing-cta" id="landingViewSowsBtn">View Contract Management</button>
         </div>
         <p class="landing-hero-note">No sign-up. No servers to manage. Your data stays in a single local SQLite file.</p>
       </div>
@@ -132,7 +179,7 @@
           <div class="landing-carousel" id="landingCarousel">
             <div class="landing-carousel-track" id="landingCarouselTrack">
               <div class="landing-carousel-slide"><img src="assets/landing-dashboard.png" alt="Trakerz Dashboard preview" /></div>
-              <div class="landing-carousel-slide"><img src="assets/landing-sows.png" alt="Trakerz Statement of Work preview" /></div>
+              <div class="landing-carousel-slide"><img src="assets/landing-sows.png" alt="Trakerz Contract Management preview" /></div>
               <div class="landing-carousel-slide"><img src="assets/landing-revenue.png" alt="Trakerz Revenue Management preview" /></div>
               <div class="landing-carousel-slide"><img src="assets/landing-staffing.png" alt="Trakerz Staffing preview" /></div>
               <div class="landing-carousel-slide"><img src="assets/landing-settings.png" alt="Trakerz Settings preview" /></div>
@@ -163,7 +210,7 @@
         work in one connected app: the Statements of Work themselves, the revenue projected and
         invoiced against each one month by month, and the people staffed to deliver the work.
         Instead of juggling spreadsheets that fall out of sync, every number on the Dashboard is
-        computed live from the same records you manage in Statement of Work, Revenue Management
+        computed live from the same records you manage in Contract Management, Revenue Management
         and Staffing — so the totals always agree.
       </p>
     </section>
@@ -178,7 +225,7 @@
         </div>
         <div class="landing-feature-card">
           <span class="card-icon icon-red landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></span>
-          <h3>Statement of Work management</h3>
+          <h3>Contract Management</h3>
           <p>Track every SOW's customer, dates, total contract value, billing model, status, milestones and linked documents in one sortable, searchable table.</p>
         </div>
         <div class="landing-feature-card">
@@ -194,7 +241,7 @@
         <div class="landing-feature-card">
           <span class="card-icon icon-orange landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg></span>
           <h3>Customer &amp; master data</h3>
-          <p>Maintain your own customers, locations, billing models, operating models, SOW statuses, employee types and bands — all editable from Settings.</p>
+          <p>Maintain your own customers, billing hours and holiday calendar under Customer Configuration, and locations, billing models, operating models, SOW statuses, employee types and bands under Global Settings.</p>
         </div>
         <div class="landing-feature-card">
           <span class="card-icon icon-red landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></span>
@@ -204,7 +251,7 @@
         <div class="landing-feature-card">
           <span class="card-icon icon-amber landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></span>
           <h3>Export to Excel</h3>
-          <p>One-click export from the Statement of Work, Revenue and Staffing tables whenever you need the numbers outside the app.</p>
+          <p>One-click export from the Contract Management, Revenue and Staffing tables whenever you need the numbers outside the app.</p>
         </div>
         <div class="landing-feature-card">
           <span class="card-icon icon-pink landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></span>
@@ -250,15 +297,15 @@
       <ol class="landing-steps">
         <li>
           <h3>Configure your master data</h3>
-          <p>In <strong>Settings</strong>, set up Locations, Billing Models, Operating Models, SOW Statuses, Employee Types and Bands to match how your organization works.</p>
+          <p>In <strong>Global Settings</strong>, set up Locations, Billing Models, Operating Models, SOW Statuses, Employee Types, Bands, Opportunity Types and Revenue Types to match how your organization works.</p>
         </li>
         <li>
           <h3>Add your customers</h3>
-          <p>Create a customer record for each client you deliver work for, under <strong>Settings &rarr; Customer</strong>.</p>
+          <p>Create a customer record for each client you deliver work for, under <strong>Customer Configuration &rarr; Customer</strong>.</p>
         </li>
         <li>
           <h3>Create a Statement of Work</h3>
-          <p>Add a new SOW under a customer with its dates, total contract value, billing model and status from the <strong>Statement of Work</strong> page.</p>
+          <p>Add a new SOW under a customer with its dates, total contract value, billing model and status from the <strong>Contract Management</strong> page.</p>
         </li>
         <li>
           <h3>Add milestones and staff it</h3>
@@ -444,12 +491,21 @@
     <div class="table-scroll">
       <table class="sow-table">
         <thead>
+          <tr class="group-header-row">
+            <th rowspan="2"></th><th rowspan="2">Sl. No</th>
+            <th colspan="12" class="group-header">Contract Details</th>
+            <th colspan="4" class="group-header group-divider">BTP Information</th>
+            <th colspan="3" class="group-header group-divider">Reference Documents</th>
+            <th colspan="1" class="group-header group-divider">Additional Information</th>
+          </tr>
           <tr>
-            <th></th><th>Sl. No</th><th></th><th class="sortable-th" data-sort-key="customer_name">Customer Name<span class="sort-arrow"></span></th><th>Sow Title</th><th>Project Code (BTP)</th>
-            <th>Contract # (BTP)</th><th>Opportunity ID</th><th>Opportunity Type</th><th>PO#</th>
-            <th class="sortable-th" data-sort-key="start_date">Start date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="end_date">End date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="total_value">TCV (USD)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="status">Status<span class="sort-arrow"></span></th>
-            <th class="sortable-th" data-sort-key="billing_model_name">Billing model<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="operating_model_name">Operating model<span class="sort-arrow"></span></th><th>Document link</th>
-            <th>BTP Project Name</th><th>Additional information</th>
+            <th>Opportunity ID</th><th>Opportunity Type</th><th>Contract Title</th>
+            <th class="sortable-th" data-sort-key="customer_name">Customer Name<span class="sort-arrow"></span></th><th>Purchase Order #</th>
+            <th class="sortable-th" data-sort-key="start_date">Start date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="end_date">End date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="total_value">TCV (USD)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="gm_percent">GM %<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="status">Status<span class="sort-arrow"></span></th>
+            <th class="sortable-th" data-sort-key="billing_model_name">Billing model<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="operating_model_name">Operating model<span class="sort-arrow"></span></th>
+            <th class="group-divider">Customer Code</th><th>Project Title</th><th>Contract Code</th><th>Project Code</th>
+            <th class="group-divider">Contract (SoW)</th><th>Purchase Order</th><th>Deal Sheet</th>
+            <th class="group-divider">Additional information</th>
           </tr>
         </thead>
         <tbody id="sowTableBody"></tbody>
@@ -488,6 +544,40 @@
           </tr>
         </thead>
         <tbody id="customerTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CUSTOMER CONFIGURATION: Billing Hours -->
+  <section id="tab-config-billing-hours" class="tab-panel">
+    <div class="list-card config-card">
+      <div class="toolbar">
+        <h3><span class="card-icon icon-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span>Billing Hours Configuration</h3>
+        <button id="newBillingHoursBtn" class="primary-btn">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add Billing Hours Configuration
+        </button>
+      </div>
+      <table class="sow-table">
+        <thead><tr><th>Sl. No</th><th>Customer Name</th><th>Location</th><th>Billing Hours per day</th><th></th></tr></thead>
+        <tbody id="billingHoursTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CUSTOMER CONFIGURATION: Holiday Calendar -->
+  <section id="tab-config-holidays" class="tab-panel">
+    <div class="list-card config-card">
+      <div class="toolbar">
+        <h3><span class="card-icon icon-rose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg></span>Holiday Calendar</h3>
+        <button id="newHolidayBtn" class="primary-btn">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add Holiday
+        </button>
+      </div>
+      <table class="sow-table">
+        <thead><tr><th>Sl. No</th><th>Customer Name</th><th>Location</th><th>Holiday Date</th><th>Holiday Details</th><th></th></tr></thead>
+        <tbody id="holidayTableBody"></tbody>
       </table>
     </div>
   </section>
@@ -611,6 +701,23 @@
     </div>
   </section>
 
+  <!-- CONFIGURATION: Revenue Type -->
+  <section id="tab-config-revenue-types" class="tab-panel">
+    <div class="list-card config-card">
+      <div class="toolbar">
+        <h3><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span>Revenue Type</h3>
+        <button id="newRevenueTypeBtn" class="primary-btn">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add Revenue Type
+        </button>
+      </div>
+      <table class="sow-table">
+        <thead><tr><th>Sl. No</th><th>Revenue type</th><th>Revenue type details</th><th></th></tr></thead>
+        <tbody id="revenueTypeTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
   <!-- RESOURCE MANAGEMENT (Management) -->
   <section id="tab-resources" class="tab-panel">
     <div class="toolbar">
@@ -641,12 +748,12 @@
     </div>
   </section>
 
-  <!-- REVENUE MANAGEMENT (Management) -->
-  <section id="tab-revenue" class="tab-panel">
+  <!-- REVENUE MANAGEMENT (Financial > Projections/Actuals > Time and Material/Managed Services) -->
+  <section id="tab-revenue" class="tab-panel view-mode-both">
     <h3 class="revenue-section-title">
       <span class="card-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span>
       Revenue Summary (SoW Level)
-      <span class="section-subtitle">Add, edit or delete monthly projections and invoiced amounts per SOW</span>
+      <span class="section-subtitle" id="revenueSectionSubtitle">Add, edit or delete monthly projections and invoiced amounts per SOW</span>
     </h3>
 
     <div class="toolbar">
@@ -675,32 +782,32 @@
             <th rowspan="2">Customer Name</th>
             <th rowspan="2">SOW Title</th>
             <th rowspan="2">Billing Model</th>
-            <th class="rev-band-a" colspan="2">Apr</th>
-            <th class="rev-band-b" colspan="2">May</th>
-            <th class="rev-band-a" colspan="2">Jun</th>
-            <th class="rev-band-b" colspan="2">Jul</th>
-            <th class="rev-band-a" colspan="2">Aug</th>
-            <th class="rev-band-b" colspan="2">Sep</th>
-            <th class="rev-band-a" colspan="2">Oct</th>
-            <th class="rev-band-b" colspan="2">Nov</th>
-            <th class="rev-band-a" colspan="2">Dec</th>
-            <th class="rev-band-b" colspan="2">Jan</th>
-            <th class="rev-band-a" colspan="2">Feb</th>
-            <th class="rev-band-b" colspan="2">Mar</th>
+            <th class="rev-band-a rev-month-hdr" colspan="2">Apr</th>
+            <th class="rev-band-b rev-month-hdr" colspan="2">May</th>
+            <th class="rev-band-a rev-month-hdr" colspan="2">Jun</th>
+            <th class="rev-band-b rev-month-hdr" colspan="2">Jul</th>
+            <th class="rev-band-a rev-month-hdr" colspan="2">Aug</th>
+            <th class="rev-band-b rev-month-hdr" colspan="2">Sep</th>
+            <th class="rev-band-a rev-month-hdr" colspan="2">Oct</th>
+            <th class="rev-band-b rev-month-hdr" colspan="2">Nov</th>
+            <th class="rev-band-a rev-month-hdr" colspan="2">Dec</th>
+            <th class="rev-band-b rev-month-hdr" colspan="2">Jan</th>
+            <th class="rev-band-a rev-month-hdr" colspan="2">Feb</th>
+            <th class="rev-band-b rev-month-hdr" colspan="2">Mar</th>
           </tr>
           <tr>
-            <th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th>
-            <th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th>
-            <th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th>
-            <th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th>
-            <th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th>
-            <th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th>
-            <th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th>
-            <th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th>
-            <th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th>
-            <th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th>
-            <th class="rev-band-a">Projections</th><th class="rev-band-a">Invoiced</th>
-            <th class="rev-band-b">Projections</th><th class="rev-band-b">Invoiced</th>
+            <th class="rev-band-a rev-col-proj">Projections</th><th class="rev-band-a rev-col-inv">Invoiced</th>
+            <th class="rev-band-b rev-col-proj">Projections</th><th class="rev-band-b rev-col-inv">Invoiced</th>
+            <th class="rev-band-a rev-col-proj">Projections</th><th class="rev-band-a rev-col-inv">Invoiced</th>
+            <th class="rev-band-b rev-col-proj">Projections</th><th class="rev-band-b rev-col-inv">Invoiced</th>
+            <th class="rev-band-a rev-col-proj">Projections</th><th class="rev-band-a rev-col-inv">Invoiced</th>
+            <th class="rev-band-b rev-col-proj">Projections</th><th class="rev-band-b rev-col-inv">Invoiced</th>
+            <th class="rev-band-a rev-col-proj">Projections</th><th class="rev-band-a rev-col-inv">Invoiced</th>
+            <th class="rev-band-b rev-col-proj">Projections</th><th class="rev-band-b rev-col-inv">Invoiced</th>
+            <th class="rev-band-a rev-col-proj">Projections</th><th class="rev-band-a rev-col-inv">Invoiced</th>
+            <th class="rev-band-b rev-col-proj">Projections</th><th class="rev-band-b rev-col-inv">Invoiced</th>
+            <th class="rev-band-a rev-col-proj">Projections</th><th class="rev-band-a rev-col-inv">Invoiced</th>
+            <th class="rev-band-b rev-col-proj">Projections</th><th class="rev-band-b rev-col-inv">Invoiced</th>
           </tr>
         </thead>
         <tbody id="revenueSowsTableBody"></tbody>
@@ -723,17 +830,8 @@
     </div>
     <form id="sowForm">
       <input type="hidden" id="sowId" />
-      <label>Customer name
-        <select id="f_customer" required>
-          <option value="">Select customer&hellip;</option>
-        </select>
-      </label>
-      <label>SOW title<input id="f_title" required /></label>
-      <div class="three-col">
-        <label>Project title<input id="f_project_title" /></label>
-        <label>Project code<input id="f_project_code" /></label>
-        <label>Contract code<input id="f_contract_code" /></label>
-      </div>
+
+      <div class="form-section-title">Contract Details</div>
       <div class="three-col">
         <label>Opportunity ID<input id="f_opportunity" /></label>
         <label>Opportunity Type
@@ -741,25 +839,34 @@
             <option value="">Select opportunity type&hellip;</option>
           </select>
         </label>
-        <label>PO#<input id="f_po" /></label>
+        <label>Contract Title<input id="f_title" required /></label>
       </div>
       <div class="two-col">
-        <label>Start date<input id="f_start" type="date" /></label>
-        <label>End date<input id="f_end" type="date" /></label>
+        <label>Customer Name
+          <select id="f_customer" required>
+            <option value="">Select customer&hellip;</option>
+          </select>
+        </label>
+        <label>Purchase Order #<input id="f_po" /></label>
       </div>
       <div class="two-col">
+        <label>Start Date<input id="f_start" type="date" /></label>
+        <label>End Date<input id="f_end" type="date" /></label>
+      </div>
+      <div class="three-col">
         <label>TCV (USD)<input id="f_value" type="number" step="0.01" min="0" value="0" /></label>
+        <label>GM %<input id="f_gm_percent" type="number" step="0.01" min="0" max="100" /></label>
         <label>Status
           <select id="f_status"></select>
         </label>
       </div>
       <div class="two-col">
-        <label>Billing model
+        <label>Billing Model
           <select id="f_billing_model">
             <option value="">Select billing model&hellip;</option>
           </select>
         </label>
-        <label>Operating model
+        <label>Operating Model
           <select id="f_operating_model">
             <option value="">Select operating model&hellip;</option>
           </select>
@@ -776,7 +883,19 @@
           <span>Add milestone</span>
         </button>
       </div>
-      <label>Document link (optional, e.g. path or URL to the SOW file)
+
+      <div class="form-section-title">BTP Information</div>
+      <div class="two-col">
+        <label>Customer Code<input id="f_customer_code" class="form-field-readonly" readonly /></label>
+        <label>Project Title<input id="f_project_title" /></label>
+      </div>
+      <div class="two-col">
+        <label>Contract Code<input id="f_contract_code" /></label>
+        <label>Project Code<input id="f_project_code" /></label>
+      </div>
+
+      <div class="form-section-title">Reference Documents</div>
+      <label>Contract (SoW)
         <div class="doclink-row">
           <input id="f_doclink" />
           <button type="button" id="uploadDocBtn" class="ghost-btn">
@@ -786,7 +905,30 @@
           <input type="file" id="f_doc_file" hidden />
         </div>
       </label>
-      <label>Additional information<textarea id="f_notes" rows="3"></textarea></label>
+      <label>Purchase Order
+        <div class="doclink-row">
+          <input id="f_po_doclink" />
+          <button type="button" id="uploadPoDocBtn" class="ghost-btn">
+            <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            <span>Upload</span>
+          </button>
+          <input type="file" id="f_po_doc_file" hidden />
+        </div>
+      </label>
+      <label>Deal Sheet
+        <div class="doclink-row">
+          <input id="f_deal_sheet_link" />
+          <button type="button" id="uploadDealSheetBtn" class="ghost-btn">
+            <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            <span>Upload</span>
+          </button>
+          <input type="file" id="f_deal_sheet_file" hidden />
+        </div>
+      </label>
+
+      <div class="form-section-title">Additional Information</div>
+      <label><textarea id="f_notes" rows="3"></textarea></label>
+
       <div class="modal-actions">
         <button type="button" id="cancelSowBtn" class="ghost-btn">Cancel</button>
         <button type="submit" class="primary-btn">Save</button>
@@ -831,191 +973,6 @@
   </div>
 </div>
 
-
-<!-- Customer form modal -->
-<div id="customerModal" class="modal" hidden>
-  <div class="modal-box">
-    <div class="modal-header">
-      <h2><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></span><span id="customerModalTitle">New Customer</span></h2>
-      <div class="modal-header-actions">
-        <button type="button" id="cancelCustomerBtnTop" class="ghost-btn">Cancel</button>
-        <button type="submit" form="customerForm" class="primary-btn">Save</button>
-      </div>
-    </div>
-    <form id="customerForm">
-      <input type="hidden" id="c_id" />
-      <label>Customer code<input id="c_code" required /></label>
-      <label>Customer name<input id="c_name" required /></label>
-      <div class="two-col">
-        <label>Client partner<input id="c_partner" /></label>
-        <label>Delivery director<input id="c_director" /></label>
-      </div>
-      <label>Industry<input id="c_industry" /></label>
-      <div class="two-col">
-        <label>Headquarters<input id="c_headquarters" /></label>
-        <label>Geo<input id="c_geo" /></label>
-      </div>
-      <div class="modal-actions">
-        <button type="button" id="cancelCustomerBtn" class="ghost-btn">Cancel</button>
-        <button type="submit" class="primary-btn">Save</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Location form modal -->
-<div id="locationModal" class="modal" hidden>
-  <div class="modal-box">
-    <div class="modal-header">
-      <h2><span class="card-icon icon-pink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></span><span id="locationModalTitle">New Location</span></h2>
-      <div class="modal-header-actions">
-        <button type="button" id="cancelLocationBtnTop" class="ghost-btn">Cancel</button>
-        <button type="submit" form="locationForm" class="primary-btn">Save</button>
-      </div>
-    </div>
-    <form id="locationForm">
-      <input type="hidden" id="loc_id" />
-      <label>Location name<input id="loc_name" required /></label>
-      <label>Location details<textarea id="loc_details" rows="2"></textarea></label>
-      <div class="modal-actions">
-        <button type="button" id="cancelLocationBtn" class="ghost-btn">Cancel</button>
-        <button type="submit" class="primary-btn">Save</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Billing Model form modal -->
-<div id="billingModelModal" class="modal" hidden>
-  <div class="modal-box">
-    <div class="modal-header">
-      <h2><span class="card-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg></span><span id="billingModelModalTitle">New Billing Model</span></h2>
-      <div class="modal-header-actions">
-        <button type="button" id="cancelBillingModelBtnTop" class="ghost-btn">Cancel</button>
-        <button type="submit" form="billingModelForm" class="primary-btn">Save</button>
-      </div>
-    </div>
-    <form id="billingModelForm">
-      <input type="hidden" id="bm_id" />
-      <label>Billing model name<input id="bm_name" required /></label>
-      <label>Billing model description<textarea id="bm_details" rows="2"></textarea></label>
-      <div class="modal-actions">
-        <button type="button" id="cancelBillingModelBtn" class="ghost-btn">Cancel</button>
-        <button type="submit" class="primary-btn">Save</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Operating Model form modal -->
-<div id="operatingModelModal" class="modal" hidden>
-  <div class="modal-box">
-    <div class="modal-header">
-      <h2><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg></span><span id="operatingModelModalTitle">New Operating Model</span></h2>
-      <div class="modal-header-actions">
-        <button type="button" id="cancelOperatingModelBtnTop" class="ghost-btn">Cancel</button>
-        <button type="submit" form="operatingModelForm" class="primary-btn">Save</button>
-      </div>
-    </div>
-    <form id="operatingModelForm">
-      <input type="hidden" id="om_id" />
-      <label>Operating model name<input id="om_name" required /></label>
-      <label>Operating model details<textarea id="om_details" rows="2"></textarea></label>
-      <div class="modal-actions">
-        <button type="button" id="cancelOperatingModelBtn" class="ghost-btn">Cancel</button>
-        <button type="submit" class="primary-btn">Save</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Status form modal -->
-<div id="statusModal" class="modal" hidden>
-  <div class="modal-box">
-    <div class="modal-header">
-      <h2><span class="card-icon icon-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span><span id="statusModalTitle">New Status</span></h2>
-      <div class="modal-header-actions">
-        <button type="button" id="cancelStatusBtnTop" class="ghost-btn">Cancel</button>
-        <button type="submit" form="statusForm" class="primary-btn">Save</button>
-      </div>
-    </div>
-    <form id="statusForm">
-      <input type="hidden" id="st_id" />
-      <label>Status name<input id="st_name" required /></label>
-      <label>SOW status details<textarea id="st_details" rows="2"></textarea></label>
-      <div class="modal-actions">
-        <button type="button" id="cancelStatusBtn" class="ghost-btn">Cancel</button>
-        <button type="submit" class="primary-btn">Save</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Employee Type form modal -->
-<div id="employeeTypeModal" class="modal" hidden>
-  <div class="modal-box">
-    <div class="modal-header">
-      <h2><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span><span id="employeeTypeModalTitle">New Employee Type</span></h2>
-      <div class="modal-header-actions">
-        <button type="button" id="cancelEmployeeTypeBtnTop" class="ghost-btn">Cancel</button>
-        <button type="submit" form="employeeTypeForm" class="primary-btn">Save</button>
-      </div>
-    </div>
-    <form id="employeeTypeForm">
-      <input type="hidden" id="et_id" />
-      <label>Employee type name<input id="et_name" required /></label>
-      <label>Employee type details<textarea id="et_details" rows="2"></textarea></label>
-      <div class="modal-actions">
-        <button type="button" id="cancelEmployeeTypeBtn" class="ghost-btn">Cancel</button>
-        <button type="submit" class="primary-btn">Save</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Band form modal -->
-<div id="bandModal" class="modal" hidden>
-  <div class="modal-box">
-    <div class="modal-header">
-      <h2><span class="card-icon icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg></span><span id="bandModalTitle">New Band</span></h2>
-      <div class="modal-header-actions">
-        <button type="button" id="cancelBandBtnTop" class="ghost-btn">Cancel</button>
-        <button type="submit" form="bandForm" class="primary-btn">Save</button>
-      </div>
-    </div>
-    <form id="bandForm">
-      <input type="hidden" id="bd_id" />
-      <label>Band name<input id="bd_name" required /></label>
-      <label>Band details<textarea id="bd_details" rows="2"></textarea></label>
-      <div class="modal-actions">
-        <button type="button" id="cancelBandBtn" class="ghost-btn">Cancel</button>
-        <button type="submit" class="primary-btn">Save</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Opportunity Type form modal -->
-<div id="opportunityTypeModal" class="modal" hidden>
-  <div class="modal-box">
-    <div class="modal-header">
-      <h2><span class="card-icon icon-violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg></span><span id="opportunityTypeModalTitle">New Opportunity Type</span></h2>
-      <div class="modal-header-actions">
-        <button type="button" id="cancelOpportunityTypeBtnTop" class="ghost-btn">Cancel</button>
-        <button type="submit" form="opportunityTypeForm" class="primary-btn">Save</button>
-      </div>
-    </div>
-    <form id="opportunityTypeForm">
-      <input type="hidden" id="ot_id" />
-      <label>Opportunity Type<input id="ot_name" required /></label>
-      <label>Description<textarea id="ot_details" rows="2"></textarea></label>
-      <div class="modal-actions">
-        <button type="button" id="cancelOpportunityTypeBtn" class="ghost-btn">Cancel</button>
-        <button type="submit" class="primary-btn">Save</button>
-      </div>
-    </form>
-  </div>
-</div>
 
 <!-- Resource form modal -->
 <div id="resourceModal" class="modal" hidden>
@@ -1068,6 +1025,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=57"></script>
+<script src="app.js?v=70"></script>
 </body>
 </html>

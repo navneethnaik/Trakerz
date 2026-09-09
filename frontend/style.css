@@ -122,8 +122,26 @@ body.scroll-locked #tab-resources .table-scroll,
 body.scroll-locked #tab-revenue .table-scroll {
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
 }
-#tab-sows .sow-table thead th,
 #tab-resources .sow-table thead th { position: sticky; top: 0; z-index: 2; }
+/* The SOW table has a two-row header (a "Contract Details / BTP Information /
+   Reference Documents / Additional Information" group row spanning the
+   individual column-name row below it, same shape as the Revenue Management
+   table's month header) - both rows stick to the top of the scroll
+   container, with the second row offset by the first row's rendered height
+   so they stay stacked instead of overlapping. That height is a fixed pixel
+   value (not a CSS var) since it depends on the header cells' own
+   padding/font-size/border, which don't change at runtime - re-measure it
+   here if those ever do. */
+#tab-sows .sow-table thead tr:first-child th { position: sticky; top: 0; z-index: 3; }
+#tab-sows .sow-table thead tr:last-child th { position: sticky; top: 29px; z-index: 2; }
+/* Group-header row's section labels (Contract Details / BTP Information /
+   Reference Documents / Additional Information) - centered over the columns
+   they span, with a stronger divider line where one section ends and the
+   next begins (also carried onto the first individual column of each
+   section in the row below, so the divider reads as one continuous line
+   through both header rows). */
+.sow-table .group-header { text-align: center; letter-spacing: .03em; }
+.sow-table .group-divider { border-left: 2px solid rgba(255,255,255,.35); }
 /* .sow-table's own overflow:hidden (used elsewhere for corner clipping) breaks
    position:sticky on its th descendants relative to the .table-scroll
    ancestor, so it's lifted just for these pages' tables. */
@@ -265,6 +283,8 @@ a.stat-card { cursor: pointer; }
 .card-icon.icon-cyan { background: linear-gradient(135deg, #22d3ee, #0891b2); }
 .card-icon.icon-pink { background: linear-gradient(135deg, #f472b6, #db2777); }
 .card-icon.icon-violet { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
+.card-icon.icon-teal { background: linear-gradient(135deg, #2dd4bf, #0d9488); }
+.card-icon.icon-rose { background: linear-gradient(135deg, #fb7185, #e11d48); }
 
 .lists-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .list-card {
@@ -530,6 +550,28 @@ html[data-theme="dark"] .revenue-table tbody td.rev-band-b { background: transpa
 .revenue-table tbody tr.revenue-editing-row td.rev-band-b { background: #fffbea; }
 html[data-theme="dark"] .revenue-table tbody tr.revenue-editing-row td.rev-band-a,
 html[data-theme="dark"] .revenue-table tbody tr.revenue-editing-row td.rev-band-b { background: #33301a; }
+
+/* Generic "row is open for inline editing" highlight for plain data tables
+   (e.g. Settings > Customer) - same soft-yellow treatment as the Revenue
+   Management grid's .revenue-editing-row, just not scoped to that table's
+   sticky/banded columns. */
+.inline-editing-row td { background: #fffbea; }
+html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
+.inline-editing-row input[type=text],
+.inline-editing-row input[type=number],
+.inline-editing-row input[type=date],
+.inline-editing-row select,
+.inline-editing-row textarea {
+  width: 100%; min-width: 110px; padding: 5px 7px; font-size: 12.5px;
+  border: 1px solid var(--border); border-radius: 6px; font-family: inherit;
+  color: var(--text); background: var(--surface); margin-top: 0;
+}
+.inline-editing-row textarea { resize: vertical; min-height: 34px; }
+.inline-editing-row input[type=text]:focus,
+.inline-editing-row input[type=number]:focus,
+.inline-editing-row input[type=date]:focus,
+.inline-editing-row select:focus,
+.inline-editing-row textarea:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(2,132,199,.15); }
 /* Bottom "Total" row - sums Projections/Invoiced per month across the
    currently filtered rows (see buildRevenueTotalsRow() in app.js). Its own
    solid background + top border wins over the alternating band colors,
@@ -556,6 +598,19 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3
 }
 .revenue-section-title .section-subtitle { font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 2px; }
 
+/* Financial nav presets (Projections/Actuals, each split by Time and
+   Material/Managed Services) narrow this same table to just one of the
+   two month sub-columns instead of showing Projections+Invoiced side by
+   side. #tab-revenue carries a view-mode-* class (set by
+   setRevenueViewMode() in app.js, default "both") and every Projections/
+   Invoiced header + data cell in the table already carries a matching
+   rev-col-proj/rev-col-inv class (see buildRevenueSowRow, buildRevenueTotalsRow
+   and draftMonthCellsHtml), so hiding one set here is enough - the month
+   group header's colspan is kept in sync separately in JS since CSS can't
+   change it. */
+#tab-revenue.view-mode-projections .rev-col-inv { display: none; }
+#tab-revenue.view-mode-actuals .rev-col-proj { display: none; }
+
 .chart-card canvas { max-width: 100%; }
 .alert-list li .empty, .alert-list li.empty { color: var(--text-muted); }
 
@@ -565,6 +620,7 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3
   background: none; border: none; padding: 4px; cursor: pointer; color: var(--text-muted);
   display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
   transition: transform .15s, background .12s, color .12s;
+  vertical-align: middle; margin-left: 4px;
 }
 .expand-btn:hover { background: rgba(91, 118, 134, .12); color: var(--primary); }
 .expand-btn.expanded { transform: rotate(90deg); color: var(--primary); }
@@ -630,6 +686,15 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3
 .three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 
+/* Section headers inside a long modal form (e.g. the New/Edit SOW form),
+   grouping related fields under a labeled divider. */
+.form-section-title {
+  font-size: 12.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--primary-2); margin: 22px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--border);
+}
+.form-section-title:first-child { margin-top: 0; }
+.form-field-readonly { background: var(--bg) !important; color: var(--text-muted) !important; cursor: not-allowed; }
+
 .doclink-row { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
 .doclink-row input { margin-top: 0; flex: 1; }
 .doclink-row .ghost-btn { flex-shrink: 0; padding: 3px 10px; white-space: nowrap; }
@@ -688,6 +753,23 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3
 }
 .dropdown-item .icon { color: var(--primary-2); }
 .dropdown-item:hover { background: #eaf4fa; }
+
+/* Two-level nav menus (currently just Financial: Projections/Actuals as
+   submenu triggers, each flying out to Time and Material/Management
+   Services). .dropdown-item-group wraps a trigger .dropdown-item button plus
+   its .dropdown-submenu flyout as siblings (a <button> can't contain another
+   interactive element, hence the wrapper rather than nesting the flyout
+   inside the trigger button itself) - see #financialMenu in index.html and
+   the [data-toggle-submenu] wiring in app.js. */
+.dropdown-item-group { position: relative; }
+.dropdown-item-group .dropdown-item-label { flex: 1; }
+.dropdown-item-group .submenu-caret { color: var(--text-muted); flex-shrink: 0; }
+.dropdown-submenu {
+  position: absolute; top: -6px; left: calc(100% + 6px);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(8,30,45,.2); min-width: 190px; z-index: 22;
+  padding: 6px;
+}
 
 /* ---------- Configuration screen ---------- */
 .two-col-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }

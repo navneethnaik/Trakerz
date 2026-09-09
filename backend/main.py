@@ -67,11 +67,14 @@ class SowIn(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     total_value: float = 0
+    gm_percent: Optional[float] = None
     billing_model_id: Optional[int] = None
     operating_model_id: Optional[int] = None
     status: str = "draft"            # draft | active | completed | expired | cancelled
     notes: Optional[str] = None
     doc_link: Optional[str] = None
+    po_doc_link: Optional[str] = None
+    deal_sheet_link: Optional[str] = None
 
 
 class CustomerIn(BaseModel):
@@ -87,6 +90,19 @@ class CustomerIn(BaseModel):
 class NameIn(BaseModel):
     name: str
     details: Optional[str] = None
+
+
+class BillingHoursConfigIn(BaseModel):
+    customer_id: int
+    location_id: int
+    billing_hours_per_day: float
+
+
+class HolidayCalendarIn(BaseModel):
+    customer_id: int
+    location_id: int
+    holiday_date: str
+    holiday_details: Optional[str] = None
 
 
 class ResourceIn(BaseModel):
@@ -127,19 +143,42 @@ def _row_to_dict(row):
     return dict(row)
 
 
+def _execute_delete(conn, sql: str, params: tuple, in_use_label: str):
+    """Run a DELETE statement and turn a foreign-key violation (the row is
+    still referenced by another table - e.g. a Location used by a Customer's
+    Billing Hours Configuration, or a Billing Model used by an existing SOW)
+    into a clear 409 instead of an unhandled 500. Every delete endpoint in
+    the app goes through this so failures are reported to the user instead
+    of silently leaving the row in place (foreign_keys=ON is set per
+    connection in db.py, so these violations are real and expected whenever
+    a master-data row is still in use)."""
+    try:
+        conn.execute(sql, params)
+    except sqlite3.IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete this {in_use_label} because it is still used by other records "
+                   f"(e.g. a SoW, resource, or configuration entry). Remove or reassign those first.",
+        )
+
+
 def _load_lookup_maps(conn):
     """Return {id: name} maps for customers, billing_models, operating_models,
-    opportunity_types so SOW rows can be annotated with human-readable names
-    without one query per foreign key per row."""
-    customers = {r["id"]: r["customer_name"] for r in conn.execute("SELECT id, customer_name FROM customers")}
+    opportunity_types (plus a {id: code} map for customers) so SOW rows can be
+    annotated with human-readable names without one query per foreign key per
+    row."""
+    customer_rows = conn.execute("SELECT id, customer_name, customer_code FROM customers").fetchall()
+    customers = {r["id"]: r["customer_name"] for r in customer_rows}
+    customer_codes = {r["id"]: r["customer_code"] for r in customer_rows}
     billing_models = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM billing_models")}
     operating_models = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM operating_models")}
     opportunity_types = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM opportunity_types")}
-    return customers, billing_models, operating_models, opportunity_types
+    return customers, billing_models, operating_models, opportunity_types, customer_codes
 
 
-def _attach_names(sow: dict, customers: Dict[int, str], billing_models: Dict[int, str], operating_models: Dict[int, str], opportunity_types: Dict[int, str]) -> dict:
+def _attach_names(sow: dict, customers: Dict[int, str], billing_models: Dict[int, str], operating_models: Dict[int, str], opportunity_types: Dict[int, str], customer_codes: Dict[int, str]) -> dict:
     sow["customer_name"] = customers.get(sow.get("customer_id"))
+    sow["customer_code"] = customer_codes.get(sow.get("customer_id"))
     sow["billing_model_name"] = billing_models.get(sow.get("billing_model_id"))
     sow["operating_model_name"] = operating_models.get(sow.get("operating_model_id"))
     sow["opportunity_type_name"] = opportunity_types.get(sow.get("opportunity_type_id"))
@@ -205,10 +244,12 @@ def _parse_iso_date(s: Optional[str]):
 
 
 def _build_workbook(sheet_title: str, headers: List[str], rows: List[list],
-                     date_cols: tuple = (), currency_cols: tuple = (), widths: Optional[List[int]] = None) -> Workbook:
+                     date_cols: tuple = (), currency_cols: tuple = (), percent_cols: tuple = (),
+                     widths: Optional[List[int]] = None) -> Workbook:
     """Shared .xlsx builder for the export endpoints: bold header row, plain
-    data rows, optional date/currency number formatting on 1-indexed
-    column numbers, and optional fixed column widths."""
+    data rows, optional date/currency/percent number formatting on 1-indexed
+    column numbers, and optional fixed column widths. percent_cols expects
+    the raw number already scaled as a percentage (32.5, not 0.325)."""
     wb = Workbook()
     ws = wb.active
     ws.title = sheet_title
@@ -227,6 +268,10 @@ def _build_workbook(sheet_title: str, headers: List[str], rows: List[list],
                 cell.number_format = "dd-mmm-yyyy"
         for col in currency_cols:
             row[col - 1].number_format = "#,##0.00"
+        for col in percent_cols:
+            cell = row[col - 1]
+            if cell.value is not None:
+                cell.number_format = '0.00"%"'
 
     if widths:
         for i, w in enumerate(widths, start=1):
@@ -309,8 +354,8 @@ def list_sows(status: Optional[str] = None, customer_id: Optional[int] = None, q
     with db.get_db() as conn:
         rows = conn.execute("SELECT * FROM sows ORDER BY end_date IS NULL, end_date ASC").fetchall()
         sows = [_row_to_dict(r) for r in rows]
-        customers, billing_models, operating_models, opportunity_types = _load_lookup_maps(conn)
-        sows = [_attach_names(s, customers, billing_models, operating_models, opportunity_types) for s in sows]
+        customers, billing_models, operating_models, opportunity_types, customer_codes = _load_lookup_maps(conn)
+        sows = [_attach_names(s, customers, billing_models, operating_models, opportunity_types, customer_codes) for s in sows]
 
         if status:
             sows = [s for s in sows if s["status"] == status]
@@ -338,16 +383,18 @@ def create_sow(sow: SowIn):
         cur = conn.execute(
             """INSERT INTO sows (customer_id, title, project_title, project_code, contract_code,
                opportunity_id, opportunity_type_id, po_number, start_date, end_date,
-               total_value, billing_model_id, operating_model_id, status, notes, doc_link, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+               total_value, gm_percent, billing_model_id, operating_model_id, status, notes, doc_link,
+               po_doc_link, deal_sheet_link, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (sow.customer_id, sow.title, sow.project_title, sow.project_code, sow.contract_code,
              sow.opportunity_id, sow.opportunity_type_id, sow.po_number, sow.start_date, sow.end_date,
-             sow.total_value, sow.billing_model_id, sow.operating_model_id, sow.status, sow.notes, sow.doc_link),
+             sow.total_value, sow.gm_percent, sow.billing_model_id, sow.operating_model_id, sow.status, sow.notes, sow.doc_link,
+             sow.po_doc_link, sow.deal_sheet_link),
         )
         new_id = cur.lastrowid
         row = _get_sow_or_404(conn, new_id)
-        customers, billing_models, operating_models, opportunity_types = _load_lookup_maps(conn)
-        row = _attach_names(row, customers, billing_models, operating_models, opportunity_types)
+        customers, billing_models, operating_models, opportunity_types, customer_codes = _load_lookup_maps(conn)
+        row = _attach_names(row, customers, billing_models, operating_models, opportunity_types, customer_codes)
         return _enrich_sow(row, [])
 
 
@@ -359,36 +406,47 @@ def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None,
     literal "export" path isn't swallowed by that route's int converter."""
     sows = list_sows(status=status, customer_id=customer_id, q=q)
 
+    # Column order mirrors the New/Edit SOW form's section layout (Contract
+    # Details, BTP Information, Reference Documents, Additional Information)
+    # and the same order used for the on-screen SOW list table.
     headers = [
-        "Customer", "Title", "Project title", "Project code", "Contract code",
-        "Opportunity ID", "Opportunity Type", "PO#", "Start date", "End date", "TCV", "Status",
-        "Billing model", "Operating model", "Document link", "Additional information",
+        "Opportunity ID", "Opportunity Type", "Contract Title", "Customer Name", "Purchase Order #",
+        "Start date", "End date", "TCV", "GM %", "Status", "Billing model", "Operating model",
+        "Customer Code", "Project Title", "Contract Code", "Project Code",
+        "Contract (SoW) link", "Purchase order link", "Deal sheet link",
+        "Additional information",
     ]
     rows = [
         [
-            s.get("customer_name") or "",
-            s.get("title") or "",
-            s.get("project_title") or "",
-            s.get("project_code") or "",
-            s.get("contract_code") or "",
             s.get("opportunity_id") or "",
             s.get("opportunity_type_name") or "",
+            s.get("title") or "",
+            s.get("customer_name") or "",
             s.get("po_number") or "",
             _parse_iso_date(s.get("start_date")),
             _parse_iso_date(s.get("end_date")),
             s.get("total_value") or 0,
+            s.get("gm_percent"),
             s.get("status") or "",
             s.get("billing_model_name") or "",
             s.get("operating_model_name") or "",
+            s.get("customer_code") or "",
+            s.get("project_title") or "",
+            s.get("contract_code") or "",
+            s.get("project_code") or "",
             s.get("doc_link") or "",
+            s.get("po_doc_link") or "",
+            s.get("deal_sheet_link") or "",
             s.get("notes") or "",
         ]
         for s in sows
     ]
-    date_cols = (9, 10)
-    currency_cols = (11,)
-    widths = [22, 28, 24, 16, 16, 16, 16, 14, 13, 13, 14, 14, 18, 18, 30, 34]
-    wb = _build_workbook("SOWs", headers, rows, date_cols=date_cols, currency_cols=currency_cols, widths=widths)
+    date_cols = (6, 7)
+    currency_cols = (8,)
+    percent_cols = (9,)
+    widths = [16, 16, 28, 22, 14, 13, 13, 14, 10, 14, 18, 18, 16, 24, 16, 16, 30, 22, 22, 34]
+    wb = _build_workbook("SOWs", headers, rows, date_cols=date_cols, currency_cols=currency_cols,
+                          percent_cols=percent_cols, widths=widths)
     return _xlsx_response(wb, f"trakerz_sows_{date.today().isoformat()}.xlsx")
 
 
@@ -396,8 +454,8 @@ def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None,
 def get_sow(sow_id: int):
     with db.get_db() as conn:
         sow = _get_sow_or_404(conn, sow_id)
-        customers, billing_models, operating_models, opportunity_types = _load_lookup_maps(conn)
-        sow = _attach_names(sow, customers, billing_models, operating_models, opportunity_types)
+        customers, billing_models, operating_models, opportunity_types, customer_codes = _load_lookup_maps(conn)
+        sow = _attach_names(sow, customers, billing_models, operating_models, opportunity_types, customer_codes)
         m_rows = conn.execute("SELECT * FROM milestones WHERE sow_id = ? ORDER BY due_date IS NULL, due_date ASC", (sow_id,)).fetchall()
         milestones = [_row_to_dict(m) for m in m_rows]
         enriched = _enrich_sow(sow, milestones)
@@ -413,16 +471,18 @@ def update_sow(sow_id: int, sow: SowIn):
         conn.execute(
             """UPDATE sows SET customer_id=?, title=?, project_title=?, project_code=?, contract_code=?,
                opportunity_id=?, opportunity_type_id=?, po_number=?, start_date=?, end_date=?,
-               total_value=?, billing_model_id=?, operating_model_id=?, status=?, notes=?, doc_link=?,
+               total_value=?, gm_percent=?, billing_model_id=?, operating_model_id=?, status=?, notes=?, doc_link=?,
+               po_doc_link=?, deal_sheet_link=?,
                updated_at=datetime('now') WHERE id=?""",
             (sow.customer_id, sow.title, sow.project_title, sow.project_code, sow.contract_code,
              sow.opportunity_id, sow.opportunity_type_id, sow.po_number, sow.start_date, sow.end_date,
-             sow.total_value, sow.billing_model_id, sow.operating_model_id, sow.status, sow.notes, sow.doc_link,
+             sow.total_value, sow.gm_percent, sow.billing_model_id, sow.operating_model_id, sow.status, sow.notes, sow.doc_link,
+             sow.po_doc_link, sow.deal_sheet_link,
              sow_id),
         )
         row = _get_sow_or_404(conn, sow_id)
-        customers, billing_models, operating_models, opportunity_types = _load_lookup_maps(conn)
-        row = _attach_names(row, customers, billing_models, operating_models, opportunity_types)
+        customers, billing_models, operating_models, opportunity_types, customer_codes = _load_lookup_maps(conn)
+        row = _attach_names(row, customers, billing_models, operating_models, opportunity_types, customer_codes)
         m_rows = conn.execute("SELECT * FROM milestones WHERE sow_id = ?", (sow_id,)).fetchall()
         return _enrich_sow(row, [_row_to_dict(m) for m in m_rows])
 
@@ -431,7 +491,7 @@ def update_sow(sow_id: int, sow: SowIn):
 def delete_sow(sow_id: int):
     with db.get_db() as conn:
         _get_sow_or_404(conn, sow_id)
-        conn.execute("DELETE FROM sows WHERE id = ?", (sow_id,))
+        _execute_delete(conn, "DELETE FROM sows WHERE id = ?", (sow_id,), "SoW")
     return None
 
 
@@ -479,7 +539,7 @@ def delete_milestone(milestone_id: int):
         existing = conn.execute("SELECT * FROM milestones WHERE id = ?", (milestone_id,)).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Milestone not found")
-        conn.execute("DELETE FROM milestones WHERE id = ?", (milestone_id,))
+        _execute_delete(conn, "DELETE FROM milestones WHERE id = ?", (milestone_id,), "milestone")
     return None
 
 
@@ -568,7 +628,7 @@ def update_customer(customer_id: int, c: CustomerIn):
 def delete_customer(customer_id: int):
     with db.get_db() as conn:
         _get_customer_or_404(conn, customer_id)
-        conn.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
+        _execute_delete(conn, "DELETE FROM customers WHERE id = ?", (customer_id,), "customer")
     return None
 
 
@@ -671,7 +731,7 @@ def update_resource(resource_id: int, r: ResourceIn):
 def delete_resource(resource_id: int):
     with db.get_db() as conn:
         _get_resource_or_404(conn, resource_id)
-        conn.execute("DELETE FROM resources WHERE id = ?", (resource_id,))
+        _execute_delete(conn, "DELETE FROM resources WHERE id = ?", (resource_id,), "resource")
     return None
 
 
@@ -823,7 +883,10 @@ def delete_revenue_sow(sow_id: int, fiscal_year: int):
         if not row:
             raise HTTPException(status_code=404, detail="Revenue row not found")
         conn.execute("DELETE FROM revenue_entries WHERE sow_id=? AND fiscal_year=?", (sow_id, fiscal_year))
-        conn.execute("DELETE FROM revenue_sow_accounts WHERE sow_id=? AND fiscal_year=?", (sow_id, fiscal_year))
+        _execute_delete(
+            conn, "DELETE FROM revenue_sow_accounts WHERE sow_id=? AND fiscal_year=?",
+            (sow_id, fiscal_year), "revenue row",
+        )
     return None
 
 
@@ -954,7 +1017,7 @@ def _register_lookup_crud(path: str, table: str, label: str):
             existing = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (item_id,)).fetchone()
             if not existing:
                 raise HTTPException(status_code=404, detail=f"{label} not found")
-            conn.execute(f"DELETE FROM {table} WHERE id = ?", (item_id,))
+            _execute_delete(conn, f"DELETE FROM {table} WHERE id = ?", (item_id,), label.lower())
         return None
 
 
@@ -965,6 +1028,144 @@ _register_lookup_crud("statuses", "statuses", "Status")
 _register_lookup_crud("employee-types", "employee_types", "Employee type")
 _register_lookup_crud("bands", "bands", "Band")
 _register_lookup_crud("opportunity-types", "opportunity_types", "Opportunity type")
+_register_lookup_crud("revenue-types", "revenue_types", "Revenue type")
+
+
+# ---------- Customer Configuration: Billing Hours ----------
+# Not a plain name+details list like the lookups above - each row is a
+# Customer + Location pair (both FKs, picked from dropdowns in the UI) plus
+# a numeric "billing hours per day" value, so it gets its own small CRUD
+# rather than going through _register_lookup_crud.
+
+_BILLING_HOURS_SELECT = """
+    SELECT bhc.*, c.customer_name, l.name AS location_name
+    FROM billing_hour_configs bhc
+    LEFT JOIN customers c ON c.id = bhc.customer_id
+    LEFT JOIN locations l ON l.id = bhc.location_id
+"""
+
+
+def _validate_billing_hours_refs(conn, item: BillingHoursConfigIn):
+    if not conn.execute("SELECT 1 FROM customers WHERE id = ?", (item.customer_id,)).fetchone():
+        raise HTTPException(status_code=400, detail="Selected customer does not exist")
+    if not conn.execute("SELECT 1 FROM locations WHERE id = ?", (item.location_id,)).fetchone():
+        raise HTTPException(status_code=400, detail="Selected location does not exist")
+
+
+@app.get("/api/billing-hours")
+def list_billing_hours():
+    with db.get_db() as conn:
+        rows = conn.execute(
+            _BILLING_HOURS_SELECT + " ORDER BY c.customer_name COLLATE NOCASE, l.name COLLATE NOCASE"
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
+@app.post("/api/billing-hours", status_code=201)
+def create_billing_hours(item: BillingHoursConfigIn):
+    with db.get_db() as conn:
+        _validate_billing_hours_refs(conn, item)
+        cur = conn.execute(
+            """INSERT INTO billing_hour_configs (customer_id, location_id, billing_hours_per_day, updated_at)
+               VALUES (?, ?, ?, datetime('now'))""",
+            (item.customer_id, item.location_id, item.billing_hours_per_day),
+        )
+        row = conn.execute(_BILLING_HOURS_SELECT + " WHERE bhc.id = ?", (cur.lastrowid,)).fetchone()
+        return _row_to_dict(row)
+
+
+@app.put("/api/billing-hours/{item_id}")
+def update_billing_hours(item_id: int, item: BillingHoursConfigIn):
+    with db.get_db() as conn:
+        existing = conn.execute("SELECT * FROM billing_hour_configs WHERE id = ?", (item_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Billing hours configuration not found")
+        _validate_billing_hours_refs(conn, item)
+        conn.execute(
+            """UPDATE billing_hour_configs SET customer_id=?, location_id=?, billing_hours_per_day=?,
+               updated_at=datetime('now') WHERE id=?""",
+            (item.customer_id, item.location_id, item.billing_hours_per_day, item_id),
+        )
+        row = conn.execute(_BILLING_HOURS_SELECT + " WHERE bhc.id = ?", (item_id,)).fetchone()
+        return _row_to_dict(row)
+
+
+@app.delete("/api/billing-hours/{item_id}", status_code=204)
+def delete_billing_hours(item_id: int):
+    with db.get_db() as conn:
+        existing = conn.execute("SELECT * FROM billing_hour_configs WHERE id = ?", (item_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Billing hours configuration not found")
+        _execute_delete(conn, "DELETE FROM billing_hour_configs WHERE id = ?", (item_id,), "billing hours configuration")
+    return None
+
+
+# ---------- Customer Configuration: Holiday Calendar ----------
+# Same shape as Billing Hours Configuration (Customer + Location FK
+# dropdowns) but with a holiday date and a free-text details field instead
+# of a numeric one - so it gets its own small CRUD too.
+
+_HOLIDAY_SELECT = """
+    SELECT hc.*, c.customer_name, l.name AS location_name
+    FROM holiday_calendar hc
+    LEFT JOIN customers c ON c.id = hc.customer_id
+    LEFT JOIN locations l ON l.id = hc.location_id
+"""
+
+
+def _validate_holiday_refs(conn, item: HolidayCalendarIn):
+    if not conn.execute("SELECT 1 FROM customers WHERE id = ?", (item.customer_id,)).fetchone():
+        raise HTTPException(status_code=400, detail="Selected customer does not exist")
+    if not conn.execute("SELECT 1 FROM locations WHERE id = ?", (item.location_id,)).fetchone():
+        raise HTTPException(status_code=400, detail="Selected location does not exist")
+
+
+@app.get("/api/holidays")
+def list_holidays():
+    with db.get_db() as conn:
+        rows = conn.execute(
+            _HOLIDAY_SELECT + " ORDER BY hc.holiday_date, c.customer_name COLLATE NOCASE, l.name COLLATE NOCASE"
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
+@app.post("/api/holidays", status_code=201)
+def create_holiday(item: HolidayCalendarIn):
+    with db.get_db() as conn:
+        _validate_holiday_refs(conn, item)
+        cur = conn.execute(
+            """INSERT INTO holiday_calendar (customer_id, location_id, holiday_date, holiday_details, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now'))""",
+            (item.customer_id, item.location_id, item.holiday_date, item.holiday_details),
+        )
+        row = conn.execute(_HOLIDAY_SELECT + " WHERE hc.id = ?", (cur.lastrowid,)).fetchone()
+        return _row_to_dict(row)
+
+
+@app.put("/api/holidays/{item_id}")
+def update_holiday(item_id: int, item: HolidayCalendarIn):
+    with db.get_db() as conn:
+        existing = conn.execute("SELECT * FROM holiday_calendar WHERE id = ?", (item_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Holiday not found")
+        _validate_holiday_refs(conn, item)
+        conn.execute(
+            """UPDATE holiday_calendar SET customer_id=?, location_id=?, holiday_date=?, holiday_details=?,
+               updated_at=datetime('now') WHERE id=?""",
+            (item.customer_id, item.location_id, item.holiday_date, item.holiday_details, item_id),
+        )
+        row = conn.execute(_HOLIDAY_SELECT + " WHERE hc.id = ?", (item_id,)).fetchone()
+        return _row_to_dict(row)
+
+
+@app.delete("/api/holidays/{item_id}", status_code=204)
+def delete_holiday(item_id: int):
+    with db.get_db() as conn:
+        existing = conn.execute("SELECT * FROM holiday_calendar WHERE id = ?", (item_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Holiday not found")
+        _execute_delete(conn, "DELETE FROM holiday_calendar WHERE id = ?", (item_id,), "holiday")
+    return None
 
 
 # ---------- File uploads (SOW documents) ----------
@@ -995,11 +1196,11 @@ def dashboard():
     with db.get_db() as conn:
         sow_rows = conn.execute("SELECT * FROM sows").fetchall()
         sows = [_row_to_dict(r) for r in sow_rows]
-        customers, billing_models, operating_models, opportunity_types = _load_lookup_maps(conn)
+        customers, billing_models, operating_models, opportunity_types, customer_codes = _load_lookup_maps(conn)
 
         enriched = []
         for s in sows:
-            s = _attach_names(s, customers, billing_models, operating_models, opportunity_types)
+            s = _attach_names(s, customers, billing_models, operating_models, opportunity_types, customer_codes)
             m_rows = conn.execute("SELECT * FROM milestones WHERE sow_id = ?", (s["id"],)).fetchall()
             enriched.append(_enrich_sow(s, [_row_to_dict(m) for m in m_rows]))
 

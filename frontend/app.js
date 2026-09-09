@@ -83,7 +83,7 @@ document.querySelectorAll(".tab-btn[data-tab]").forEach((btn) => {
   btn.addEventListener("click", () => showTab(btn.dataset.tab));
 });
 
-// Nav dropdowns (Contracts / Financials, Settings) - generic so any number of them work the same way.
+// Nav dropdowns (Contract / Financial, Customer Configuration, Global Settings) - generic so any number of them work the same way.
 document.querySelectorAll(".nav-dropdown").forEach((dropdown) => {
   const toggle = dropdown.querySelector(".dropdown-toggle");
   const menu = dropdown.querySelector(".dropdown-menu");
@@ -91,21 +91,62 @@ document.querySelectorAll(".nav-dropdown").forEach((dropdown) => {
     e.stopPropagation();
     const wasHidden = menu.hidden;
     document.querySelectorAll(".dropdown-menu").forEach((m) => (m.hidden = true));
+    closeAllSubmenus();
     menu.hidden = !wasHidden;
+  });
+  // Second-level submenu triggers (e.g. Financial's Projections/Actuals) -
+  // toggle their own flyout without closing the parent menu. querySelectorAll
+  // finds these regardless of nesting depth, so this loop also covers menus
+  // with no submenus at all (nothing to wire in that case).
+  menu.querySelectorAll("[data-toggle-submenu]").forEach((trigger) => {
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const submenu = document.getElementById(trigger.dataset.toggleSubmenu);
+      if (!submenu) return;
+      const wasHidden = submenu.hidden;
+      closeAllSubmenus();
+      submenu.hidden = !wasHidden;
+    });
   });
   menu.querySelectorAll(".dropdown-item[data-tab]").forEach((item) => {
     item.addEventListener("click", () => {
+      applyRevenueMenuPreset(item);
       showTab(item.dataset.tab);
       menu.hidden = true;
+      closeAllSubmenus();
     });
   });
 });
+function closeAllSubmenus() {
+  document.querySelectorAll(".dropdown-submenu").forEach((s) => (s.hidden = true));
+}
 document.addEventListener("click", (e) => {
   document.querySelectorAll(".nav-dropdown").forEach((dropdown) => {
     const menu = dropdown.querySelector(".dropdown-menu");
     if (!menu.hidden && !dropdown.contains(e.target)) menu.hidden = true;
   });
+  document.querySelectorAll(".dropdown-submenu").forEach((s) => {
+    if (!s.hidden && !s.contains(e.target) && !s.previousElementSibling?.contains(e.target)) s.hidden = true;
+  });
 });
+
+// Applies a Financial submenu leaf's preset (Projections/Actuals view mode
+// and Time and Material/Managed Services billing-model filter) to the
+// Revenue Management table before showTab() switches to it. No-op for every
+// other dropdown item, since only these carry data-revenue-view/
+// data-revenue-billing-model.
+function applyRevenueMenuPreset(item) {
+  const view = item.dataset.revenueView;
+  const billingModel = item.dataset.revenueBillingModel;
+  // Just sets the shared revenueBillingModelFilter variable - the toolbar
+  // <select> itself is synced from that variable a moment later, once
+  // showTab("revenue") -> loadRevenueTab() has (re)populated its options
+  // (see populateRevenueBillingModelFilter()); setting select.value directly
+  // here would be a no-op since "Time and Material"/"Managed Services"
+  // aren't options on it yet at this point.
+  if (billingModel !== undefined) revenueBillingModelFilter = billingModel;
+  if (view) setRevenueViewMode(view);
+}
 
 // Remembers the last tab the user had open so a browser refresh lands back
 // where they were instead of always resetting to the Dashboard (see the
@@ -141,6 +182,8 @@ function showTab(name) {
   if (name === "home") loadHome();
   if (name === "sows") loadSows();
   if (name === "customers") loadCustomers();
+  if (name === "config-billing-hours") loadBillingHours();
+  if (name === "config-holidays") loadHolidays();
   if (name === "resources") loadResources();
   if (name === "revenue") loadRevenueTab();
   if (name === "config-locations") loadLocations();
@@ -150,6 +193,7 @@ function showTab(name) {
   if (name === "config-employee-types") loadEmployeeTypes();
   if (name === "config-bands") loadBands();
   if (name === "config-opportunity-types") loadOpportunityTypes();
+  if (name === "config-revenue-types") loadRevenueTypes();
 }
 
 document.getElementById("backToList").addEventListener("click", () => showTab("sows"));
@@ -174,10 +218,10 @@ document.getElementById("landingFooterCtaBtn").addEventListener("click", () => s
 // pauses/resets the timer so it never fights someone actively browsing it.
 const LANDING_CAROUSEL_CAPTIONS = [
   "Dashboard — KPIs, revenue trend and status breakdowns at a glance",
-  "Statement of Work — every SOW, sortable and searchable",
+  "Contract Management — every SOW, sortable and searchable",
   "Revenue Management — Projections vs Invoiced, month by month",
   "Staffing — see who's assigned to what, at a glance",
-  "Settings — your own customers and master data",
+  "Customer Configuration & Global Settings — your own customers and master data",
 ];
 let landingSlideIndex = 0;
 let landingAutoplayTimer = null;
@@ -433,7 +477,7 @@ function sortSows(sows) {
   const sorted = [...sows].sort((a, b) => {
     let av = a[key];
     let bv = b[key];
-    if (key === "total_value") {
+    if (key === "total_value" || key === "gm_percent") {
       av = av || 0; bv = bv || 0;
       return (av - bv) * dir;
     }
@@ -498,7 +542,7 @@ function renderSowsTable(sowsIn) {
   const tbody = document.getElementById("sowTableBody");
   tbody.innerHTML = "";
   if (!sows.length) {
-    tbody.innerHTML = '<tr><td colspan="19" class="empty-state">No SOWs yet. Click "New SOW" to add one.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="22" class="empty-state">No SOWs yet. Click "New SOW" to add one.</td></tr>';
     return;
   }
   sows.forEach((s, idx) => {
@@ -518,22 +562,25 @@ function renderSowsTable(sowsIn) {
         <button class="ghost-btn btn-danger icon-btn del-btn" data-id="${s.id}" title="Delete">${icon("trash")}</button>
       </td>
       <td class="sl-no-cell">${idx + 1}</td>
-      <td>${isFixedPrice ? `<button type="button" class="expand-btn" title="Show milestones">${icon("chevron")}</button>` : ""}</td>
-      <td>${escapeHtml(s.customer_name)}</td>
-      <td>${escapeHtml(s.title)}</td>
-      <td>${escapeHtml(s.project_code) || "—"}</td>
-      <td>${escapeHtml(s.contract_code) || "—"}</td>
       <td>${escapeHtml(s.opportunity_id) || "—"}</td>
       <td>${escapeHtml(s.opportunity_type_name) || "—"}</td>
+      <td>${escapeHtml(s.title)}${isFixedPrice ? `<button type="button" class="expand-btn" title="Show milestones">${icon("chevron")}</button>` : ""}</td>
+      <td>${escapeHtml(s.customer_name)}</td>
       <td>${escapeHtml(s.po_number) || "—"}</td>
       <td>${fmtDate(s.start_date)}</td>
       <td>${fmtDate(s.end_date)}</td>
       <td>${fmt(s.total_value)}</td>
+      <td>${s.gm_percent !== null && s.gm_percent !== undefined ? Number(s.gm_percent.toFixed(2)) + "%" : "—"}</td>
       <td><span class="badge badge-${slugify(s.status)}">${escapeHtml(s.status)}</span></td>
       <td>${escapeHtml(s.billing_model_name) || "—"}</td>
       <td>${escapeHtml(s.operating_model_name) || "—"}</td>
-      <td>${s.doc_link ? `<span class="truncate-cell">${renderDocLink(s.doc_link)}</span>` : "—"}</td>
+      <td>${escapeHtml(s.customer_code) || "—"}</td>
       <td>${escapeHtml(s.project_title) || "—"}</td>
+      <td>${escapeHtml(s.contract_code) || "—"}</td>
+      <td>${escapeHtml(s.project_code) || "—"}</td>
+      <td>${s.doc_link ? `<span class="truncate-cell">${renderDocLink(s.doc_link)}</span>` : "—"}</td>
+      <td>${s.po_doc_link ? `<span class="truncate-cell">${renderDocLink(s.po_doc_link)}</span>` : "—"}</td>
+      <td>${s.deal_sheet_link ? `<span class="truncate-cell">${renderDocLink(s.deal_sheet_link)}</span>` : "—"}</td>
       <td>${s.notes ? `<span class="truncate-cell" title="${escapeHtml(s.notes)}">${escapeHtml(s.notes)}</span>` : "—"}</td>
     `;
     tr.addEventListener("click", (e) => {
@@ -575,7 +622,12 @@ function renderSowsTable(sowsIn) {
     tr.querySelector(".del-btn").addEventListener("click", async (e) => {
       e.stopPropagation();
       if (confirm(`Delete SOW "${s.title}" for ${s.customer_name}? This also deletes its milestones.`)) {
-        await fetch(`${API}/sows/${s.id}`, { method: "DELETE" });
+        const resp = await fetch(`${API}/sows/${s.id}`, { method: "DELETE" });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(formatApiError(err, "Failed to delete this SOW."));
+          return;
+        }
         loadSows();
       }
     });
@@ -617,7 +669,7 @@ async function toggleMilestoneSubrow(tr, s) {
   const milestones = await fetch(`${API}/sows/${s.id}/milestones`).then((r) => r.json());
   const subTr = document.createElement("tr");
   subTr.className = "milestone-subrow";
-  subTr.innerHTML = `<td colspan="19">${renderMilestoneSubtable(milestones)}</td>`;
+  subTr.innerHTML = `<td colspan="22">${renderMilestoneSubtable(milestones)}</td>`;
   tr.after(subTr);
 }
 
@@ -664,6 +716,7 @@ function fillSelect(selectId, items, valueKey, labelKey, placeholder) {
 }
 
 let currentBillingModels = [];
+let currentSowCustomers = [];
 let originalMilestoneIdsAtOpen = [];
 
 async function populateSowDropdowns() {
@@ -675,6 +728,7 @@ async function populateSowDropdowns() {
     fetch(`${API}/opportunity-types`).then((r) => r.json()),
   ]);
   currentBillingModels = billingModels;
+  currentSowCustomers = customers;
   fillSelect("f_customer", customers, "id", "customer_name", "Select customer&hellip;");
   fillSelect("f_billing_model", billingModels, "id", "name", "Select billing model&hellip;");
   fillSelect("f_operating_model", operatingModels, "id", "name", "Select operating model&hellip;");
@@ -683,6 +737,17 @@ async function populateSowDropdowns() {
   const statusSel = document.getElementById("f_status");
   statusSel.innerHTML = statuses.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(capitalize(s.name))}</option>`).join("");
 }
+
+// BTP Information's "Customer Code" field isn't its own input - it's a
+// read-only mirror of the selected customer's code, kept in sync whenever
+// the Customer Name dropdown changes (see the "change" listener below) and
+// set once up front when the modal opens for an existing SOW.
+function updateCustomerCodeField() {
+  const customerId = document.getElementById("f_customer").value;
+  const match = currentSowCustomers.find((c) => String(c.id) === String(customerId));
+  document.getElementById("f_customer_code").value = match ? match.customer_code : "";
+}
+document.getElementById("f_customer").addEventListener("change", updateCustomerCodeField);
 
 // ---------- Inline milestone capture (shown when the Billing Model name contains "Fixed Price") ----------
 function isFixedPriceSelected() {
@@ -775,11 +840,15 @@ async function openSowModal(sowStub) {
   document.getElementById("f_start").value = sow?.start_date ?? "";
   document.getElementById("f_end").value = sow?.end_date ?? "";
   document.getElementById("f_value").value = sow?.total_value ?? 0;
+  document.getElementById("f_gm_percent").value = sow?.gm_percent ?? "";
   document.getElementById("f_status").value = sow?.status ?? "draft";
   document.getElementById("f_billing_model").value = sow?.billing_model_id ?? "";
   document.getElementById("f_operating_model").value = sow?.operating_model_id ?? "";
   document.getElementById("f_doclink").value = sow?.doc_link ?? "";
+  document.getElementById("f_po_doclink").value = sow?.po_doc_link ?? "";
+  document.getElementById("f_deal_sheet_link").value = sow?.deal_sheet_link ?? "";
   document.getElementById("f_notes").value = sow?.notes ?? "";
+  updateCustomerCodeField();
 
   // .filter(Boolean) matters for a "Copy" draft (see the copy-btn handler
   // above): its milestones all carry id: null since none exist in the
@@ -813,10 +882,13 @@ document.getElementById("sowForm").addEventListener("submit", async (e) => {
     start_date: document.getElementById("f_start").value || null,
     end_date: document.getElementById("f_end").value || null,
     total_value: parseFloat(document.getElementById("f_value").value) || 0,
+    gm_percent: document.getElementById("f_gm_percent").value !== "" ? parseFloat(document.getElementById("f_gm_percent").value) : null,
     billing_model_id: billingVal ? parseInt(billingVal, 10) : null,
     operating_model_id: operatingVal ? parseInt(operatingVal, 10) : null,
     status: document.getElementById("f_status").value,
     doc_link: document.getElementById("f_doclink").value || null,
+    po_doc_link: document.getElementById("f_po_doclink").value || null,
+    deal_sheet_link: document.getElementById("f_deal_sheet_link").value || null,
     notes: document.getElementById("f_notes").value || null,
   };
   const url = id ? `${API}/sows/${id}` : `${API}/sows`;
@@ -842,34 +914,41 @@ document.getElementById("sowForm").addEventListener("submit", async (e) => {
 });
 
 // ---------- SOW document upload ----------
-document.getElementById("uploadDocBtn").addEventListener("click", () => {
-  document.getElementById("f_doc_file").click();
-});
-
-document.getElementById("f_doc_file").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const uploadBtn = document.getElementById("uploadDocBtn");
-  const prevHtml = uploadBtn.innerHTML;
-  uploadBtn.disabled = true;
-  uploadBtn.innerHTML = "<span>Uploading&hellip;</span>";
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
-    const resp = await fetch(`${API}/uploads`, { method: "POST", body: formData });
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      alert(formatApiError(err, "Failed to upload the file."));
-      return;
+// Shared by all three Reference Documents fields (Contract/SoW, Purchase
+// Order, Deal Sheet) - each just passes its own trigger button, hidden file
+// input and destination link field.
+function wireSowDocUpload(btnId, fileInputId, linkInputId) {
+  document.getElementById(btnId).addEventListener("click", () => {
+    document.getElementById(fileInputId).click();
+  });
+  document.getElementById(fileInputId).addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const uploadBtn = document.getElementById(btnId);
+    const prevHtml = uploadBtn.innerHTML;
+    uploadBtn.disabled = true;
+    uploadBtn.innerHTML = "<span>Uploading&hellip;</span>";
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const resp = await fetch(`${API}/uploads`, { method: "POST", body: formData });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert(formatApiError(err, "Failed to upload the file."));
+        return;
+      }
+      const result = await resp.json();
+      document.getElementById(linkInputId).value = result.path;
+    } finally {
+      uploadBtn.disabled = false;
+      uploadBtn.innerHTML = prevHtml;
+      e.target.value = "";
     }
-    const result = await resp.json();
-    document.getElementById("f_doclink").value = result.path;
-  } finally {
-    uploadBtn.disabled = false;
-    uploadBtn.innerHTML = prevHtml;
-    e.target.value = "";
-  }
-});
+  });
+}
+wireSowDocUpload("uploadDocBtn", "f_doc_file", "f_doclink");
+wireSowDocUpload("uploadPoDocBtn", "f_po_doc_file", "f_po_doclink");
+wireSowDocUpload("uploadDealSheetBtn", "f_deal_sheet_file", "f_deal_sheet_link");
 
 function renderDocLink(link) {
   if (!link) return "";
@@ -912,13 +991,16 @@ async function renderDetail() {
     <div class="detail-cards">
       <div class="stat-card"><div class="stat-label">Start &rarr; end</div><div class="stat-value stat-value-sm">${fmtDate(s.start_date)} &rarr; ${fmtDate(s.end_date)}</div></div>
       <div class="stat-card"><div class="stat-label">TCV (USD)</div><div class="stat-value">${fmt(s.total_value)}</div></div>
+      <div class="stat-card"><div class="stat-label">GM %</div><div class="stat-value">${s.gm_percent !== null && s.gm_percent !== undefined ? Number(s.gm_percent.toFixed(2)) + "%" : "—"}</div></div>
       <div class="stat-card"><div class="stat-label">Billed</div><div class="stat-value">${fmt(s.billed_total)}</div></div>
       <div class="stat-card"><div class="stat-label">Remaining</div><div class="stat-value">${fmt(s.remaining_budget)}</div></div>
     </div>
     <p><strong>Project Title:</strong> ${escapeHtml(s.project_title) || "—"} &nbsp;&middot;&nbsp; <strong>Project Code:</strong> ${escapeHtml(s.project_code) || "—"} &nbsp;&middot;&nbsp; <strong>Contract Code:</strong> ${escapeHtml(s.contract_code) || "—"}</p>
     <p><strong>Opportunity ID:</strong> ${escapeHtml(s.opportunity_id) || "—"} &nbsp;&middot;&nbsp; <strong>PO#:</strong> ${escapeHtml(s.po_number) || "—"}</p>
     <p><strong>Billing model:</strong> ${escapeHtml(s.billing_model_name) || "—"} &nbsp;&middot;&nbsp; <strong>Operating model:</strong> ${escapeHtml(s.operating_model_name) || "—"}</p>
-    ${s.doc_link ? `<p><strong>Document:</strong> ${renderDocLink(s.doc_link)}</p>` : ""}
+    ${s.doc_link ? `<p><strong>Contract (SoW):</strong> ${renderDocLink(s.doc_link)}</p>` : ""}
+    ${s.po_doc_link ? `<p><strong>Purchase Order:</strong> ${renderDocLink(s.po_doc_link)}</p>` : ""}
+    ${s.deal_sheet_link ? `<p><strong>Deal Sheet:</strong> ${renderDocLink(s.deal_sheet_link)}</p>` : ""}
     ${s.notes ? `<p><strong>Additional information:</strong> ${escapeHtml(s.notes)}</p>` : ""}
 
     ${isFixedPrice ? `
@@ -959,7 +1041,12 @@ async function renderDetail() {
       tr.querySelector(".edit-m-btn").addEventListener("click", () => openMilestoneModal(m));
       tr.querySelector(".del-m-btn").addEventListener("click", async () => {
         if (confirm(`Delete milestone "${m.description}"?`)) {
-          await fetch(`${API}/milestones/${m.id}`, { method: "DELETE" });
+          const resp = await fetch(`${API}/milestones/${m.id}`, { method: "DELETE" });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            alert(formatApiError(err, "Failed to delete this milestone."));
+            return;
+          }
           renderDetail();
         }
       });
@@ -1002,7 +1089,25 @@ document.getElementById("milestoneForm").addEventListener("submit", async (e) =>
 });
 
 // ---------- Customer Management (Administration) ----------
+// Inline-edit table - no modal. Each row's Edit icon swaps it in place into
+// the same row with text inputs (Save/Cancel replacing Edit/Delete), and
+// "New Customer" prepends a blank row in that same editable state. Mirrors
+// the toggle-in-place approach Revenue Management's grid uses
+// (buildRevenueSowRow()/replaceRevenueRow()) rather than opening a form.
 document.getElementById("customerSearchInput").addEventListener("input", debounce(loadCustomers, 250));
+
+// Field order/required-ness shared between the editable inputs and the
+// payload sent to the API - keeps buildCustomerRow() and saveCustomerRow()
+// in sync, and matches the table's header column order.
+const CUSTOMER_FIELDS = [
+  { key: "customer_code", label: "Customer code", required: true },
+  { key: "customer_name", label: "Customer name", required: true },
+  { key: "client_partner", label: "Client partner" },
+  { key: "delivery_director", label: "Delivery director" },
+  { key: "industry", label: "Industry" },
+  { key: "headquarters", label: "Headquarters" },
+  { key: "geo", label: "Geo" },
+];
 
 async function loadCustomers() {
   const q = document.getElementById("customerSearchInput").value.trim();
@@ -1017,35 +1122,134 @@ async function loadCustomers() {
     return;
   }
   customers.forEach((c, idx) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td class="sl-no-cell">${idx + 1}</td>
-      <td>${escapeHtml(c.customer_code)}</td>
-      <td>${escapeHtml(c.customer_name)}</td>
-      <td>${escapeHtml(c.client_partner) || "—"}</td>
-      <td>${escapeHtml(c.delivery_director) || "—"}</td>
-      <td>${escapeHtml(c.industry) || "—"}</td>
-      <td>${escapeHtml(c.headquarters) || "—"}</td>
-      <td>${escapeHtml(c.geo) || "—"}</td>
-      <td class="row-actions">
-        <button class="ghost-btn btn-edit icon-btn edit-c-btn" title="Edit">${icon("edit")}</button>
-        <button class="ghost-btn btn-danger icon-btn del-c-btn" title="Delete">${icon("trash")}</button>
-      </td>
-    `;
-    tr.querySelector(".edit-c-btn").addEventListener("click", () => openCustomerModal(c));
-    tr.querySelector(".del-c-btn").addEventListener("click", async () => {
-      if (confirm(`Delete customer "${c.customer_name}" (${c.customer_code})?`)) {
-        await fetch(`${API}/customers/${c.id}`, { method: "DELETE" });
-        loadCustomers();
-        refreshSowCustomerFilterOptions();
-      }
-    });
+    const tr = buildCustomerRow(c, false);
+    tr.querySelector(".cust-sl-no").textContent = idx + 1;
     tbody.appendChild(tr);
   });
 }
 
-const customerModal = document.getElementById("customerModal");
-document.getElementById("newCustomerBtn").addEventListener("click", () => openCustomerModal());
+// Builds one <tr> for the Customers table. editing=false renders plain text
+// with Edit/Delete actions; editing=true renders a text input per field
+// with Save/Cancel actions. Text values are set via the DOM (textContent/
+// .value) rather than interpolated into an HTML string, so customer data
+// containing quotes, "&", "<", etc. can never break out of the markup.
+function buildCustomerRow(c, editing) {
+  const tr = document.createElement("tr");
+  if (editing) tr.classList.add("inline-editing-row");
+
+  const slTd = document.createElement("td");
+  slTd.className = "sl-no-cell cust-sl-no";
+  tr.appendChild(slTd);
+
+  CUSTOMER_FIELDS.forEach(({ key, required }) => {
+    const td = document.createElement("td");
+    if (editing) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "cust-cell";
+      input.dataset.field = key;
+      input.value = c[key] || "";
+      if (required) input.required = true;
+      td.appendChild(input);
+    } else {
+      td.textContent = c[key] || "—";
+    }
+    tr.appendChild(td);
+  });
+
+  const actionsTd = document.createElement("td");
+  actionsTd.className = "row-actions";
+  actionsTd.innerHTML = editing
+    ? `<button type="button" class="ghost-btn btn-edit icon-btn cust-save-btn" title="Save">${icon("check")}</button>
+       <button type="button" class="ghost-btn icon-btn cust-cancel-btn" title="Cancel">${icon("x")}</button>`
+    : `<button type="button" class="ghost-btn btn-edit icon-btn cust-edit-btn" title="Edit">${icon("edit")}</button>
+       <button type="button" class="ghost-btn btn-danger icon-btn cust-del-btn" title="Delete">${icon("trash")}</button>`;
+  tr.appendChild(actionsTd);
+
+  if (editing) {
+    actionsTd.querySelector(".cust-save-btn").addEventListener("click", () => saveCustomerRow(c, tr));
+    actionsTd.querySelector(".cust-cancel-btn").addEventListener("click", () => {
+      if (c.id) {
+        replaceCustomerRow(tr, buildCustomerRow(c, false));
+      } else {
+        loadCustomers(); // discard the unsaved draft row and restore the normal listing
+      }
+    });
+  } else {
+    actionsTd.querySelector(".cust-edit-btn").addEventListener("click", () => {
+      replaceCustomerRow(tr, buildCustomerRow(c, true));
+    });
+    actionsTd.querySelector(".cust-del-btn").addEventListener("click", async () => {
+      if (confirm(`Delete customer "${c.customer_name}" (${c.customer_code})?`)) {
+        const resp = await fetch(`${API}/customers/${c.id}`, { method: "DELETE" });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(formatApiError(err, "Failed to delete this customer."));
+          return;
+        }
+        loadCustomers();
+        refreshSowCustomerFilterOptions();
+      }
+    });
+  }
+
+  return tr;
+}
+
+// Preserves the row's current Sl. No when toggling edit/read-only in place,
+// same reasoning as Revenue Management's replaceRevenueRow().
+function replaceCustomerRow(oldTr, newTr) {
+  const slNo = oldTr.querySelector(".cust-sl-no")?.textContent;
+  oldTr.replaceWith(newTr);
+  if (slNo) newTr.querySelector(".cust-sl-no").textContent = slNo;
+}
+
+async function saveCustomerRow(c, tr) {
+  const saveBtn = tr.querySelector(".cust-save-btn");
+  const cancelBtn = tr.querySelector(".cust-cancel-btn");
+  const payload = {};
+  let missingRequired = false;
+  CUSTOMER_FIELDS.forEach(({ key, required }) => {
+    const value = tr.querySelector(`.cust-cell[data-field="${key}"]`).value.trim();
+    if (required && !value) missingRequired = true;
+    payload[key] = value || null;
+  });
+  if (missingRequired) {
+    alert("Customer code and Customer name are required.");
+    return;
+  }
+  saveBtn.disabled = true;
+  cancelBtn.disabled = true;
+  try {
+    const url = c.id ? `${API}/customers/${c.id}` : `${API}/customers`;
+    const method = c.id ? "PUT" : "POST";
+    const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      alert(formatApiError(err, "Failed to save customer."));
+      return;
+    }
+    await loadCustomers();
+    refreshSowCustomerFilterOptions();
+  } finally {
+    saveBtn.disabled = false;
+    cancelBtn.disabled = false;
+  }
+}
+
+document.getElementById("newCustomerBtn").addEventListener("click", () => {
+  const tbody = document.getElementById("customerTableBody");
+  const existingDraft = tbody.querySelector('tr[data-draft="true"]');
+  if (existingDraft) {
+    existingDraft.querySelector(".cust-cell").focus();
+    return;
+  }
+  if (tbody.querySelector(".empty-state")) tbody.innerHTML = "";
+  const draft = buildCustomerRow({}, true);
+  draft.dataset.draft = "true";
+  tbody.prepend(draft);
+  draft.querySelector(".cust-cell").focus();
+});
 
 document.getElementById("exportCustomersBtn").addEventListener("click", () => {
   const q = document.getElementById("customerSearchInput").value.trim();
@@ -1054,44 +1258,370 @@ document.getElementById("exportCustomersBtn").addEventListener("click", () => {
   const qs = params.toString();
   window.location.href = `${API}/customers/export${qs ? "?" + qs : ""}`;
 });
-wireModalCancel(customerModal, "cancelCustomerBtn", "cancelCustomerBtnTop");
 
-function openCustomerModal(c) {
-  document.getElementById("customerModalTitle").textContent = c ? "Edit Customer" : "New Customer";
-  document.getElementById("c_id").value = c?.id ?? "";
-  document.getElementById("c_code").value = c?.customer_code ?? "";
-  document.getElementById("c_name").value = c?.customer_name ?? "";
-  document.getElementById("c_partner").value = c?.client_partner ?? "";
-  document.getElementById("c_director").value = c?.delivery_director ?? "";
-  document.getElementById("c_industry").value = c?.industry ?? "";
-  document.getElementById("c_headquarters").value = c?.headquarters ?? "";
-  document.getElementById("c_geo").value = c?.geo ?? "";
-  customerModal.hidden = false;
+// ---------- Customer Configuration: Billing Hours ----------
+// Inline-edit table, same toggle-in-place Edit/Save/Cancel pattern as
+// buildCustomerRow() and the generic Global Settings lists
+// (makeInlineListManager) - but each row picks a Customer and a Location
+// from dropdowns (both FKs) rather than typing a name, plus a numeric
+// "billing hours per day" field.
+function selectOptionsHtml(items, valueKey, labelKey, placeholder) {
+  return `<option value="">${placeholder}</option>` +
+    items.map((i) => `<option value="${i[valueKey]}">${escapeHtml(i[labelKey])}</option>`).join("");
 }
 
-document.getElementById("customerForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const id = document.getElementById("c_id").value;
-  const payload = {
-    customer_code: document.getElementById("c_code").value,
-    customer_name: document.getElementById("c_name").value,
-    client_partner: document.getElementById("c_partner").value || null,
-    delivery_director: document.getElementById("c_director").value || null,
-    industry: document.getElementById("c_industry").value || null,
-    headquarters: document.getElementById("c_headquarters").value || null,
-    geo: document.getElementById("c_geo").value || null,
-  };
-  const url = id ? `${API}/customers/${id}` : `${API}/customers`;
-  const method = id ? "PUT" : "POST";
-  const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    alert(formatApiError(err, "Failed to save customer."));
+function buildBillingHoursRow(item, editing, customers, locations) {
+  const tr = document.createElement("tr");
+  if (editing) tr.classList.add("inline-editing-row");
+
+  const slTd = document.createElement("td");
+  slTd.className = "sl-no-cell bh-sl-no";
+  tr.appendChild(slTd);
+
+  const customerTd = document.createElement("td");
+  if (editing) {
+    const select = document.createElement("select");
+    select.className = "inline-cell";
+    select.dataset.field = "customer_id";
+    select.required = true;
+    select.innerHTML = selectOptionsHtml(customers, "id", "customer_name", "Select customer…");
+    if (item.customer_id) select.value = String(item.customer_id);
+    customerTd.appendChild(select);
+  } else {
+    customerTd.textContent = item.customer_name || "—";
+  }
+  tr.appendChild(customerTd);
+
+  const locationTd = document.createElement("td");
+  if (editing) {
+    const select = document.createElement("select");
+    select.className = "inline-cell";
+    select.dataset.field = "location_id";
+    select.required = true;
+    select.innerHTML = selectOptionsHtml(locations, "id", "name", "Select location…");
+    if (item.location_id) select.value = String(item.location_id);
+    locationTd.appendChild(select);
+  } else {
+    locationTd.textContent = item.location_name || "—";
+  }
+  tr.appendChild(locationTd);
+
+  const hoursTd = document.createElement("td");
+  if (editing) {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "0.5";
+    input.min = "0";
+    input.className = "inline-cell";
+    input.dataset.field = "billing_hours_per_day";
+    input.value = item.billing_hours_per_day ?? "";
+    input.required = true;
+    hoursTd.appendChild(input);
+  } else {
+    hoursTd.textContent = item.billing_hours_per_day ?? "—";
+  }
+  tr.appendChild(hoursTd);
+
+  const actionsTd = document.createElement("td");
+  actionsTd.className = "row-actions";
+  actionsTd.innerHTML = editing
+    ? `<button type="button" class="ghost-btn btn-edit icon-btn bh-save-btn" title="Save">${icon("check")}</button>
+       <button type="button" class="ghost-btn icon-btn bh-cancel-btn" title="Cancel">${icon("x")}</button>`
+    : `<button type="button" class="ghost-btn btn-edit icon-btn bh-edit-btn" title="Edit">${icon("edit")}</button>
+       <button type="button" class="ghost-btn btn-danger icon-btn bh-del-btn" title="Delete">${icon("trash")}</button>`;
+  tr.appendChild(actionsTd);
+
+  if (editing) {
+    actionsTd.querySelector(".bh-save-btn").addEventListener("click", () => saveBillingHoursRow(item, tr, customers, locations));
+    actionsTd.querySelector(".bh-cancel-btn").addEventListener("click", () => {
+      if (item.id) {
+        replaceBillingHoursRow(tr, buildBillingHoursRow(item, false, customers, locations));
+      } else {
+        loadBillingHours(); // discard the unsaved draft row and restore the normal listing
+      }
+    });
+  } else {
+    actionsTd.querySelector(".bh-edit-btn").addEventListener("click", () => {
+      replaceBillingHoursRow(tr, buildBillingHoursRow(item, true, customers, locations));
+    });
+    actionsTd.querySelector(".bh-del-btn").addEventListener("click", async () => {
+      if (confirm(`Delete the billing hours configuration for "${item.customer_name}" / "${item.location_name}"?`)) {
+        const resp = await fetch(`${API}/billing-hours/${item.id}`, { method: "DELETE" });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(formatApiError(err, "Failed to delete this billing hours configuration."));
+          return;
+        }
+        loadBillingHours();
+      }
+    });
+  }
+
+  return tr;
+}
+
+// Preserves the row's current Sl. No when toggling edit/read-only in place,
+// same reasoning as Revenue Management's replaceRevenueRow().
+function replaceBillingHoursRow(oldTr, newTr) {
+  const slNo = oldTr.querySelector(".bh-sl-no")?.textContent;
+  oldTr.replaceWith(newTr);
+  if (slNo) newTr.querySelector(".bh-sl-no").textContent = slNo;
+}
+
+async function saveBillingHoursRow(item, tr, customers, locations) {
+  const saveBtn = tr.querySelector(".bh-save-btn");
+  const cancelBtn = tr.querySelector(".bh-cancel-btn");
+  const customerId = tr.querySelector('.inline-cell[data-field="customer_id"]').value;
+  const locationId = tr.querySelector('.inline-cell[data-field="location_id"]').value;
+  const hoursVal = tr.querySelector('.inline-cell[data-field="billing_hours_per_day"]').value.trim();
+  if (!customerId || !locationId || !hoursVal) {
+    alert("Customer, Location and Billing Hours per day are all required.");
     return;
   }
-  customerModal.hidden = true;
-  loadCustomers();
-  refreshSowCustomerFilterOptions();
+  const payload = {
+    customer_id: parseInt(customerId, 10),
+    location_id: parseInt(locationId, 10),
+    billing_hours_per_day: parseFloat(hoursVal),
+  };
+  saveBtn.disabled = true;
+  cancelBtn.disabled = true;
+  try {
+    const url = item.id ? `${API}/billing-hours/${item.id}` : `${API}/billing-hours`;
+    const method = item.id ? "PUT" : "POST";
+    const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      alert(formatApiError(err, "Failed to save billing hours configuration."));
+      return;
+    }
+    await loadBillingHours();
+  } finally {
+    saveBtn.disabled = false;
+    cancelBtn.disabled = false;
+  }
+}
+
+async function loadBillingHours() {
+  const [items, customers, locations] = await Promise.all([
+    fetch(`${API}/billing-hours`).then((r) => r.json()),
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(`${API}/locations`).then((r) => r.json()),
+  ]);
+  const tbody = document.getElementById("billingHoursTableBody");
+  tbody.innerHTML = "";
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No billing hours configurations yet. Click "Add Billing Hours Configuration" to add one.</td></tr>';
+    return;
+  }
+  items.forEach((item, idx) => {
+    const tr = buildBillingHoursRow(item, false, customers, locations);
+    tr.querySelector(".bh-sl-no").textContent = idx + 1;
+    tbody.appendChild(tr);
+  });
+}
+
+document.getElementById("newBillingHoursBtn").addEventListener("click", async () => {
+  const tbody = document.getElementById("billingHoursTableBody");
+  const existingDraft = tbody.querySelector('tr[data-draft="true"]');
+  if (existingDraft) {
+    existingDraft.querySelector(".inline-cell").focus();
+    return;
+  }
+  const [customers, locations] = await Promise.all([
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(`${API}/locations`).then((r) => r.json()),
+  ]);
+  if (tbody.querySelector(".empty-state")) tbody.innerHTML = "";
+  const draft = buildBillingHoursRow({}, true, customers, locations);
+  draft.dataset.draft = "true";
+  tbody.prepend(draft);
+  draft.querySelector(".inline-cell").focus();
+});
+
+// ---------- Customer Configuration: Holiday Calendar ----------
+// Same shape as Billing Hours Configuration - Customer/Location dropdowns,
+// same toggle-in-place Edit/Save/Cancel pattern - but with a date field and
+// a multiline details textarea instead of a single numeric field.
+function buildHolidayRow(item, editing, customers, locations) {
+  const tr = document.createElement("tr");
+  if (editing) tr.classList.add("inline-editing-row");
+
+  const slTd = document.createElement("td");
+  slTd.className = "sl-no-cell hol-sl-no";
+  tr.appendChild(slTd);
+
+  const customerTd = document.createElement("td");
+  if (editing) {
+    const select = document.createElement("select");
+    select.className = "inline-cell";
+    select.dataset.field = "customer_id";
+    select.required = true;
+    select.innerHTML = selectOptionsHtml(customers, "id", "customer_name", "Select customer…");
+    if (item.customer_id) select.value = String(item.customer_id);
+    customerTd.appendChild(select);
+  } else {
+    customerTd.textContent = item.customer_name || "—";
+  }
+  tr.appendChild(customerTd);
+
+  const locationTd = document.createElement("td");
+  if (editing) {
+    const select = document.createElement("select");
+    select.className = "inline-cell";
+    select.dataset.field = "location_id";
+    select.required = true;
+    select.innerHTML = selectOptionsHtml(locations, "id", "name", "Select location…");
+    if (item.location_id) select.value = String(item.location_id);
+    locationTd.appendChild(select);
+  } else {
+    locationTd.textContent = item.location_name || "—";
+  }
+  tr.appendChild(locationTd);
+
+  const dateTd = document.createElement("td");
+  if (editing) {
+    const input = document.createElement("input");
+    input.type = "date";
+    input.className = "inline-cell";
+    input.dataset.field = "holiday_date";
+    input.value = item.holiday_date || "";
+    input.required = true;
+    dateTd.appendChild(input);
+  } else {
+    dateTd.textContent = fmtDate(item.holiday_date);
+  }
+  tr.appendChild(dateTd);
+
+  const detailsTd = document.createElement("td");
+  if (editing) {
+    const textarea = document.createElement("textarea");
+    textarea.rows = 2;
+    textarea.className = "inline-cell";
+    textarea.dataset.field = "holiday_details";
+    textarea.value = item.holiday_details || "";
+    detailsTd.appendChild(textarea);
+  } else {
+    detailsTd.textContent = item.holiday_details || "—";
+    detailsTd.style.whiteSpace = "pre-wrap";
+  }
+  tr.appendChild(detailsTd);
+
+  const actionsTd = document.createElement("td");
+  actionsTd.className = "row-actions";
+  actionsTd.innerHTML = editing
+    ? `<button type="button" class="ghost-btn btn-edit icon-btn hol-save-btn" title="Save">${icon("check")}</button>
+       <button type="button" class="ghost-btn icon-btn hol-cancel-btn" title="Cancel">${icon("x")}</button>`
+    : `<button type="button" class="ghost-btn btn-edit icon-btn hol-edit-btn" title="Edit">${icon("edit")}</button>
+       <button type="button" class="ghost-btn btn-danger icon-btn hol-del-btn" title="Delete">${icon("trash")}</button>`;
+  tr.appendChild(actionsTd);
+
+  if (editing) {
+    actionsTd.querySelector(".hol-save-btn").addEventListener("click", () => saveHolidayRow(item, tr, customers, locations));
+    actionsTd.querySelector(".hol-cancel-btn").addEventListener("click", () => {
+      if (item.id) {
+        replaceHolidayRow(tr, buildHolidayRow(item, false, customers, locations));
+      } else {
+        loadHolidays(); // discard the unsaved draft row and restore the normal listing
+      }
+    });
+  } else {
+    actionsTd.querySelector(".hol-edit-btn").addEventListener("click", () => {
+      replaceHolidayRow(tr, buildHolidayRow(item, true, customers, locations));
+    });
+    actionsTd.querySelector(".hol-del-btn").addEventListener("click", async () => {
+      if (confirm(`Delete the holiday on ${fmtDate(item.holiday_date)} for "${item.customer_name}" / "${item.location_name}"?`)) {
+        const resp = await fetch(`${API}/holidays/${item.id}`, { method: "DELETE" });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(formatApiError(err, "Failed to delete this holiday."));
+          return;
+        }
+        loadHolidays();
+      }
+    });
+  }
+
+  return tr;
+}
+
+// Preserves the row's current Sl. No when toggling edit/read-only in
+// place, same reasoning as Revenue Management's replaceRevenueRow().
+function replaceHolidayRow(oldTr, newTr) {
+  const slNo = oldTr.querySelector(".hol-sl-no")?.textContent;
+  oldTr.replaceWith(newTr);
+  if (slNo) newTr.querySelector(".hol-sl-no").textContent = slNo;
+}
+
+async function saveHolidayRow(item, tr, customers, locations) {
+  const saveBtn = tr.querySelector(".hol-save-btn");
+  const cancelBtn = tr.querySelector(".hol-cancel-btn");
+  const customerId = tr.querySelector('.inline-cell[data-field="customer_id"]').value;
+  const locationId = tr.querySelector('.inline-cell[data-field="location_id"]').value;
+  const holidayDate = tr.querySelector('.inline-cell[data-field="holiday_date"]').value;
+  const holidayDetails = tr.querySelector('.inline-cell[data-field="holiday_details"]').value.trim();
+  if (!customerId || !locationId || !holidayDate) {
+    alert("Customer, Location and Holiday Date are all required.");
+    return;
+  }
+  const payload = {
+    customer_id: parseInt(customerId, 10),
+    location_id: parseInt(locationId, 10),
+    holiday_date: holidayDate,
+    holiday_details: holidayDetails || null,
+  };
+  saveBtn.disabled = true;
+  cancelBtn.disabled = true;
+  try {
+    const url = item.id ? `${API}/holidays/${item.id}` : `${API}/holidays`;
+    const method = item.id ? "PUT" : "POST";
+    const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      alert(formatApiError(err, "Failed to save holiday."));
+      return;
+    }
+    await loadHolidays();
+  } finally {
+    saveBtn.disabled = false;
+    cancelBtn.disabled = false;
+  }
+}
+
+async function loadHolidays() {
+  const [items, customers, locations] = await Promise.all([
+    fetch(`${API}/holidays`).then((r) => r.json()),
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(`${API}/locations`).then((r) => r.json()),
+  ]);
+  const tbody = document.getElementById("holidayTableBody");
+  tbody.innerHTML = "";
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No holidays yet. Click "Add Holiday" to add one.</td></tr>';
+    return;
+  }
+  items.forEach((item, idx) => {
+    const tr = buildHolidayRow(item, false, customers, locations);
+    tr.querySelector(".hol-sl-no").textContent = idx + 1;
+    tbody.appendChild(tr);
+  });
+}
+
+document.getElementById("newHolidayBtn").addEventListener("click", async () => {
+  const tbody = document.getElementById("holidayTableBody");
+  const existingDraft = tbody.querySelector('tr[data-draft="true"]');
+  if (existingDraft) {
+    existingDraft.querySelector(".inline-cell").focus();
+    return;
+  }
+  const [customers, locations] = await Promise.all([
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(`${API}/locations`).then((r) => r.json()),
+  ]);
+  if (tbody.querySelector(".empty-state")) tbody.innerHTML = "";
+  const draft = buildHolidayRow({}, true, customers, locations);
+  draft.dataset.draft = "true";
+  tbody.prepend(draft);
+  draft.querySelector(".inline-cell").focus();
 });
 
 // ---------- Resource Management (Management) ----------
@@ -1150,7 +1680,12 @@ async function loadResources() {
     tr.querySelector(".edit-r-btn").addEventListener("click", () => openResourceModal(r));
     tr.querySelector(".del-r-btn").addEventListener("click", async () => {
       if (confirm(`Delete resource "${r.employee_name}"?`)) {
-        await fetch(`${API}/resources/${r.id}`, { method: "DELETE" });
+        const resp = await fetch(`${API}/resources/${r.id}`, { method: "DELETE" });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(formatApiError(err, "Failed to delete this resource."));
+          return;
+        }
         loadResources();
       }
     });
@@ -1705,6 +2240,30 @@ document.getElementById("revenueBillingModelFilter").addEventListener("change", 
   loadRevenueSows();
 });
 
+// Financial nav presets (Projections/Actuals) narrow the 24 month columns
+// down to just the Projections or just the Invoiced half of each month
+// instead of showing both side by side - see the view-mode-* CSS in
+// style.css, which hides the half not wanted via the rev-col-proj/rev-col-inv
+// classes every month cell already carries. Colspan on the month group
+// header can't be done in CSS, so it's kept in sync here instead.
+let revenueViewMode = "both";
+function setRevenueViewMode(mode) {
+  revenueViewMode = mode;
+  const panel = document.getElementById("tab-revenue");
+  panel.classList.remove("view-mode-both", "view-mode-projections", "view-mode-actuals");
+  panel.classList.add("view-mode-" + mode);
+  document.querySelectorAll(".rev-month-hdr").forEach((th) => {
+    th.colSpan = mode === "both" ? 2 : 1;
+  });
+  const subtitle = document.getElementById("revenueSectionSubtitle");
+  if (subtitle) {
+    subtitle.textContent = mode === "both"
+      ? "Add, edit or delete monthly projections and invoiced amounts per SOW"
+      : `Showing ${mode === "projections" ? "Projections" : "Actuals (Invoiced)"} only` +
+        (revenueBillingModelFilter ? ` · ${revenueBillingModelFilter}` : "");
+  }
+}
+
 function populateRevenueCustomerFilter(customers) {
   const select = document.getElementById("revenueCustomerFilter");
   const current = select.value;
@@ -1715,7 +2274,15 @@ function populateRevenueCustomerFilter(customers) {
 
 function populateRevenueBillingModelFilter(models) {
   const select = document.getElementById("revenueBillingModelFilter");
-  const current = select.value;
+  // Read from the revenueBillingModelFilter variable rather than select.value:
+  // a Financial submenu preset (see applyRevenueMenuPreset()) sets that
+  // variable before this function's caller (loadRevenueTab) ever runs, at a
+  // point where the <select> may still only hold its default "All billing
+  // models" option - assigning a not-yet-present value to select.value is a
+  // silent no-op, so reading it back here would lose the preset. The
+  // variable is always kept in sync with the select's own change handler
+  // too, so it's the reliable source either way.
+  const current = revenueBillingModelFilter;
   select.innerHTML = '<option value="">All billing models</option>' +
     models.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join("");
   select.value = current;
@@ -1790,8 +2357,8 @@ function buildRevenueTotalsRow(totals) {
   for (let i = 0; i < 12; i++) {
     const band = i % 2 === 0 ? "rev-band-a" : "rev-band-b";
     cells += `
-      <td class="rev-readonly-cell ${band}">${fmtPlain(totals.projections[i])}</td>
-      <td class="rev-readonly-cell ${band}">${fmtPlain(totals.invoiced[i])}</td>
+      <td class="rev-readonly-cell ${band} rev-col-proj">${fmtPlain(totals.projections[i])}</td>
+      <td class="rev-readonly-cell ${band} rev-col-inv">${fmtPlain(totals.invoiced[i])}</td>
     `;
   }
   tr.innerHTML = cells;
@@ -1838,13 +2405,13 @@ function buildRevenueSowRow(r, editing) {
     const band = i % 2 === 0 ? "rev-band-a" : "rev-band-b";
     if (editing) {
       cells += `
-        <td class="${band}"><input type="number" step="0.01" class="rev-cell" data-fiscal-month="${m.fiscal_month}" data-field="projection" value="${m.projection}" /></td>
-        <td class="${band}"><input type="number" step="0.01" class="rev-cell" data-fiscal-month="${m.fiscal_month}" data-field="invoiced" value="${m.invoiced}" /></td>
+        <td class="${band} rev-col-proj"><input type="number" step="0.01" class="rev-cell" data-fiscal-month="${m.fiscal_month}" data-field="projection" value="${m.projection}" /></td>
+        <td class="${band} rev-col-inv"><input type="number" step="0.01" class="rev-cell" data-fiscal-month="${m.fiscal_month}" data-field="invoiced" value="${m.invoiced}" /></td>
       `;
     } else {
       cells += `
-        <td class="rev-readonly-cell ${band}">${fmtPlain(m.projection)}</td>
-        <td class="rev-readonly-cell ${band}">${fmtPlain(m.invoiced)}</td>
+        <td class="rev-readonly-cell ${band} rev-col-proj">${fmtPlain(m.projection)}</td>
+        <td class="rev-readonly-cell ${band} rev-col-inv">${fmtPlain(m.invoiced)}</td>
       `;
     }
   });
@@ -1862,7 +2429,12 @@ function buildRevenueSowRow(r, editing) {
     });
     tr.querySelector(".rev-del-btn").addEventListener("click", async () => {
       if (confirm(`Remove "${r.sow_title}" (${r.customer_name}) from Revenue Management for ${fyLabelText(currentFiscalYear)}? This deletes all of its months for this fiscal year.`)) {
-        await fetch(`${API}/revenue/sows/${r.sow_id}/${currentFiscalYear}`, { method: "DELETE" });
+        const resp = await fetch(`${API}/revenue/sows/${r.sow_id}/${currentFiscalYear}`, { method: "DELETE" });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(formatApiError(err, "Failed to remove this SOW from Revenue Management."));
+          return;
+        }
         loadRevenueTab();
       }
     });
@@ -1924,16 +2496,16 @@ function draftMonthCellsHtml(editable) {
     const band = (fm - 1) % 2 === 0 ? "rev-band-a" : "rev-band-b";
     html += editable
       ? `
-        <td class="${band} draft-month-cell">
+        <td class="${band} draft-month-cell rev-col-proj">
           <input type="number" step="0.01" class="rev-cell draft-projection-input" data-fiscal-month="${fm}" data-field="projection" value="0" />
         </td>
-        <td class="${band} draft-month-cell">
+        <td class="${band} draft-month-cell rev-col-inv">
           <input type="number" step="0.01" class="rev-cell draft-invoiced-input" data-fiscal-month="${fm}" data-field="invoiced" value="0" />
         </td>
       `
       : `
-        <td class="rev-readonly-cell ${band} draft-month-cell">—</td>
-        <td class="rev-readonly-cell ${band} draft-month-cell">—</td>
+        <td class="rev-readonly-cell ${band} draft-month-cell rev-col-proj">—</td>
+        <td class="rev-readonly-cell ${band} draft-month-cell rev-col-inv">—</td>
       `;
   }
   return html;
@@ -2082,19 +2654,128 @@ document.getElementById("newRevenueEntryBtn").addEventListener("click", async ()
   });
 });
 
-// ---------- Configuration: generic simple-list helper (Locations, Billing Models, Statuses) ----------
-function makeSimpleListManager(opts) {
-  const { apiPath, tableBodyId, newBtnId, modal, modalTitleId, formId, idFieldId, nameFieldId, detailsFieldId, cancelBtnId, topCancelBtnId, itemLabel, onChange } = opts;
+// ---------- Configuration: generic simple-list helper (Locations, Billing
+// Models, Statuses, Employee Types, Bands, Opportunity Types) ----------
+// Inline-edit table - no modal. Same toggle-in-place approach as the
+// Customer Management table (buildCustomerRow()) and Revenue Management's
+// grid: an Edit icon swaps a row into text inputs with Save/Cancel, and the
+// "Add X" button prepends a blank row in that same editable state.
+function makeInlineListManager(opts) {
+  const { apiPath, tableBodyId, newBtnId, hasDetails, itemLabel, onChange } = opts;
   const tbody = document.getElementById(tableBodyId);
-  const form = document.getElementById(formId);
-  const colCount = detailsFieldId ? 4 : 3;
+  const colCount = hasDetails ? 4 : 3;
 
-  function openModal(item) {
-    document.getElementById(modalTitleId).textContent = item ? `Edit ${itemLabel}` : `New ${itemLabel}`;
-    document.getElementById(idFieldId).value = item?.id ?? "";
-    document.getElementById(nameFieldId).value = item?.name ?? "";
-    if (detailsFieldId) document.getElementById(detailsFieldId).value = item?.details ?? "";
-    modal.hidden = false;
+  function buildRow(item, editing) {
+    const tr = document.createElement("tr");
+    if (editing) tr.classList.add("inline-editing-row");
+
+    const slTd = document.createElement("td");
+    slTd.className = "sl-no-cell inline-sl-no";
+    tr.appendChild(slTd);
+
+    const nameTd = document.createElement("td");
+    if (editing) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "inline-cell";
+      input.dataset.field = "name";
+      input.value = item.name || "";
+      input.required = true;
+      nameTd.appendChild(input);
+    } else {
+      nameTd.textContent = item.name || "";
+    }
+    tr.appendChild(nameTd);
+
+    if (hasDetails) {
+      const detailsTd = document.createElement("td");
+      if (editing) {
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "inline-cell";
+        input.dataset.field = "details";
+        input.value = item.details || "";
+        detailsTd.appendChild(input);
+      } else {
+        detailsTd.textContent = item.details || "—";
+      }
+      tr.appendChild(detailsTd);
+    }
+
+    const actionsTd = document.createElement("td");
+    actionsTd.className = "row-actions";
+    actionsTd.innerHTML = editing
+      ? `<button type="button" class="ghost-btn btn-edit icon-btn inline-save-btn" title="Save">${icon("check")}</button>
+         <button type="button" class="ghost-btn icon-btn inline-cancel-btn" title="Cancel">${icon("x")}</button>`
+      : `<button type="button" class="ghost-btn btn-edit icon-btn inline-edit-btn" title="Edit">${icon("edit")}</button>
+         <button type="button" class="ghost-btn btn-danger icon-btn inline-del-btn" title="Delete">${icon("trash")}</button>`;
+    tr.appendChild(actionsTd);
+
+    if (editing) {
+      actionsTd.querySelector(".inline-save-btn").addEventListener("click", () => saveRow(item, tr));
+      actionsTd.querySelector(".inline-cancel-btn").addEventListener("click", () => {
+        if (item.id) {
+          replaceRow(tr, buildRow(item, false));
+        } else {
+          load(); // discard the unsaved draft row and restore the normal listing
+        }
+      });
+    } else {
+      actionsTd.querySelector(".inline-edit-btn").addEventListener("click", () => {
+        replaceRow(tr, buildRow(item, true));
+      });
+      actionsTd.querySelector(".inline-del-btn").addEventListener("click", async () => {
+        if (confirm(`Delete ${itemLabel.toLowerCase()} "${item.name}"?`)) {
+          const resp = await fetch(`${API}/${apiPath}/${item.id}`, { method: "DELETE" });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            alert(formatApiError(err, `Failed to delete this ${itemLabel.toLowerCase()}.`));
+            return;
+          }
+          load();
+          if (onChange) onChange();
+        }
+      });
+    }
+
+    return tr;
+  }
+
+  // Preserves the row's current Sl. No when toggling edit/read-only in
+  // place, same reasoning as Revenue Management's replaceRevenueRow().
+  function replaceRow(oldTr, newTr) {
+    const slNo = oldTr.querySelector(".inline-sl-no")?.textContent;
+    oldTr.replaceWith(newTr);
+    if (slNo) newTr.querySelector(".inline-sl-no").textContent = slNo;
+  }
+
+  async function saveRow(item, tr) {
+    const saveBtn = tr.querySelector(".inline-save-btn");
+    const cancelBtn = tr.querySelector(".inline-cancel-btn");
+    const name = tr.querySelector('.inline-cell[data-field="name"]').value.trim();
+    if (!name) {
+      alert(`${itemLabel} name is required.`);
+      return;
+    }
+    const payload = { name };
+    if (hasDetails) payload.details = tr.querySelector('.inline-cell[data-field="details"]').value.trim() || null;
+    saveBtn.disabled = true;
+    cancelBtn.disabled = true;
+    try {
+      const url = item.id ? `${API}/${apiPath}/${item.id}` : `${API}/${apiPath}`;
+      const method = item.id ? "PUT" : "POST";
+      const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert(formatApiError(err, `Failed to save ${itemLabel.toLowerCase()}.`));
+        return;
+      }
+      await load();
+      if (onChange) onChange();
+    } finally {
+      saveBtn.disabled = false;
+      cancelBtn.disabled = false;
+    }
   }
 
   async function load() {
@@ -2105,158 +2786,95 @@ function makeSimpleListManager(opts) {
       return;
     }
     items.forEach((item, idx) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="sl-no-cell">${idx + 1}</td>
-        <td>${escapeHtml(item.name)}</td>
-        ${detailsFieldId ? `<td>${escapeHtml(item.details) || "—"}</td>` : ""}
-        <td class="row-actions">
-          <button class="ghost-btn btn-edit icon-btn edit-btn" title="Edit">${icon("edit")}</button>
-          <button class="ghost-btn btn-danger icon-btn del-btn" title="Delete">${icon("trash")}</button>
-        </td>
-      `;
-      tr.querySelector(".edit-btn").addEventListener("click", () => openModal(item));
-      tr.querySelector(".del-btn").addEventListener("click", async () => {
-        if (confirm(`Delete ${itemLabel.toLowerCase()} "${item.name}"?`)) {
-          await fetch(`${API}/${apiPath}/${item.id}`, { method: "DELETE" });
-          load();
-          if (onChange) onChange();
-        }
-      });
+      const tr = buildRow(item, false);
+      tr.querySelector(".inline-sl-no").textContent = idx + 1;
       tbody.appendChild(tr);
     });
   }
 
-  document.getElementById(newBtnId).addEventListener("click", () => openModal());
-  wireModalCancel(modal, cancelBtnId, topCancelBtnId);
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const id = document.getElementById(idFieldId).value;
-    const payload = { name: document.getElementById(nameFieldId).value };
-    if (detailsFieldId) payload.details = document.getElementById(detailsFieldId).value || null;
-    const url = id ? `${API}/${apiPath}/${id}` : `${API}/${apiPath}`;
-    const method = id ? "PUT" : "POST";
-    const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      alert(formatApiError(err, `Failed to save ${itemLabel.toLowerCase()}.`));
+  document.getElementById(newBtnId).addEventListener("click", () => {
+    const existingDraft = tbody.querySelector('tr[data-draft="true"]');
+    if (existingDraft) {
+      existingDraft.querySelector(".inline-cell").focus();
       return;
     }
-    modal.hidden = true;
-    load();
-    if (onChange) onChange();
+    if (tbody.querySelector(".empty-state")) tbody.innerHTML = "";
+    const draft = buildRow({}, true);
+    draft.dataset.draft = "true";
+    tbody.prepend(draft);
+    draft.querySelector(".inline-cell").focus();
   });
 
   return { load };
 }
 
-const locationManager = makeSimpleListManager({
+const locationManager = makeInlineListManager({
   apiPath: "locations",
   tableBodyId: "locationTableBody",
   newBtnId: "newLocationBtn",
-  modal: document.getElementById("locationModal"),
-  modalTitleId: "locationModalTitle",
-  formId: "locationForm",
-  idFieldId: "loc_id",
-  nameFieldId: "loc_name",
-  detailsFieldId: "loc_details",
-  cancelBtnId: "cancelLocationBtn",
-  topCancelBtnId: "cancelLocationBtnTop",
+  hasDetails: true,
   itemLabel: "Location",
 });
 
-const billingModelManager = makeSimpleListManager({
+const billingModelManager = makeInlineListManager({
   apiPath: "billing-models",
   tableBodyId: "billingModelTableBody",
   newBtnId: "newBillingModelBtn",
-  modal: document.getElementById("billingModelModal"),
-  modalTitleId: "billingModelModalTitle",
-  formId: "billingModelForm",
-  idFieldId: "bm_id",
-  nameFieldId: "bm_name",
-  detailsFieldId: "bm_details",
-  cancelBtnId: "cancelBillingModelBtn",
-  topCancelBtnId: "cancelBillingModelBtnTop",
+  hasDetails: true,
   itemLabel: "Billing Model",
 });
 
-const operatingModelManager = makeSimpleListManager({
+const operatingModelManager = makeInlineListManager({
   apiPath: "operating-models",
   tableBodyId: "operatingModelTableBody",
   newBtnId: "newOperatingModelBtn",
-  modal: document.getElementById("operatingModelModal"),
-  modalTitleId: "operatingModelModalTitle",
-  formId: "operatingModelForm",
-  idFieldId: "om_id",
-  nameFieldId: "om_name",
-  detailsFieldId: "om_details",
-  cancelBtnId: "cancelOperatingModelBtn",
-  topCancelBtnId: "cancelOperatingModelBtnTop",
+  hasDetails: true,
   itemLabel: "Operating Model",
 });
 
-const statusManager = makeSimpleListManager({
+const statusManager = makeInlineListManager({
   apiPath: "statuses",
   tableBodyId: "statusTableBody",
   newBtnId: "newStatusBtn",
-  modal: document.getElementById("statusModal"),
-  modalTitleId: "statusModalTitle",
-  formId: "statusForm",
-  idFieldId: "st_id",
-  nameFieldId: "st_name",
-  detailsFieldId: "st_details",
-  cancelBtnId: "cancelStatusBtn",
-  topCancelBtnId: "cancelStatusBtnTop",
+  hasDetails: true,
   itemLabel: "Status",
   onChange: refreshStatusFilterOptions,
 });
 
-const employeeTypeManager = makeSimpleListManager({
+const employeeTypeManager = makeInlineListManager({
   apiPath: "employee-types",
   tableBodyId: "employeeTypeTableBody",
   newBtnId: "newEmployeeTypeBtn",
-  modal: document.getElementById("employeeTypeModal"),
-  modalTitleId: "employeeTypeModalTitle",
-  formId: "employeeTypeForm",
-  idFieldId: "et_id",
-  nameFieldId: "et_name",
-  detailsFieldId: "et_details",
-  cancelBtnId: "cancelEmployeeTypeBtn",
-  topCancelBtnId: "cancelEmployeeTypeBtnTop",
+  hasDetails: true,
   itemLabel: "Employee Type",
 });
 
-const bandManager = makeSimpleListManager({
+const bandManager = makeInlineListManager({
   apiPath: "bands",
   tableBodyId: "bandTableBody",
   newBtnId: "newBandBtn",
-  modal: document.getElementById("bandModal"),
-  modalTitleId: "bandModalTitle",
-  formId: "bandForm",
-  idFieldId: "bd_id",
-  nameFieldId: "bd_name",
-  detailsFieldId: "bd_details",
-  cancelBtnId: "cancelBandBtn",
-  topCancelBtnId: "cancelBandBtnTop",
+  hasDetails: true,
   itemLabel: "Band",
 });
 
 // What kind of SOW record something is - a brand-new SOW vs. an extension/
 // amendment of an existing one - managed here the same way as any other
 // simple master list (Locations, Billing Models, etc).
-const opportunityTypeManager = makeSimpleListManager({
+const opportunityTypeManager = makeInlineListManager({
   apiPath: "opportunity-types",
   tableBodyId: "opportunityTypeTableBody",
   newBtnId: "newOpportunityTypeBtn",
-  modal: document.getElementById("opportunityTypeModal"),
-  modalTitleId: "opportunityTypeModalTitle",
-  formId: "opportunityTypeForm",
-  idFieldId: "ot_id",
-  nameFieldId: "ot_name",
-  detailsFieldId: "ot_details",
-  cancelBtnId: "cancelOpportunityTypeBtn",
-  topCancelBtnId: "cancelOpportunityTypeBtnTop",
+  hasDetails: true,
   itemLabel: "Opportunity Type",
+});
+
+// Another simple master list, managed under Settings exactly like Locations.
+const revenueTypeManager = makeInlineListManager({
+  apiPath: "revenue-types",
+  tableBodyId: "revenueTypeTableBody",
+  newBtnId: "newRevenueTypeBtn",
+  hasDetails: true,
+  itemLabel: "Revenue Type",
 });
 
 function loadLocations() { locationManager.load(); }
@@ -2266,6 +2884,7 @@ function loadStatuses() { statusManager.load(); }
 function loadEmployeeTypes() { employeeTypeManager.load(); }
 function loadBands() { bandManager.load(); }
 function loadOpportunityTypes() { opportunityTypeManager.load(); }
+function loadRevenueTypes() { revenueTypeManager.load(); }
 
 // ---------- init ----------
 // A refresh should land back on whatever tab the user was actually working

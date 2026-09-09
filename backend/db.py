@@ -31,6 +31,33 @@ CREATE TABLE IF NOT EXISTS locations (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Per customer+location billing hours/day, managed under Customer
+-- Configuration > Billing Hours Configuration (same inline-edit table
+-- format as Locations, but two FK dropdowns plus a numeric field instead
+-- of a plain name+details pair).
+CREATE TABLE IF NOT EXISTS billing_hour_configs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    location_id INTEGER NOT NULL REFERENCES locations(id),
+    billing_hours_per_day REAL NOT NULL DEFAULT 8,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Per customer+location holiday dates, managed under Customer Configuration
+-- > Holiday Calendar - same inline-edit table shape as Billing Hours
+-- Configuration (two FK dropdowns), plus a date and a free-text details
+-- field instead of a numeric one.
+CREATE TABLE IF NOT EXISTS holiday_calendar (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    location_id INTEGER NOT NULL REFERENCES locations(id),
+    holiday_date TEXT NOT NULL,
+    holiday_details TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS billing_models (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
@@ -82,6 +109,17 @@ CREATE TABLE IF NOT EXISTS opportunity_types (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Another simple named master list, managed under Settings exactly like
+-- Locations (no seed data, no FK from sows/etc yet - just a plain list
+-- users maintain themselves).
+CREATE TABLE IF NOT EXISTS revenue_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    details TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS sows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_id INTEGER REFERENCES customers(id),
@@ -95,11 +133,14 @@ CREATE TABLE IF NOT EXISTS sows (
     start_date TEXT,
     end_date TEXT,
     total_value REAL NOT NULL DEFAULT 0,
+    gm_percent REAL,
     billing_model_id INTEGER REFERENCES billing_models(id),
     operating_model_id INTEGER REFERENCES operating_models(id),
     status TEXT NOT NULL DEFAULT 'draft',
     notes TEXT,
     doc_link TEXT,
+    po_doc_link TEXT,
+    deal_sheet_link TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -245,6 +286,18 @@ def _migrate(conn):
     # Additive: which Opportunity Type (New/Extension/Amendment/...) a SOW is.
     if _table_exists(conn, "sows") and not _column_exists(conn, "sows", "opportunity_type_id"):
         conn.execute("ALTER TABLE sows ADD COLUMN opportunity_type_id INTEGER")
+
+    # Additive: Gross Margin % per SOW.
+    if _table_exists(conn, "sows") and not _column_exists(conn, "sows", "gm_percent"):
+        conn.execute("ALTER TABLE sows ADD COLUMN gm_percent REAL")
+
+    # Additive: Purchase Order and Deal Sheet reference document links, to
+    # go alongside the pre-existing doc_link (now labeled "Contract (SoW)"
+    # in the SOW form's Reference Documents section).
+    if _table_exists(conn, "sows"):
+        for col in ("po_doc_link", "deal_sheet_link"):
+            if not _column_exists(conn, "sows", col):
+                conn.execute(f"ALTER TABLE sows ADD COLUMN {col} TEXT")
 
     # Additive: a free-text "details" column on each simple master list
     # (Locations, Billing Models, Operating Models, SOW Status).
