@@ -6,15 +6,19 @@
 <title>Trakerz</title>
 <script>
   // Applied before the stylesheet paints anything, so the page never
-  // flashes the light theme before switching to a saved dark preference.
+  // flashes the default theme before switching to a saved one. Keep the
+  // valid-slug list in sync with THEMES in app.js's "Theme picker" section -
+  // an unrecognized/missing value just falls through to the default theme
+  // (no data-theme attribute), same as before this app had any themes.
   (function () {
     try {
       var saved = localStorage.getItem("trakerz_theme");
-      if (saved === "dark") document.documentElement.setAttribute("data-theme", "dark");
+      var validThemes = ["sky", "sage", "taupe", "navy", "blueteal"];
+      if (validThemes.indexOf(saved) !== -1) document.documentElement.setAttribute("data-theme", saved);
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=81" />
+<link rel="stylesheet" href="style.css?v=82" />
 </head>
 <body>
 <header class="topbar">
@@ -128,10 +132,80 @@
       <span class="icon-text">Download Center</span>
     </button>
   </nav>
-  <button id="themeToggleBtn" class="theme-toggle-btn" title="Toggle dark mode">
-    <svg class="icon icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-    <svg class="icon icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
-  </button>
+  <div class="nav-dropdown">
+    <button class="theme-picker-btn dropdown-toggle" id="themePickerBtn" title="Choose color theme">
+      <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>
+    </button>
+    <!-- Six selectable Color Hunt palettes (see THEMES in app.js) - each item
+         previews its own bg/primary/primary-2/primary-hover swatches so the
+         picker doubles as a preview, not just a name list. Picked up by the
+         generic .nav-dropdown open/close wiring in app.js; the actual
+         selection click is wired separately (theme items carry data-theme-id
+         rather than data-tab, so the generic dropdown-item[data-tab] handler
+         skips them). -->
+    <div class="dropdown-menu theme-menu" id="themeMenu" hidden>
+      <button class="dropdown-item theme-swatch-item" data-theme-id="">
+        <span class="theme-swatch-preview">
+          <span class="theme-swatch-dot" style="background:#fff2f2"></span>
+          <span class="theme-swatch-dot" style="background:#a9b5df"></span>
+          <span class="theme-swatch-dot" style="background:#7886c7"></span>
+          <span class="theme-swatch-dot" style="background:#2d336b"></span>
+        </span>
+        <span class="theme-swatch-name">Blush Navy</span>
+        <svg class="icon theme-swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </button>
+      <button class="dropdown-item theme-swatch-item" data-theme-id="sky">
+        <span class="theme-swatch-preview">
+          <span class="theme-swatch-dot" style="background:#d8ffc5"></span>
+          <span class="theme-swatch-dot" style="background:#30afff"></span>
+          <span class="theme-swatch-dot" style="background:#92eeff"></span>
+          <span class="theme-swatch-dot" style="background:#c4f7ca"></span>
+        </span>
+        <span class="theme-swatch-name">Sky &amp; Mint</span>
+        <svg class="icon theme-swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </button>
+      <button class="dropdown-item theme-swatch-item" data-theme-id="sage">
+        <span class="theme-swatch-preview">
+          <span class="theme-swatch-dot" style="background:#e6f2dd"></span>
+          <span class="theme-swatch-dot" style="background:#88bda4"></span>
+          <span class="theme-swatch-dot" style="background:#b1d3b9"></span>
+          <span class="theme-swatch-dot" style="background:#659287"></span>
+        </span>
+        <span class="theme-swatch-name">Sage</span>
+        <svg class="icon theme-swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </button>
+      <button class="dropdown-item theme-swatch-item" data-theme-id="taupe">
+        <span class="theme-swatch-preview">
+          <span class="theme-swatch-dot" style="background:#f9f8f6"></span>
+          <span class="theme-swatch-dot" style="background:#efe9e3"></span>
+          <span class="theme-swatch-dot" style="background:#d9cfc7"></span>
+          <span class="theme-swatch-dot" style="background:#c9b59c"></span>
+        </span>
+        <span class="theme-swatch-name">Warm Taupe</span>
+        <svg class="icon theme-swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </button>
+      <button class="dropdown-item theme-swatch-item" data-theme-id="navy">
+        <span class="theme-swatch-preview">
+          <span class="theme-swatch-dot" style="background:#f3f4f4"></span>
+          <span class="theme-swatch-dot" style="background:#5f9598"></span>
+          <span class="theme-swatch-dot" style="background:#1d546d"></span>
+          <span class="theme-swatch-dot" style="background:#061e29"></span>
+        </span>
+        <span class="theme-swatch-name">Deep Navy Teal</span>
+        <svg class="icon theme-swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </button>
+      <button class="dropdown-item theme-swatch-item" data-theme-id="blueteal">
+        <span class="theme-swatch-preview">
+          <span class="theme-swatch-dot" style="background:#f2efe7"></span>
+          <span class="theme-swatch-dot" style="background:#66a3bf"></span>
+          <span class="theme-swatch-dot" style="background:#c8dfdb"></span>
+          <span class="theme-swatch-dot" style="background:#3368a0"></span>
+        </span>
+        <span class="theme-swatch-name">Blue Teal</span>
+        <svg class="icon theme-swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </button>
+    </div>
+  </div>
 </header>
 
 <main>
@@ -244,9 +318,9 @@
           <p>One-click export from the Statement of Work Management, Revenue and Staffing tables whenever you need the numbers outside the app.</p>
         </div>
         <div class="landing-feature-card">
-          <span class="card-icon icon-pink landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></span>
-          <h3>Light &amp; dark mode</h3>
-          <p>A polished theme for either preference, remembered across sessions so the app always opens the way you left it.</p>
+          <span class="card-icon icon-pink landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg></span>
+          <h3>Selectable color themes</h3>
+          <p>Pick from six palettes in the topbar - your choice is remembered across sessions so the app always opens the way you left it.</p>
         </div>
       </div>
     </section>
@@ -615,18 +689,16 @@
            free-text Employee ID/Name as the Time and Material grid itself
            (not linked to Staffing/Resources). Location/Band/Employee Type
            are dropdowns sourced from the same Global Settings lookup tables
-           Resource Management uses; Statement of Work is a dropdown
-           too, cascading off the row's own Customer selection (populated
-           from that customer's SOWs, same convention as the Time and
-           Material grid's Customer/SOW pair - see buildLeaveRow() in
-           app.js); WBS ID is plain free text. Wide (22 columns), so it
-           scrolls horizontally like the other month-grid tables rather than
-           wrapping. -->
+           Resource Management uses. Statement of Work and WBS ID were both
+           removed per explicit instruction - a leave record is scoped to
+           Customer + Employee only, not a specific SOW. Wide (20 columns),
+           so it scrolls horizontally like the other month-grid tables
+           rather than wrapping. -->
       <div class="table-scroll">
         <table class="sow-table leave-table">
           <thead><tr>
-            <th>Actions</th><th>Sl. No</th><th>Customer Name</th><th>Statement of Work</th><th>Employee ID</th><th>Employee Name</th>
-            <th>Location</th><th>Band</th><th>Employee Type</th><th>WBS ID</th>
+            <th>Actions</th><th>Sl. No</th><th>Customer Name</th><th>Employee ID</th><th>Employee Name</th>
+            <th>Location</th><th>Band</th><th>Employee Type</th>
             <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
             <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
           </tr></thead>
@@ -975,8 +1047,11 @@
 
     <!-- Time and Material: one row per employee assignment to a Contract
          (not per SOW), with its own rate card/discount and the calculated
-         Final Rate Card column. Hidden/shown via .tm-section, same as
-         .ms-section above, by setRevenueCategory() in app.js. -->
+         Discounted Rate Card column. Opportunity ID, Purchase Order (#) and
+         Contract Code are read-only always - they're the linked SOW's own
+         fields (see buildTmAssignmentRow's refreshSowDerivedFields in
+         app.js), not editable per assignment. Hidden/shown via .tm-section,
+         same as .ms-section above, by setRevenueCategory() in app.js. -->
     <div class="rev-category-section tm-section" hidden>
       <div class="toolbar">
         <select id="tmCustomerFilter">
@@ -1042,17 +1117,21 @@
               <th class="rev-leading-th">Actions</th>
               <th class="rev-leading-th">Sl. No</th>
               <th class="rev-leading-th">Revenue Type</th>
-              <th class="rev-leading-th">Employee ID</th>
-              <th class="rev-leading-th">Employee Name</th>
-              <th class="rev-leading-th">Location</th>
-              <th class="rev-leading-th">Employee Practice</th>
               <th class="rev-leading-th">Customer Name</th>
               <th class="rev-leading-th">Statement of Work</th>
               <th class="rev-leading-th">WBS ID</th>
+              <th class="rev-leading-th">Opportunity ID</th>
+              <th class="rev-leading-th">Purchase Order (#)</th>
+              <th class="rev-leading-th">Contract Code</th>
+              <th class="rev-leading-th">Employee ID</th>
+              <th class="rev-leading-th">Employee Name</th>
+              <th class="rev-leading-th">Location</th>
+              <th class="rev-leading-th">Billing Hours per day</th>
+              <th class="rev-leading-th">Practice</th>
+              <th class="rev-leading-th">SoW Role</th>
               <th class="rev-leading-th">Rate Card</th>
               <th class="rev-leading-th">Discount (%)</th>
-              <th class="rev-leading-th">Final Rate Card</th>
-              <th class="rev-leading-th">Billing Hours per day</th>
+              <th class="rev-leading-th">Discounted Rate Card</th>
               <th class="rev-leading-th">Start Date</th>
               <th class="rev-leading-th">End Date</th>
               <th class="rev-band-a rev-month-hdr">Apr</th>
@@ -1299,6 +1378,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=94"></script>
+<script src="app.js?v=97"></script>
 </body>
 </html>

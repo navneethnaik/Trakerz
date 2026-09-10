@@ -39,31 +39,30 @@
 }
 
 :root {
-  /* Palette per request: https://colorhunt.co/palette/ff9d50fff9d81dced855e07e
-     - #ff9d50 (orange/peach) -> primary accent (buttons, active states, links)
-     - #fff9d8 (pale cream) -> page background
-     - #1dced8 (teal/cyan) -> secondary accent - takes over the app's existing
-       "cyan" role (stat-cyan/circle-cyan tiles, icon-cyan/icon-teal badges)
-     - #55e07e (mint green) -> tertiary accent - takes over the app's existing
-       "success/active" role (badge-active, stat-emerald/circle-emerald tiles,
-       icon-emerald badges)
-     --text/--border/--table-border stay dark-neutral tones (this palette has
-     no dark swatch of its own to read as body text) but are re-derived to
-     pair with the new cream background. The other decorative multi-hue
-     accents used for chart slices, stat tiles and card-icon badges (indigo/
-     violet/pink/amber/red - hues this palette doesn't include at all) are
-     left as-is: they exist to visually distinguish unrelated categories (SOW
-     statuses, resource locations, KPI groupings) from each other, not to
-     carry the brand color, so recoloring them too would make those pages
-     harder to scan rather than more "on brand". */
-  --bg: #fff9d8;
+  /* Selectable color themes (see "---------- Color themes ----------" below)
+     replaced the old single fixed palette plus light/dark toggle - :root now
+     just holds the *default* theme's values, and each html[data-theme="..."]
+     block overrides the same handful of theme tokens (--bg/--border/
+     --primary/--primary-2/--primary-hover/--primary-rgb/--primary-pale-bg/
+     --row-hover/--table-border) for its own palette. --text/--text-muted/
+     --surface/--shadow-sm and the decorative multi-hue accents used for
+     chart slices, stat tiles and card-icon badges (indigo/violet/pink/amber/
+     red/cyan/emerald) stay fixed across every theme - they exist to
+     distinguish unrelated categories (SOW statuses, resource locations, KPI
+     groupings) from each other or to guarantee legible body text regardless
+     of which theme is active, not to carry the theme color.
+     Default theme: https://colorhunt.co/palette/fff2f2a9b5df7886c72d336b */
+  --bg: #fff2f2;
   --surface: #ffffff;
-  --border: #e9e3bc;
+  --border: #e2d7df;
   --text: #524646;
   --text-muted: #8c8178;
-  --primary: #ff9d50;
-  --primary-2: #cc7e40;
-  --primary-hover: #995e30;
+  --primary: #a9b5df;
+  --primary-2: #7886c7;
+  --primary-hover: #2d336b;
+  --primary-rgb: 169, 181, 223;
+  --primary-pale-bg: #f1f3fa;
+  --row-hover: #f6eaea;
   --pink: #ec4899;
   --cyan: #1dced8;
   --danger: #ef4444;
@@ -71,14 +70,87 @@
   --ok: #55e07e;
   --radius: 12px;
   --shadow-sm: 0 1px 3px rgba(82, 70, 70, .10);
-  --shadow-md: 0 6px 20px rgba(255, 157, 80, .18);
-  --table-border: #d2caa1;
-  /* Shared background for every table header (<th>) app-wide - a dark warm
-     gradient built from the neutral text tone, mirroring the previous
-     navy-swatch treatment but in that dark tone. Left as a dark neutral
-     (not the accent palette) since white header text needs a dark surface
-     underneath it, which none of this palette's 4 colors provide. */
+  --shadow-md: 0 6px 20px rgba(var(--primary-rgb), .18);
+  --table-border: #bcb5c7;
+  /* Shared background for every table header (<th>) app-wide, and for the
+     topbar/landing-hero - a fixed dark warm-neutral gradient, independent of
+     the selected theme (same reasoning as --text above: white header text
+     needs a dark surface under it, and several themes' own palettes don't
+     supply one dark enough for that on their own). */
   --table-header-bg: linear-gradient(90deg, #5c5350 0%, #443d3b 100%);
+}
+
+/* ---------- Color themes ----------
+   Six selectable palettes (see the theme-picker menu in the topbar, wired up
+   in app.js's "---------- Theme picker ----------" section) - the chosen
+   theme's slug is stored as a `data-theme` attribute on <html> (persisted in
+   localStorage, applied inline in <head> before first paint to avoid a flash
+   of the default theme), with :root above already holding the default
+   theme's ("Blush Navy") own values so no data-theme attribute is needed for
+   it. Each block here only redefines the small set of tokens that actually
+   carry a theme's color; everything else (--text/--surface/--shadow-sm, the
+   dark topbar/table-header chrome, and the decorative multi-hue accents used
+   for chart slices, stat tiles and card-icon badges) is already read from
+   :root and re-themes for free by inheritance. */
+html[data-theme="sky"] {
+  /* https://colorhunt.co/palette/30afff92eeffd8ffc5c4f7ca */
+  --bg: #d8ffc5;
+  --border: #92eeff;
+  --primary: #30afff;
+  --primary-2: #1894e2;
+  --primary-hover: #0078c4;
+  --primary-rgb: 48, 175, 255;
+  --primary-pale-bg: #def2ff;
+  --row-hover: #d0f6be;
+  --table-border: #97d6c5;
+}
+html[data-theme="sage"] {
+  /* https://colorhunt.co/palette/65928788bda4b1d3b9e6f2dd */
+  --bg: #e6f2dd;
+  --border: #b1d3b9;
+  --primary: #88bda4;
+  --primary-2: #6f9d8c;
+  --primary-hover: #567d73;
+  --primary-rgb: 136, 189, 164;
+  --primary-pale-bg: #ecf4f0;
+  --row-hover: #deead5;
+  --table-border: #b8cdbb;
+}
+html[data-theme="taupe"] {
+  /* https://colorhunt.co/palette/f9f8f6efe9e3d9cfc7c9b59c */
+  --bg: #f9f8f6;
+  --border: #efe9e3;
+  --primary: #c9b59c;
+  --primary-2: #ac9374;
+  --primary-hover: #8e714d;
+  --primary-rgb: 201, 181, 156;
+  --primary-pale-bg: #f6f3ef;
+  --row-hover: #f0efed;
+  --table-border: #d9cfc7;
+}
+html[data-theme="navy"] {
+  /* https://colorhunt.co/palette/061e291d546d5f9598f3f4f4 */
+  --bg: #f3f4f4;
+  --border: #d5dee1;
+  --primary: #5f9598;
+  --primary-2: #3e7482;
+  --primary-hover: #1d546d;
+  --primary-rgb: 95, 149, 152;
+  --primary-pale-bg: #e5eeef;
+  --row-hover: #eaebeb;
+  --table-border: #afc1c9;
+}
+html[data-theme="blueteal"] {
+  /* https://colorhunt.co/palette/3368a066a3bfc8dfdbf2efe7 */
+  --bg: #f2efe7;
+  --border: #c8dfdb;
+  --primary: #66a3bf;
+  --primary-2: #4c86b0;
+  --primary-hover: #3368a0;
+  --primary-rgb: 102, 163, 191;
+  --primary-pale-bg: #e7f0f5;
+  --row-hover: #eae7df;
+  --table-border: #b5c4d0;
 }
 
 * { box-sizing: border-box; }
@@ -129,9 +201,9 @@ body {
    .tab-btn links beside it. */
 #logoHomeBtn { cursor: pointer; border-radius: 8px; padding: 4px 8px; margin: -4px -8px; transition: background .15s; }
 #logoHomeBtn:hover, #logoHomeBtn:focus-visible { background: rgba(255, 255, 255, .12); outline: none; }
-/* flex: 1 claims all the space between the logo and the theme toggle button;
+/* flex: 1 claims all the space between the logo and the theme picker button;
    justify-content: flex-end packs the menu items against that right edge
-   (right next to the toggle) instead of left-aligned against the logo. */
+   (right next to the picker) instead of left-aligned against the logo. */
 .tabs { display: flex; gap: 4px; flex: 1; justify-content: flex-end; }
 .tab-btn {
   background: none; border: none; padding: 5px 12px; border-radius: 999px;
@@ -151,17 +223,31 @@ body {
 .nav-dropdown { position: relative; }
 .dropdown-toggle .icon:last-child { margin-left: 4px; }
 
-/* Dark-mode toggle button - same translucent pill treatment #notifBtn used
-   to have, in the same topbar slot. Two icons (sun/moon) are both in the
-   markup; only one shows at a time, based on the current theme, so the icon
-   always represents the mode a click will switch *to*. */
-.theme-toggle-btn {
+/* Theme picker button - same translucent pill treatment #notifBtn used to
+   have (and the old dark-mode toggle occupied before it), in the same
+   topbar slot. Opens .theme-menu, a plain .nav-dropdown/.dropdown-menu like
+   the nav's other dropdowns (see app.js's generic .nav-dropdown wiring) -
+   the only difference is each .dropdown-item here previews its palette as
+   four small swatch dots instead of an outline icon. */
+.theme-picker-btn {
   background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.3); color: #fff;
 }
-.theme-toggle-btn:hover { background: rgba(255,255,255,.24); }
-.theme-toggle-btn .icon-moon { display: none; }
-html[data-theme="dark"] .theme-toggle-btn .icon-sun { display: none; }
-html[data-theme="dark"] .theme-toggle-btn .icon-moon { display: inline-block; }
+.theme-picker-btn:hover { background: rgba(255,255,255,.24); }
+/* Anchored to the right edge (rather than .dropdown-menu's default left:0)
+   since this is the last item in the topbar - a left-anchored menu here
+   would overflow past the right edge of the viewport. */
+/* #themeMenu (id, not .theme-menu) - needs to out-specificity the later
+   ".dropdown-menu { left: 0; ... }" base rule below, which would otherwise
+   win the left/right tie on source order alone and push this menu off the
+   right edge of the viewport (it's the last item in the topbar, so unlike
+   every other nav dropdown it has to open leftward, not rightward). */
+#themeMenu { left: auto; right: 0; min-width: 200px; }
+.theme-swatch-item { justify-content: space-between; }
+.theme-swatch-preview { display: inline-flex; gap: 3px; flex-shrink: 0; }
+.theme-swatch-dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(82, 70, 70, .15); }
+.theme-swatch-name { flex: 1; text-align: left; margin-left: 10px; }
+.theme-swatch-check { color: var(--primary-hover); flex-shrink: 0; visibility: hidden; }
+.theme-swatch-item.active .theme-swatch-check { visibility: visible; }
 
 main { padding: 14px 20px; max-width: none; margin: 0; flex: 1 0 auto; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
 .tab-panel { display: none; }
@@ -321,7 +407,7 @@ a.stat-card { cursor: pointer; }
 .stat-card.stat-cyan { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #1dced8, #107177); }
 .stat-card.stat-amber { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #edab2f, #a56b06); }
 .stat-card.stat-red { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f87171, #b91c1c); }
-.stat-card.stat-orange { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #ff9d50, #cc7e40); }
+.stat-card.stat-orange { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, var(--primary), var(--primary-2)); }
 .stat-card.stat-violet { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #a78bfa, #6d28d9); }
 .stat-card.stat-pink { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f472b6, #be185d); }
 .stat-value { font-size: 22px; font-weight: 800; color: var(--text); line-height: 1.1; }
@@ -351,7 +437,7 @@ a.stat-card { cursor: pointer; }
 #sowStatRow .stat-card.stat-cyan { border-top-color: #1dced8; }
 #sowStatRow .stat-card.stat-amber { border-top-color: #edab2f; }
 #sowStatRow .stat-card.stat-red { border-top-color: #f87171; }
-#sowStatRow .stat-card.stat-orange { border-top-color: #ff9d50; }
+#sowStatRow .stat-card.stat-orange { border-top-color: var(--primary); }
 #sowStatRow .stat-card.stat-violet { border-top-color: #a78bfa; }
 #sowStatRow .stat-card.stat-pink { border-top-color: #f472b6; }
 
@@ -383,11 +469,11 @@ a.stat-card { cursor: pointer; }
   display: flex; align-items: center; justify-content: center; color: #fff;
 }
 .card-icon svg { width: 15px; height: 15px; }
-.card-icon.icon-indigo { background: linear-gradient(135deg, #ff9d50, #cc7e40); }
+.card-icon.icon-indigo { background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
 .card-icon.icon-emerald { background: linear-gradient(135deg, #55e07e, #2f7b45); }
 .card-icon.icon-amber { background: linear-gradient(135deg, #f59e0b, #d97706); }
 .card-icon.icon-red { background: linear-gradient(135deg, #f87171, #ef4444); }
-.card-icon.icon-orange { background: linear-gradient(135deg, #ff9d50, #cc7e40); }
+.card-icon.icon-orange { background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
 .card-icon.icon-cyan { background: linear-gradient(135deg, #1dced8, #107177); }
 .card-icon.icon-pink { background: linear-gradient(135deg, #f472b6, #db2777); }
 .card-icon.icon-violet { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
@@ -437,20 +523,22 @@ a.stat-card { cursor: pointer; }
   transition: border-color .15s, box-shadow .15s;
 }
 .dash-customer-filter:focus {
-  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(255, 157, 80, .3);
+  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(var(--primary-rgb), .3);
 }
 
 /* ---------- Dashboard card theme ----------
    The Dashboard tab only (not SOWs/Staffing/Revenue/Settings) uses more
-   rounded, shadow-lifted white cards and orange/gold accent icon badges,
-   while keeping the same light page background as the rest of the app (an
-   earlier dark-navy backdrop was tried and then removed per request).
-   Scoped entirely to #tab-home. Re-declaring --border/--text-muted/
-   --shadow-sm/--radius here lets every existing .chart-card/.list-card/
-   table rule automatically pick up these tokens through the normal CSS
-   custom-property cascade, rather than duplicating each rule. */
+   rounded, shadow-lifted white cards and accent icon badges, while keeping
+   the same page background as the rest of the app (an earlier dark-navy
+   backdrop was tried and then removed per request). Scoped entirely to
+   #tab-home. Re-declaring --text-muted/--shadow-sm/--radius here lets every
+   existing .chart-card/.list-card/table rule automatically pick up these
+   tokens through the normal CSS custom-property cascade, rather than
+   duplicating each rule. --border is deliberately left un-overridden here
+   (just inherits the theme's own --border) now that there are 6 selectable
+   themes rather than one fixed palette, so this card styling doesn't need
+   its own near-duplicate border shade per theme. */
 #tab-home {
-  --border: #efe6bc;
   --text-muted: #96897d;
   --shadow-sm: 0 2px 14px rgba(82, 70, 70, .10);
   --radius: 18px;
@@ -483,7 +571,7 @@ a.stat-card { cursor: pointer; }
 }
 .dash-circle-tile.circle-indigo { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #4a5aa8, #232c5c); }
 .dash-circle-tile.circle-emerald { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #55e07e, #2f7b45); }
-.dash-circle-tile.circle-orange { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #ff9d50, #cc7e40); }
+.dash-circle-tile.circle-orange { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, var(--primary), var(--primary-2)); }
 .dash-circle-tile.circle-amber { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #edab2f, #a56b06); }
 .dash-circle-tile.circle-red { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f87171, #b91c1c); }
 .dash-circle-tile.circle-cyan { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #1dced8, #107177); }
@@ -500,7 +588,7 @@ a.stat-card { cursor: pointer; }
 #tab-home .card-icon.icon-amber { background: #fdecc9; color: #c9820a; }
 #tab-home .card-icon.icon-emerald { background: #d9f5e1; color: #225a32; }
 #tab-home .card-icon.icon-cyan { background: #d6f5f6; color: #0c5256; }
-#tab-home .card-icon.icon-orange { background: #fde6cc; color: var(--primary-hover); }
+#tab-home .card-icon.icon-orange { background: var(--primary-pale-bg); color: var(--primary-hover); }
 #tab-home .card-icon.icon-indigo { background: #e2e6f5; color: #33417a; }
 #tab-home .card-icon.icon-red { background: #fbdedb; color: #d1453b; }
 #tab-home .chart-card h3, #tab-home .list-card h3 { font-size: 14.5px; }
@@ -514,7 +602,7 @@ a.stat-card { cursor: pointer; }
   background: var(--surface); transition: border-color .15s, box-shadow .15s;
 }
 .toolbar input:focus, .toolbar select:focus, .modal-box input:focus, .modal-box select:focus, .modal-box textarea:focus {
-  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(255, 157, 80, .3);
+  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(var(--primary-rgb), .3);
 }
 .toolbar input[type=search] { flex: 1; }
 /* Statement of Work list's own search box - smaller than the shared
@@ -541,14 +629,14 @@ a.stat-card { cursor: pointer; }
 .template-link:hover { text-decoration: underline; }
 
 .primary-btn {
-  background: rgba(255, 157, 80, .18);
-  color: var(--primary-hover); border: 1px solid rgba(255, 157, 80, .55); border-radius: 9px;
+  background: rgba(var(--primary-rgb), .18);
+  color: var(--primary-hover); border: 1px solid rgba(var(--primary-rgb), .55); border-radius: 9px;
   padding: 4px 14px; font-size: 13px; font-weight: 400; cursor: pointer; line-height: 1.4;
   display: inline-flex; align-items: center; gap: 6px;
   transition: background .15s, border-color .15s, transform .1s;
 }
-.primary-btn:hover { background: rgba(255, 157, 80, .3); border-color: rgba(255, 157, 80, .7); transform: translateY(-1px); }
-.primary-btn:active { background: rgba(255, 157, 80, .38); transform: translateY(0); }
+.primary-btn:hover { background: rgba(var(--primary-rgb), .3); border-color: rgba(var(--primary-rgb), .7); transform: translateY(-1px); }
+.primary-btn:active { background: rgba(var(--primary-rgb), .38); transform: translateY(0); }
 
 .ghost-btn {
   background: rgba(91, 118, 134, .06); border: 1px solid var(--border); border-radius: 8px;
@@ -558,8 +646,8 @@ a.stat-card { cursor: pointer; }
 }
 .ghost-btn:hover { background: rgba(91, 118, 134, .13); border-color: var(--primary-2); transform: translateY(-1px); }
 
-.btn-edit { color: var(--primary-hover); border-color: rgba(255, 157, 80, .45); background: rgba(255, 157, 80, .12); }
-.btn-edit:hover { background: rgba(255, 157, 80, .25); border-color: var(--primary-2); }
+.btn-edit { color: var(--primary-hover); border-color: rgba(var(--primary-rgb), .45); background: rgba(var(--primary-rgb), .12); }
+.btn-edit:hover { background: rgba(var(--primary-rgb), .25); border-color: var(--primary-2); }
 .btn-danger { color: #dc2626; border-color: rgba(239, 68, 68, .35); background: rgba(239, 68, 68, .07); }
 .btn-danger:hover { background: rgba(239, 68, 68, .15); border-color: #ef4444; }
 
@@ -583,7 +671,7 @@ a.stat-card { cursor: pointer; }
 .sow-table td.sl-no-cell { text-align: center; width: 50px; padding-left: 8px; padding-right: 8px; }
 .sow-table td.row-actions { text-align: center; }
 .sow-table tbody tr { transition: background .12s; }
-.sow-table tbody tr:hover { background: #f8f0cb; cursor: pointer; }
+.sow-table tbody tr:hover { background: var(--row-hover); cursor: pointer; }
 #tab-sows .sow-table td, #tab-sows .sow-table th { white-space: nowrap; }
 /* Sortable SOW table columns - clickable header, small arrow indicator that
    only shows for whichever column is currently sorted. */
@@ -631,7 +719,7 @@ a.stat-card { cursor: pointer; }
   width: 90px; padding: 4px 6px; font-size: 12.5px; text-align: right;
   border: 1px solid var(--border); border-radius: 6px; font-family: inherit; color: var(--text); margin-top: 0;
 }
-.rev-grid-table input[type=number]:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(255, 157, 80, .3); }
+.rev-grid-table input[type=number]:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(var(--primary-rgb), .3); }
 .revenue-draft-row select,
 .tm-draft-row select,
 .tm-editing-row select {
@@ -659,7 +747,7 @@ a.stat-card { cursor: pointer; }
 .tm-draft-row input[type=date]:focus,
 .tm-editing-row input[type=text]:focus,
 .tm-editing-row input[type=date]:focus {
-  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(255, 157, 80, .3);
+  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(var(--primary-rgb), .3);
 }
 .tm-final-rate-cell, .tm-draft-final-rate-cell {
   text-align: right; padding-right: 12px; color: var(--text-muted); font-size: 12.5px; white-space: nowrap;
@@ -679,10 +767,6 @@ a.stat-card { cursor: pointer; }
 .tm-employee-id-cell.tm-dup-emp-id .tm-employee-id-input {
   border-color: #ef4444; background: #fee2e2; color: #b91c1c; font-weight: 700;
 }
-html[data-theme="dark"] .tm-employee-id-cell.tm-dup-emp-id { background: rgba(248, 113, 113, .18); color: #fca5a5; }
-html[data-theme="dark"] .tm-employee-id-cell.tm-dup-emp-id .tm-employee-id-input {
-  border-color: #f87171; background: rgba(248, 113, 113, .18); color: #fca5a5;
-}
 /* TCV column - auto-derived from the selected Contract (see the sowSelect
    change handler for the "Add Entry" draft row, and total_value passed
    straight through from /api/revenue/sows for saved rows), so it's always a
@@ -698,15 +782,13 @@ html[data-theme="dark"] .tm-employee-id-cell.tm-dup-emp-id .tm-employee-id-input
    difference; header cells keep their navy gradient background and instead
    pick up a thin accent underline in the same alternating color, so the
    grouping reads continuously from header down into the data. */
-.rev-grid-table tbody td.rev-band-a { background: rgba(255, 157, 80, .1); }
+.rev-grid-table tbody td.rev-band-a { background: rgba(var(--primary-rgb), .1); }
 .rev-grid-table tbody td.rev-band-b { background: transparent; }
 /* The header's single row carries the accent on its bottom edge - that's
    the edge that actually touches the table body, so that's where the band
    grouping needs to visually continue from. */
 .rev-grid-table thead th.rev-band-a { box-shadow: inset 0 -3px 0 rgba(56, 189, 248, .55); }
 .rev-grid-table thead th.rev-band-b { box-shadow: inset 0 -3px 0 transparent; }
-html[data-theme="dark"] .rev-grid-table tbody td.rev-band-a { background: rgba(255, 255, 255, .045); }
-html[data-theme="dark"] .rev-grid-table tbody td.rev-band-b { background: transparent; }
 .revenue-editing-row td:not(:nth-child(1)),
 .tm-editing-row td:not(:nth-child(1)) { background: #fffbea; }
 /* Editing highlight always wins over the month band while a row is open
@@ -716,17 +798,12 @@ html[data-theme="dark"] .rev-grid-table tbody td.rev-band-b { background: transp
 .rev-grid-table tbody tr.revenue-editing-row td.rev-band-b,
 .rev-grid-table tbody tr.tm-editing-row td.rev-band-a,
 .rev-grid-table tbody tr.tm-editing-row td.rev-band-b { background: #fffbea; }
-html[data-theme="dark"] .rev-grid-table tbody tr.revenue-editing-row td.rev-band-a,
-html[data-theme="dark"] .rev-grid-table tbody tr.revenue-editing-row td.rev-band-b,
-html[data-theme="dark"] .rev-grid-table tbody tr.tm-editing-row td.rev-band-a,
-html[data-theme="dark"] .rev-grid-table tbody tr.tm-editing-row td.rev-band-b { background: #33301a; }
 
 /* Generic "row is open for inline editing" highlight for plain data tables
    (e.g. Settings > Customer) - same soft-yellow treatment as the Revenue
    Management grid's .revenue-editing-row, just not scoped to that table's
    sticky/banded columns. */
 .inline-editing-row td { background: #fffbea; }
-html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
 .inline-editing-row input[type=text],
 .inline-editing-row input[type=number],
 .inline-editing-row input[type=date],
@@ -741,7 +818,7 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
 .inline-editing-row input[type=number]:focus,
 .inline-editing-row input[type=date]:focus,
 .inline-editing-row select:focus,
-.inline-editing-row textarea:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(255, 157, 80, .3); }
+.inline-editing-row textarea:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(var(--primary-rgb), .3); }
 .revenue-section-title {
   display: flex; align-items: center; gap: 10px; margin: 0 0 4px; font-size: 15px; font-weight: 700; color: var(--text);
 }
@@ -768,7 +845,7 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
    the palette request) so they're easy to pick out at a glance, instead of
    blending in with the Apr-Mar figures they're summing. */
 .revenue-type-summary-table th.rts-highlight-col { background: var(--primary-hover); }
-.revenue-type-summary-table td.rts-highlight-col { background: rgba(255, 157, 80, .14); color: var(--primary-hover); font-weight: 700; }
+.revenue-type-summary-table td.rts-highlight-col { background: rgba(var(--primary-rgb), .14); color: var(--primary-hover); font-weight: 700; }
 
 .chart-card canvas { max-width: 100%; }
 .alert-list li .empty, .alert-list li.empty { color: var(--text-muted); }
@@ -784,8 +861,8 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
 .expand-btn:hover { background: rgba(91, 118, 134, .12); color: var(--primary-hover); }
 .expand-btn.expanded { transform: rotate(90deg); color: var(--primary-hover); }
 
-.milestone-subrow { cursor: default; background: #f8f0cb; }
-.milestone-subrow:hover { background: #f8f0cb; }
+.milestone-subrow { cursor: default; background: var(--row-hover); }
+.milestone-subrow:hover { background: var(--row-hover); }
 .milestone-subrow td { padding: 12px 14px 16px 42px; white-space: normal; }
 .milestone-subtable { width: 100%; max-width: 640px; border-collapse: collapse; background: var(--surface); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); border: 1px solid var(--table-border); }
 .milestone-subtable th, .milestone-subtable td { text-align: left; padding: 6px 10px; font-size: 12.5px; border: 1px solid var(--table-border); white-space: nowrap; }
@@ -918,7 +995,7 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
   padding: 8px 12px; font-size: 14px; font-weight: 400; border-radius: 7px; cursor: pointer; color: var(--text);
 }
 .dropdown-item .icon { color: var(--primary-2); }
-.dropdown-item:hover { background: #f8f0cb; }
+.dropdown-item:hover { background: var(--row-hover); }
 
 /* Generic two-level nav menu support (a top-level dropdown item that flies
    out to its own submenu instead of navigating directly) - not currently
@@ -968,73 +1045,6 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
   padding: 10px 4px 0;
 }
 .staffing-footer-note strong { color: var(--text); font-weight: 700; }
-
-/* ---------- Dark mode ----------
-   Toggled by app.js via a `data-theme="dark"` attribute on <html>
-   (persisted in localStorage, applied inline in <head> before first paint
-   to avoid a flash of the light theme). Almost every surface, border and
-   text color across the app is already read from the --bg/--surface/
-   --border/--text/--text-muted custom properties, so redefining just those
-   here re-themes cards, tables, modals, inputs, dropdowns etc. app-wide
-   without touching their individual rules. What's left below are the
-   handful of hover/highlight colors that were hardcoded to light-mode
-   values (e.g. "#f8f0cb" row hover) rather than a variable. The dark navy
-   topbar, colored badges/tags and status highlight tints are left as-is in
-   both themes - they're already dark or saturated enough to read fine on
-   either background. */
-html[data-theme="dark"] {
-  --bg: #201a17;
-  --surface: #2b2321;
-  --border: #453a36;
-  --text: #f3e9dd;
-  --text-muted: #b8a99d;
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .35);
-  --shadow-md: 0 6px 20px rgba(0, 0, 0, .45);
-  --table-border: #4a3e3a;
-  /* Lets the browser render native form-control chrome (date-picker icon,
-     select dropdown arrow, etc) in a light-on-dark style instead of its
-     default dark-on-transparent, which would otherwise go invisible now
-     that these fields have a dark background applied above. */
-  color-scheme: dark;
-}
-html[data-theme="dark"] #tab-home {
-  --border: #453a36;
-  --text-muted: #b8a99d;
-  --shadow-sm: 0 2px 14px rgba(0, 0, 0, .4);
-}
-html[data-theme="dark"] .dropdown-item:hover { background: rgba(255, 255, 255, .07); }
-html[data-theme="dark"] .sow-table tbody tr:hover { background: #362c27; }
-html[data-theme="dark"] .milestone-subrow,
-html[data-theme="dark"] .milestone-subrow:hover { background: #302722; }
-html[data-theme="dark"] .revenue-editing-row td:not(:nth-child(1)),
-html[data-theme="dark"] .tm-editing-row td:not(:nth-child(1)) { background: #33301a; }
-html[data-theme="dark"] .expand-btn:hover { background: rgba(255, 255, 255, .08); }
-html[data-theme="dark"] .ghost-btn { background: rgba(255, 255, 255, .05); }
-html[data-theme="dark"] .ghost-btn:hover { background: rgba(255, 255, 255, .1); border-color: #4a3e3a; }
-html[data-theme="dark"] .toolbar input, html[data-theme="dark"] .toolbar select { color: var(--text); }
-html[data-theme="dark"] .revenue-draft-row select:disabled,
-html[data-theme="dark"] .tm-draft-row select:disabled,
-html[data-theme="dark"] .tm-editing-row select:disabled { background: #1c1613; }
-/* .primary-btn/.btn-edit/.btn-danger all pair a dark, low-luminance text
-   color with a translucent tint of that same color - on the light
-   background they were designed for that reads fine, but on a dark surface
-   both the text and the background tint sit close to black, so the button
-   (e.g. the SOW/Staffing/Revenue row "Edit" action) was nearly invisible.
-   Lighter, more saturated text plus a bit more background opacity restores
-   contrast without changing these buttons in light mode. */
-html[data-theme="dark"] .primary-btn { color: #ffc48c; background: rgba(255, 157, 80, .16); border-color: rgba(255, 157, 80, .5); }
-html[data-theme="dark"] .primary-btn:hover { background: rgba(255, 157, 80, .26); border-color: #ff9d50; }
-html[data-theme="dark"] .primary-btn:active { background: rgba(255, 157, 80, .34); }
-html[data-theme="dark"] .btn-edit { color: #ffc48c; border-color: rgba(255, 157, 80, .45); background: rgba(255, 157, 80, .14); }
-html[data-theme="dark"] .btn-edit:hover { background: rgba(255, 157, 80, .24); border-color: #ff9d50; }
-html[data-theme="dark"] .btn-danger { color: #fca5a5; border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .12); }
-html[data-theme="dark"] .btn-danger:hover { background: rgba(248, 113, 113, .22); border-color: #f87171; }
-/* Modal field labels (Customer name, SOW title, etc.) default to bold
-   var(--text), which in dark mode is a warm near-white - too heavy/loud
-   against the dark form fields. Recolored to the same light-orange accent
-   used for dark-mode buttons (.btn-edit/.primary-btn) so labels stay
-   clearly legible against the dark form fields; light mode is untouched. */
-html[data-theme="dark"] .modal-box form label { color: #ffc48c; font-weight: 600; }
 
 /* ---------- About / Landing page ----------
    Opened via the Trakerz logo (#logoHomeBtn in app.js), not part of the

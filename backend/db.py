@@ -77,10 +77,10 @@ CREATE TABLE IF NOT EXISTS holiday_calendar (
 -- columns instead of one value - the Time and Material formula subtracts
 -- leave_management.leave_<month> from that fiscal month's working-day count
 -- (see _compute_tm_projections), as a per-month count rather than specific
--- leave dates the way holidays are tracked. sow_id is a real FK into sows
--- (not free text) so the Statement of Work Title dropdown on that screen can
--- be populated from the selected row's Customer, same cascading-dropdown
--- convention as the Time and Material grid's own Customer/SOW pair.
+-- leave dates the way holidays are tracked. Statement of Work / WBS ID were
+-- both removed from this table per explicit instruction (see the migration
+-- below that drops sow_id/wbs_id from any pre-existing database) - a leave
+-- record is scoped to Customer + Employee only, not a specific SOW.
 CREATE TABLE IF NOT EXISTS leave_management (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_id INTEGER NOT NULL REFERENCES customers(id),
@@ -89,8 +89,6 @@ CREATE TABLE IF NOT EXISTS leave_management (
     location_id INTEGER REFERENCES locations(id),
     band_id INTEGER REFERENCES bands(id),
     employee_type_id INTEGER REFERENCES employee_types(id),
-    sow_id INTEGER REFERENCES sows(id),
-    wbs_id TEXT,
     leave_apr REAL NOT NULL DEFAULT 0,
     leave_may REAL NOT NULL DEFAULT 0,
     leave_jun REAL NOT NULL DEFAULT 0,
@@ -298,6 +296,7 @@ CREATE TABLE IF NOT EXISTS tm_assignments (
     location_id INTEGER REFERENCES locations(id),
     practice_id INTEGER REFERENCES practices(id),
     wbs_id TEXT,
+    sow_role TEXT,
     rate_card REAL,
     discount_percent REAL,
     start_date TEXT,
@@ -435,34 +434,37 @@ def _migrate(conn):
     if _table_exists(conn, "sows") and not _column_exists(conn, "sows", "duration_months"):
         conn.execute("ALTER TABLE sows ADD COLUMN duration_months REAL")
 
-    # Additive: Location/Band/Employee Type/WBS ID on Leave Management - same
-    # fields Resource Management tracks per employee, added here too so a
-    # leave record can be filtered/exported alongside the same attributes
-    # without joining out to Resources (leave_management.employee_id stays
-    # free text, not linked to Resources, per the table's existing
-    # convention). sow_id links a leave record to one of the row's own
-    # Customer's SOWs (see the Statement of Work Title dropdown on the Leave
-    # Tracker screen, cascading off Customer the same way the Time and
-    # Material grid's Customer/SOW pair does).
+    # Additive: Location/Band/Employee Type on Leave Management - same fields
+    # Resource Management tracks per employee, added here too so a leave
+    # record can be filtered/exported alongside the same attributes without
+    # joining out to Resources (leave_management.employee_id stays free
+    # text, not linked to Resources, per the table's existing convention).
     _leave_columns = [
         ("location_id", "INTEGER"),
         ("band_id", "INTEGER"),
         ("employee_type_id", "INTEGER"),
-        ("wbs_id", "TEXT"),
-        ("sow_id", "INTEGER"),
     ]
     if _table_exists(conn, "leave_management"):
         for col_name, col_type in _leave_columns:
             if not _column_exists(conn, "leave_management", col_name):
                 conn.execute(f"ALTER TABLE leave_management ADD COLUMN {col_name} {col_type}")
 
-    # Account Name and Statement of Work Title (free text) removed from
-    # Leave Management per explicit instruction: Account Name was dropped
-    # outright (redundant with the existing Customer Name column) and
-    # Statement of Work Title was replaced by the sow_id dropdown added
-    # above. Both columns were only ever additive in this same release, so
-    # there's no real data to lose.
-    for _leave_col in ("account_name", "sow_title"):
+    # Additive: SoW Role (free text) on Time and Material assignments - a new
+    # per-row field on the T&M grid, same free-text convention as WBS ID on
+    # the same table (no configurable lookup list requested for it).
+    if _table_exists(conn, "tm_assignments") and not _column_exists(conn, "tm_assignments", "sow_role"):
+        conn.execute("ALTER TABLE tm_assignments ADD COLUMN sow_role TEXT")
+
+    # Account Name, Statement of Work Title and WBS ID (free text) all
+    # removed from Leave Management per explicit instruction: Account Name
+    # was dropped outright (redundant with the existing Customer Name
+    # column); sow_id (Statement of Work) and wbs_id (WBS ID) were both
+    # later additions (see the now-removed sow_id/wbs_id entries that used
+    # to be in _leave_columns above) dropped again per a follow-up request -
+    # a leave record is scoped to Customer + Employee only, not a specific
+    # SOW. All of these were only ever additive in earlier releases, so
+    # there's no real data loss in dropping them.
+    for _leave_col in ("account_name", "sow_title", "sow_id", "wbs_id"):
         if _table_exists(conn, "leave_management") and _column_exists(conn, "leave_management", _leave_col):
             try:
                 conn.execute(f"ALTER TABLE leave_management DROP COLUMN {_leave_col}")

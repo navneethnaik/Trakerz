@@ -130,8 +130,6 @@ class LeaveManagementIn(BaseModel):
     location_id: Optional[int] = None
     band_id: Optional[int] = None
     employee_type_id: Optional[int] = None
-    sow_id: Optional[int] = None
-    wbs_id: Optional[str] = None
     leave_apr: float = 0
     leave_may: float = 0
     leave_jun: float = 0
@@ -183,6 +181,7 @@ class TmAssignmentIn(BaseModel):
     location_id: Optional[int] = None
     practice_id: Optional[int] = None
     wbs_id: Optional[str] = None
+    sow_role: Optional[str] = None
     rate_card: Optional[float] = None
     discount_percent: Optional[float] = None
     start_date: Optional[str] = None
@@ -1574,6 +1573,10 @@ def _tm_row_dict(conn, a, fiscal_year: int) -> dict:
         "practice_id": a["practice_id"],
         "practice_name": a["practice_name"],
         "wbs_id": a["wbs_id"],
+        "sow_role": a["sow_role"],
+        "opportunity_id": a["opportunity_id"],
+        "po_number": a["po_number"],
+        "contract_code": a["contract_code"],
         "rate_card": a["rate_card"],
         "discount_percent": a["discount_percent"],
         "final_rate_card": _final_rate_card(a["rate_card"], a["discount_percent"]),
@@ -1592,8 +1595,9 @@ _TM_ASSIGNMENT_SELECT = """
            a.employee_id, a.employee_name,
            a.location_id, l.name AS location_name,
            a.practice_id, p.name AS practice_name,
-           a.wbs_id, a.rate_card, a.discount_percent,
-           a.start_date, a.end_date
+           a.wbs_id, a.sow_role, a.rate_card, a.discount_percent,
+           a.start_date, a.end_date,
+           s.opportunity_id, s.po_number, s.contract_code
     FROM tm_assignments a
     LEFT JOIN customers c ON c.id = a.customer_id
     LEFT JOIN sows s ON s.id = a.sow_id
@@ -1656,10 +1660,10 @@ def add_tm_assignment(payload: TmAssignmentCreateIn):
         _validate_tm_refs(conn, payload)
         cur = conn.execute(
             """INSERT INTO tm_assignments (customer_id, sow_id, revenue_type_id, employee_id, employee_name,
-               location_id, practice_id, wbs_id, rate_card, discount_percent, start_date, end_date, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+               location_id, practice_id, wbs_id, sow_role, rate_card, discount_percent, start_date, end_date, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (payload.customer_id, payload.sow_id, payload.revenue_type_id, payload.employee_id, payload.employee_name,
-             payload.location_id, payload.practice_id, payload.wbs_id, payload.rate_card, payload.discount_percent,
+             payload.location_id, payload.practice_id, payload.wbs_id, payload.sow_role, payload.rate_card, payload.discount_percent,
              payload.start_date, payload.end_date),
         )
         assignment_id = cur.lastrowid
@@ -1674,19 +1678,22 @@ def add_tm_assignment(payload: TmAssignmentCreateIn):
 @app.put("/api/tm/assignments/{assignment_id}")
 def update_tm_assignment(assignment_id: int, payload: TmAssignmentIn):
     """Edits an assignment's descriptive fields (Revenue Type, Employee
-    ID/Name, Location, Employee Practice, Contract, WBS ID, Rate Card,
+    ID/Name, Location, Practice, Contract, WBS ID, SoW Role, Rate Card,
     Discount %, Start/End Date) - used by the grid's row-level Edit/Save,
-    paired with PUT /api/tm/entries for the 12 month cells."""
+    paired with PUT /api/tm/entries for the 12 month cells. Opportunity ID,
+    Purchase Order # and Contract Code are read-only on this grid - they
+    live on the linked SOW (sows.opportunity_id/po_number/contract_code) and
+    change only by editing that SOW itself, not through this endpoint."""
     with db.get_db() as conn:
         if not conn.execute("SELECT 1 FROM tm_assignments WHERE id = ?", (assignment_id,)).fetchone():
             raise HTTPException(status_code=404, detail="Assignment not found")
         _validate_tm_refs(conn, payload)
         conn.execute(
             """UPDATE tm_assignments SET customer_id=?, sow_id=?, revenue_type_id=?, employee_id=?, employee_name=?,
-               location_id=?, practice_id=?, wbs_id=?, rate_card=?, discount_percent=?, start_date=?, end_date=?,
+               location_id=?, practice_id=?, wbs_id=?, sow_role=?, rate_card=?, discount_percent=?, start_date=?, end_date=?,
                updated_at=datetime('now') WHERE id=?""",
             (payload.customer_id, payload.sow_id, payload.revenue_type_id, payload.employee_id, payload.employee_name,
-             payload.location_id, payload.practice_id, payload.wbs_id, payload.rate_card, payload.discount_percent,
+             payload.location_id, payload.practice_id, payload.wbs_id, payload.sow_role, payload.rate_card, payload.discount_percent,
              payload.start_date, payload.end_date, assignment_id),
         )
         row = conn.execute(_TM_ASSIGNMENT_SELECT + "WHERE a.id = ?", (assignment_id,)).fetchone()
@@ -1717,29 +1724,37 @@ def export_tm_assignments(fiscal_year: Optional[int] = None):
     fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
     data = list_tm_assignments(fiscal_year=fy)
 
-    headers = ["Revenue Type", "Employee ID", "Employee Name", "Location", "Employee Practice",
-               "Customer Name", "Contract Title", "WBS ID", "Rate Card", "Discount %", "Final Rate Card",
-               "Billing Hours per day", "Start date", "End date"]
+    # Column order mirrors the on-screen grid (see buildTmAssignmentRow in
+    # app.js), minus Actions/Sl. No which aren't data. Opportunity ID,
+    # Purchase Order # and Contract Code are read-only on the grid too -
+    # they're the linked SOW's own fields (sows.opportunity_id/po_number/
+    # contract_code), included here for a complete export.
+    headers = ["Revenue Type", "Customer Name", "Statement of Work", "WBS ID",
+               "Opportunity ID", "Purchase Order #", "Contract Code",
+               "Employee ID", "Employee Name", "Location", "Billing Hours per day",
+               "Practice", "SoW Role", "Rate Card", "Discount %", "Discounted Rate Card",
+               "Start date", "End date"]
     headers.extend(FISCAL_MONTH_LABELS)
 
     rows = []
     for r in data["rows"]:
         row = [
-            r["revenue_type_name"] or "", r["employee_id"] or "", r["employee_name"] or "",
-            r["location_name"] or "", r["practice_name"] or "",
-            r["customer_name"] or "", r["sow_title"] or "", r["wbs_id"] or "",
-            r["rate_card"] or 0, r["discount_percent"] or 0, r["final_rate_card"] or 0,
+            r["revenue_type_name"] or "", r["customer_name"] or "", r["sow_title"] or "", r["wbs_id"] or "",
+            r["opportunity_id"] or "", r["po_number"] or "", r["contract_code"] or "",
+            r["employee_id"] or "", r["employee_name"] or "", r["location_name"] or "",
             r["billing_hours_per_day"] or 0,
+            r["practice_name"] or "", r["sow_role"] or "",
+            r["rate_card"] or 0, r["discount_percent"] or 0, r["final_rate_card"] or 0,
             _parse_iso_date(r.get("start_date")), _parse_iso_date(r.get("end_date")),
         ]
         for m in r["months"]:
             row.append(m["projection"])
         rows.append(row)
 
-    date_cols = (13, 14)
-    currency_cols = (9, 11) + tuple(range(15, len(headers) + 1))
-    percent_cols = (10,)
-    widths = [16, 14, 20, 16, 18, 22, 26, 14, 12, 10, 14, 16, 13, 13] + [14] * (len(headers) - 14)
+    date_cols = (17, 18)
+    currency_cols = (14, 16) + tuple(range(19, len(headers) + 1))
+    percent_cols = (15,)
+    widths = [16, 22, 26, 14, 16, 16, 16, 14, 20, 16, 16, 18, 16, 12, 10, 14, 13, 13] + [14] * (len(headers) - 18)
     wb = _build_workbook("T&M Projections", headers, rows, date_cols=date_cols,
                           currency_cols=currency_cols, percent_cols=percent_cols, widths=widths)
     # Same Revenue Type Summary sheet as the Managed Services export (see
@@ -1763,10 +1778,10 @@ def tm_assignments_import_template():
     whoever is filling in Sheet 1 knows which exact spellings will match on
     import (see _lookup_id_by_name/_lookup_customer_id_by_name - both are
     case-insensitive but still need an exact name match)."""
-    headers = ["Revenue Type", "Employee ID", "Employee Name", "Location", "Employee Practice",
-               "Customer Name", "Contract Title", "WBS ID", "Rate Card", "Start Date", "End Date"]
-    date_cols = (10, 11)
-    widths = [16, 14, 20, 16, 18, 22, 26, 14, 12, 13, 13]
+    headers = ["Revenue Type", "Employee ID", "Employee Name", "Location", "Practice",
+               "Customer Name", "Contract Title", "WBS ID", "SoW Role", "Rate Card", "Start Date", "End Date"]
+    date_cols = (11, 12)
+    widths = [16, 14, 20, 16, 16, 22, 26, 14, 16, 12, 13, 13]
     wb = _build_workbook("Time and Material Template", headers, [], date_cols=date_cols, widths=widths)
     with db.get_db() as conn:
         revenue_types = [r["name"] for r in conn.execute("SELECT name FROM revenue_types ORDER BY name COLLATE NOCASE").fetchall()]
@@ -1794,9 +1809,13 @@ async def import_tm_assignments(fiscal_year: Optional[int] = None, file: UploadF
     from the sheet - they're computed server-side on every read (see
     _final_rate_card/_billing_hours_per_day/_compute_tm_projections), so
     nothing but the assignment's own descriptive fields below is written
-    here. Every row is validated in full before anything is written for it,
-    so one bad row can't leave a half-written assignment behind; other rows
-    still import even if this one fails."""
+    here. Opportunity ID, Purchase Order # and Contract Code aren't
+    importable columns either - they're the linked SOW's own fields, so
+    linking a row to a Contract Title (when given) is what brings those
+    along, same as Statement of Work itself. Every row is validated in full
+    before anything is written for it, so one bad row can't leave a
+    half-written assignment behind; other rows still import even if this one
+    fails."""
     fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
     content = await file.read()
     try:
@@ -1817,19 +1836,20 @@ async def import_tm_assignments(fiscal_year: Optional[int] = None, file: UploadF
                 sow_id = _lookup_sow_id(conn, customer_id, _cell_str(rec.get("contract title")))
                 revenue_type_id = _lookup_id_by_name(conn, "revenue_types", _cell_str(rec.get("revenue type")))
                 location_id = _lookup_id_by_name(conn, "locations", _cell_str(rec.get("location")))
-                practice_id = _lookup_id_by_name(conn, "practices", _cell_str(rec.get("employee practice")))
+                practice_id = _lookup_id_by_name(conn, "practices", _cell_str(rec.get("practice")))
                 employee_id = _cell_str(rec.get("employee id"))
                 wbs_id = _cell_str(rec.get("wbs id"))
+                sow_role = _cell_str(rec.get("sow role"))
                 rate_card = _cell_float_or_none(rec.get("rate card"))
                 start_date = _cell_date(rec.get("start date"))
                 end_date = _cell_date(rec.get("end date"))
 
                 cur = conn.execute(
                     """INSERT INTO tm_assignments (customer_id, sow_id, revenue_type_id, employee_id, employee_name,
-                       location_id, practice_id, wbs_id, rate_card, discount_percent, start_date, end_date, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                       location_id, practice_id, wbs_id, sow_role, rate_card, discount_percent, start_date, end_date, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
                     (customer_id, sow_id, revenue_type_id, employee_id, employee_name,
-                     location_id, practice_id, wbs_id, rate_card, None, start_date, end_date),
+                     location_id, practice_id, wbs_id, sow_role, rate_card, None, start_date, end_date),
                 )
                 assignment_id = cur.lastrowid
                 conn.execute(
@@ -2057,10 +2077,9 @@ _LEAVE_MONTH_COLUMNS = [
 ]
 
 _LEAVE_SELECT = """
-    SELECT lm.*, c.customer_name, s.title AS sow_title
+    SELECT lm.*, c.customer_name
     FROM leave_management lm
     LEFT JOIN customers c ON c.id = lm.customer_id
-    LEFT JOIN sows s ON s.id = lm.sow_id
 """
 
 
@@ -2079,10 +2098,6 @@ def _validate_leave_refs(conn, item: LeaveManagementIn):
         "SELECT 1 FROM employee_types WHERE id = ?", (item.employee_type_id,)
     ).fetchone():
         raise HTTPException(status_code=400, detail="Selected employee type does not exist")
-    if item.sow_id is not None and not conn.execute(
-        "SELECT 1 FROM sows WHERE id = ?", (item.sow_id,)
-    ).fetchone():
-        raise HTTPException(status_code=400, detail="Selected Statement of Work does not exist")
 
 
 @app.get("/api/leaves")
@@ -2102,12 +2117,11 @@ def create_leave(item: LeaveManagementIn):
         month_values = [getattr(item, col) for col in _LEAVE_MONTH_COLUMNS]
         cur = conn.execute(
             f"""INSERT INTO leave_management (customer_id, employee_id, employee_name,
-                location_id, band_id, employee_type_id, sow_id, wbs_id,
+                location_id, band_id, employee_type_id,
                 {", ".join(_LEAVE_MONTH_COLUMNS)}, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, {", ".join(["?"] * 12)}, datetime('now'))""",
+                VALUES (?, ?, ?, ?, ?, ?, {", ".join(["?"] * 12)}, datetime('now'))""",
             (item.customer_id, item.employee_id, item.employee_name,
-             item.location_id, item.band_id, item.employee_type_id,
-             item.sow_id, item.wbs_id, *month_values),
+             item.location_id, item.band_id, item.employee_type_id, *month_values),
         )
         row = conn.execute(_LEAVE_SELECT + " WHERE lm.id = ?", (cur.lastrowid,)).fetchone()
         locations, employee_types, bands = _load_resource_lookup_maps(conn)
@@ -2125,11 +2139,10 @@ def update_leave(item_id: int, item: LeaveManagementIn):
         set_clause = ", ".join(f"{col}=?" for col in _LEAVE_MONTH_COLUMNS)
         conn.execute(
             f"""UPDATE leave_management SET customer_id=?, employee_id=?, employee_name=?,
-                location_id=?, band_id=?, employee_type_id=?, sow_id=?, wbs_id=?,
+                location_id=?, band_id=?, employee_type_id=?,
                 {set_clause}, updated_at=datetime('now') WHERE id=?""",
             (item.customer_id, item.employee_id, item.employee_name,
-             item.location_id, item.band_id, item.employee_type_id,
-             item.sow_id, item.wbs_id, *month_values, item_id),
+             item.location_id, item.band_id, item.employee_type_id, *month_values, item_id),
         )
         row = conn.execute(_LEAVE_SELECT + " WHERE lm.id = ?", (item_id,)).fetchone()
         locations, employee_types, bands = _load_resource_lookup_maps(conn)
@@ -2148,21 +2161,22 @@ def delete_leave(item_id: int):
 
 @app.get("/api/leaves/import-template")
 def leaves_import_template():
-    """Sheet 1 carries only the fields someone fills in by hand for a new
-    Leave Tracker row - Statement of Work Title is left out because in the
-    UI it's a Customer-scoped dropdown (see the Statement of Work Title
-    column, sourced from that row's Customer's own SOWs), not free text, so
-    there's no stable spelling to import against; the twelve Apr-Mar
-    leave-day counts are also left out and simply default to 0, same as a
-    freshly added row in the grid, to be filled in afterward. Sheet 2 is a
-    plain reference list of the Customers, Locations, Bands and Employee
-    Types already configured, so whoever is filling in Sheet 1 knows which
-    exact spellings will match on import (see _lookup_id_by_name/
-    _lookup_customer_id_by_name below - both are case-insensitive but still
-    need an exact name match)."""
-    headers = ["Customer Name", "Employee ID", "Employee Name", "Location", "Band", "Employee Type", "WBS ID"]
-    widths = [22, 14, 20, 16, 14, 16, 14]
-    wb = _build_workbook("Leave Tracker Template", headers, [], widths=widths)
+    """Sheet 1 ("Resources and Leaves") carries the fields someone fills in
+    by hand for a new Leave Tracker row, plus all twelve Apr-Mar leave-day
+    columns so a full fiscal year of leave can be filled in and imported in
+    one pass rather than added blank and edited in the grid afterward (see
+    import_leaves() below for how these are read back in). Statement of Work
+    and WBS ID are both left out entirely - Statement of Work because in the
+    UI it was a Customer-scoped dropdown with no stable spelling to import
+    against, and WBS ID per explicit instruction that Leave no longer tracks
+    either field at all. Sheet 2 is a plain reference list of the Customers,
+    Locations, Bands and Employee Types already configured, so whoever is
+    filling in Sheet 1 knows which exact spellings will match on import (see
+    _lookup_id_by_name/_lookup_customer_id_by_name below - both are
+    case-insensitive but still need an exact name match)."""
+    headers = ["Customer Name", "Employee ID", "Employee Name", "Location", "Band", "Employee Type", *FISCAL_MONTH_LABELS]
+    widths = [22, 14, 20, 16, 14, 16] + [9] * 12
+    wb = _build_workbook("Resources and Leaves", headers, [], widths=widths)
     with db.get_db() as conn:
         customer_names = [r["customer_name"] for r in conn.execute("SELECT customer_name FROM customers ORDER BY customer_name COLLATE NOCASE").fetchall()]
         location_names = [r["name"] for r in conn.execute("SELECT name FROM locations ORDER BY name COLLATE NOCASE").fetchall()]
@@ -2183,13 +2197,12 @@ async def import_leaves(file: UploadFile = File(...)):
     own import, each row here always becomes a brand-new leave_management
     row - there's no matching-existing-row/upsert case (Customer + Employee
     ID isn't a uniqueness rule the way a SoW Level grid row is), so
-    importing the same sheet twice creates duplicates. Only the columns in
-    leaves_import_template()'s Sheet 1 are read here; Statement of Work
-    Title and every month's leave-day count are left at their defaults
-    (unset / 0) and can be filled in afterward in the grid. Every row is
-    validated in full before anything is written for it, so one bad row
-    can't leave a half-written record behind; other rows still import even
-    if this one fails."""
+    importing the same sheet twice creates duplicates. Every column in
+    leaves_import_template()'s Sheet 1 is read here, including the twelve
+    Apr-Mar leave-day counts (blank cells default to 0, same as a freshly
+    added row in the grid). Every row is validated in full before anything
+    is written for it, so one bad row can't leave a half-written record
+    behind; other rows still import even if this one fails."""
     content = await file.read()
     try:
         records = _read_import_rows(content, ["Customer Name", "Employee ID"])
@@ -2210,13 +2223,14 @@ async def import_leaves(file: UploadFile = File(...)):
                 location_id = _lookup_id_by_name(conn, "locations", _cell_str(rec.get("location")))
                 band_id = _lookup_id_by_name(conn, "bands", _cell_str(rec.get("band")))
                 employee_type_id = _lookup_id_by_name(conn, "employee_types", _cell_str(rec.get("employee type")))
-                wbs_id = _cell_str(rec.get("wbs id"))
+                month_values = [_cell_float(rec.get(label.lower())) for label in FISCAL_MONTH_LABELS]
 
                 conn.execute(
-                    """INSERT INTO leave_management (customer_id, employee_id, employee_name,
-                       location_id, band_id, employee_type_id, wbs_id, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-                    (customer_id, employee_id, employee_name, location_id, band_id, employee_type_id, wbs_id),
+                    f"""INSERT INTO leave_management (customer_id, employee_id, employee_name,
+                       location_id, band_id, employee_type_id,
+                       {", ".join(_LEAVE_MONTH_COLUMNS)}, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, {", ".join(["?"] * 12)}, datetime('now'))""",
+                    (customer_id, employee_id, employee_name, location_id, band_id, employee_type_id, *month_values),
                 )
                 imported += 1
             except Exception as e:

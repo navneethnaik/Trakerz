@@ -325,29 +325,41 @@ function renderAlertBanner(data) {
   });
 }
 
-// ---------- Dark mode toggle ----------
-// Theme is applied as early as possible by an inline <script> in index.html
-// (before the stylesheet paints), so this just keeps the button's own icon
-// in sync (via the html[data-theme] CSS selectors - see .theme-toggle-btn in
-// style.css) and persists the choice for that early script to pick up next
-// load. Icon-only button (no text label), so there's nothing here to update
-// beyond the theme attribute itself.
-function applyTheme(theme) {
-  if (theme === "dark") {
-    document.documentElement.setAttribute("data-theme", "dark");
+// ---------- Theme picker ----------
+// Six selectable Color Hunt palettes replace the old light/dark toggle - see
+// the "---------- Color themes ----------" block in style.css for what each
+// slug actually redefines. "" (empty string / no data-theme attribute) is
+// the default theme ("Blush Navy"), matching every other slug's absence
+// meaning "default" the same way the old dark-mode toggle worked. Kept in
+// sync with the validThemes list in index.html's early inline <script>
+// (which applies the saved choice before first paint, so the page never
+// flashes the default theme) and with the six .theme-swatch-item buttons in
+// #themeMenu.
+const THEMES = ["", "sky", "sage", "taupe", "navy", "blueteal"];
+
+function applyTheme(themeId) {
+  if (themeId && THEMES.includes(themeId)) {
+    document.documentElement.setAttribute("data-theme", themeId);
   } else {
     document.documentElement.removeAttribute("data-theme");
+    themeId = "";
   }
+  document.querySelectorAll("#themeMenu .theme-swatch-item").forEach((item) => {
+    item.classList.toggle("active", item.dataset.themeId === themeId);
+  });
 }
-applyTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light");
-document.getElementById("themeToggleBtn").addEventListener("click", () => {
-  const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
-  try { localStorage.setItem("trakerz_theme", next); } catch (e) {}
-  applyTheme(next);
-  // Re-render the Dashboard (only if it's the visible tab) so its charts
-  // pick up any theme-dependent styling immediately instead of only on the
-  // next tab visit.
-  if (document.getElementById("tab-home").classList.contains("active")) loadHome();
+applyTheme(document.documentElement.getAttribute("data-theme") || "");
+document.querySelectorAll("#themeMenu .theme-swatch-item").forEach((item) => {
+  item.addEventListener("click", () => {
+    const themeId = item.dataset.themeId;
+    try { localStorage.setItem("trakerz_theme", themeId); } catch (e) {}
+    applyTheme(themeId);
+    document.getElementById("themeMenu").hidden = true;
+    // Re-render the Dashboard (only if it's the visible tab) so its charts
+    // pick up any theme-dependent styling immediately instead of only on the
+    // next tab visit.
+    if (document.getElementById("tab-home").classList.contains("active")) loadHome();
+  });
 });
 
 // ---------- SOWs list ----------
@@ -1834,18 +1846,7 @@ const LEAVE_MONTH_FIELDS = [
   "leave_oct", "leave_nov", "leave_dec", "leave_jan", "leave_feb", "leave_mar",
 ];
 
-// Statement of Work Title on the Leave Tracker screen is a dropdown scoped
-// to the row's own Customer selection (sow_id is a real FK - see
-// leave_management in db.py), same cascading-dropdown convention as the
-// Time and Material grid's Customer/SOW pair (see tmSowsForCustomer()
-// above), just taking the full SOW list as a parameter instead of reading
-// a global cache since Leave Tracker fetches its own lookups per load.
-function leaveSowsForCustomer(customerId, sows) {
-  if (!customerId) return [];
-  return sows.filter((s) => String(s.customer_id) === String(customerId));
-}
-
-function buildLeaveRow(item, editing, customers, locations, employeeTypes, bands, sows) {
+function buildLeaveRow(item, editing, customers, locations, employeeTypes, bands) {
   const tr = document.createElement("tr");
   if (editing) tr.classList.add("inline-editing-row");
 
@@ -1877,34 +1878,6 @@ function buildLeaveRow(item, editing, customers, locations, employeeTypes, bands
     customerTd.textContent = item.customer_name || "—";
   }
   tr.appendChild(customerTd);
-
-  const sowTitleTd = document.createElement("td");
-  if (editing) {
-    const sowSelect = document.createElement("select");
-    sowSelect.className = "inline-cell";
-    sowSelect.dataset.field = "sow_id";
-    function refreshLeaveSowOptions(selectedSowId) {
-      const matching = leaveSowsForCustomer(customerSelect.value, sows);
-      if (!customerSelect.value) {
-        sowSelect.innerHTML = '<option value="">Select customer first…</option>';
-        sowSelect.disabled = true;
-      } else if (!matching.length) {
-        sowSelect.innerHTML = '<option value="">No Statements of Work for this customer</option>';
-        sowSelect.disabled = true;
-      } else {
-        sowSelect.disabled = false;
-        sowSelect.innerHTML = '<option value="">Select Statement of Work…</option>' +
-          matching.map((s) => `<option value="${s.id}">${escapeHtml(s.title)}</option>`).join("");
-      }
-      sowSelect.value = selectedSowId ?? "";
-    }
-    refreshLeaveSowOptions(item.sow_id);
-    customerSelect.addEventListener("change", () => refreshLeaveSowOptions(null));
-    sowTitleTd.appendChild(sowSelect);
-  } else {
-    sowTitleTd.textContent = item.sow_title || "—";
-  }
-  tr.appendChild(sowTitleTd);
 
   const empIdTd = document.createElement("td");
   if (editing) {
@@ -1972,19 +1945,6 @@ function buildLeaveRow(item, editing, customers, locations, employeeTypes, bands
   }
   tr.appendChild(empTypeTd);
 
-  const wbsIdTd = document.createElement("td");
-  if (editing) {
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "inline-cell";
-    input.dataset.field = "wbs_id";
-    input.value = item.wbs_id || "";
-    wbsIdTd.appendChild(input);
-  } else {
-    wbsIdTd.textContent = item.wbs_id || "—";
-  }
-  tr.appendChild(wbsIdTd);
-
   LEAVE_MONTH_FIELDS.forEach((field) => {
     const monthTd = document.createElement("td");
     if (editing) {
@@ -2004,10 +1964,10 @@ function buildLeaveRow(item, editing, customers, locations, employeeTypes, bands
   });
 
   if (editing) {
-    actionsTd.querySelector(".leave-save-btn").addEventListener("click", () => saveLeaveRow(item, tr, customers, locations, employeeTypes, bands, sows));
+    actionsTd.querySelector(".leave-save-btn").addEventListener("click", () => saveLeaveRow(item, tr, customers, locations, employeeTypes, bands));
     actionsTd.querySelector(".leave-cancel-btn").addEventListener("click", () => {
       if (item.id) {
-        replaceLeaveRow(tr, buildLeaveRow(item, false, customers, locations, employeeTypes, bands, sows));
+        replaceLeaveRow(tr, buildLeaveRow(item, false, customers, locations, employeeTypes, bands));
       } else {
         loadLeaves(); // discard the unsaved draft row and restore the normal listing
       }
@@ -2022,13 +1982,13 @@ function buildLeaveRow(item, editing, customers, locations, employeeTypes, bands
         existingDraft.querySelector(".inline-cell").focus();
         return;
       }
-      const draft = buildLeaveRow({ ...item, id: undefined }, true, customers, locations, employeeTypes, bands, sows);
+      const draft = buildLeaveRow({ ...item, id: undefined }, true, customers, locations, employeeTypes, bands);
       draft.dataset.draft = "true";
       tbody.prepend(draft);
       draft.querySelector(".inline-cell").focus();
     });
     actionsTd.querySelector(".leave-edit-btn").addEventListener("click", () => {
-      replaceLeaveRow(tr, buildLeaveRow(item, true, customers, locations, employeeTypes, bands, sows));
+      replaceLeaveRow(tr, buildLeaveRow(item, true, customers, locations, employeeTypes, bands));
     });
     actionsTd.querySelector(".leave-del-btn").addEventListener("click", async () => {
       if (confirm(`Delete the leave record for "${item.employee_name || item.employee_id}" (${item.customer_name})?`)) {
@@ -2054,7 +2014,7 @@ function replaceLeaveRow(oldTr, newTr) {
   if (slNo) newTr.querySelector(".leave-sl-no").textContent = slNo;
 }
 
-async function saveLeaveRow(item, tr, customers, locations, employeeTypes, bands, sows) {
+async function saveLeaveRow(item, tr, customers, locations, employeeTypes, bands) {
   const saveBtn = tr.querySelector(".leave-save-btn");
   const cancelBtn = tr.querySelector(".leave-cancel-btn");
   const customerId = tr.querySelector('.inline-cell[data-field="customer_id"]').value;
@@ -2067,8 +2027,6 @@ async function saveLeaveRow(item, tr, customers, locations, employeeTypes, bands
   const locationId = tr.querySelector('.inline-cell[data-field="location_id"]').value;
   const bandId = tr.querySelector('.inline-cell[data-field="band_id"]').value;
   const employeeTypeId = tr.querySelector('.inline-cell[data-field="employee_type_id"]').value;
-  const sowId = tr.querySelector('.inline-cell[data-field="sow_id"]').value;
-  const wbsId = tr.querySelector('.inline-cell[data-field="wbs_id"]').value.trim();
   const payload = {
     customer_id: parseInt(customerId, 10),
     employee_id: employeeId,
@@ -2076,8 +2034,6 @@ async function saveLeaveRow(item, tr, customers, locations, employeeTypes, bands
     location_id: locationId ? parseInt(locationId, 10) : null,
     band_id: bandId ? parseInt(bandId, 10) : null,
     employee_type_id: employeeTypeId ? parseInt(employeeTypeId, 10) : null,
-    sow_id: sowId ? parseInt(sowId, 10) : null,
-    wbs_id: wbsId || null,
   };
   LEAVE_MONTH_FIELDS.forEach((field) => {
     const val = tr.querySelector(`.inline-cell[data-field="${field}"]`).value;
@@ -2102,22 +2058,21 @@ async function saveLeaveRow(item, tr, customers, locations, employeeTypes, bands
 }
 
 async function loadLeaves() {
-  const [items, customers, locations, employeeTypes, bands, sows] = await Promise.all([
+  const [items, customers, locations, employeeTypes, bands] = await Promise.all([
     fetch(`${API}/leaves`).then((r) => r.json()),
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/locations`).then((r) => r.json()),
     fetch(`${API}/employee-types`).then((r) => r.json()),
     fetch(`${API}/bands`).then((r) => r.json()),
-    fetch(`${API}/sows`).then((r) => r.json()),
   ]);
   const tbody = document.getElementById("leaveTableBody");
   tbody.innerHTML = "";
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="22" class="empty-state">No leave records yet. Click "Add Leave Record" to add one.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="20" class="empty-state">No leave records yet. Click "Add Leave Record" to add one.</td></tr>';
     return;
   }
   items.forEach((item, idx) => {
-    const tr = buildLeaveRow(item, false, customers, locations, employeeTypes, bands, sows);
+    const tr = buildLeaveRow(item, false, customers, locations, employeeTypes, bands);
     tr.querySelector(".leave-sl-no").textContent = idx + 1;
     tbody.appendChild(tr);
   });
@@ -2130,15 +2085,14 @@ document.getElementById("newLeaveBtn").addEventListener("click", async () => {
     existingDraft.querySelector(".inline-cell").focus();
     return;
   }
-  const [customers, locations, employeeTypes, bands, sows] = await Promise.all([
+  const [customers, locations, employeeTypes, bands] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/locations`).then((r) => r.json()),
     fetch(`${API}/employee-types`).then((r) => r.json()),
     fetch(`${API}/bands`).then((r) => r.json()),
-    fetch(`${API}/sows`).then((r) => r.json()),
   ]);
   if (tbody.querySelector(".empty-state")) tbody.innerHTML = "";
-  const draft = buildLeaveRow({}, true, customers, locations, employeeTypes, bands, sows);
+  const draft = buildLeaveRow({}, true, customers, locations, employeeTypes, bands);
   draft.dataset.draft = "true";
   tbody.prepend(draft);
   draft.querySelector(".inline-cell").focus();
@@ -3448,6 +3402,21 @@ function tmSowsForCustomer(customerId) {
   return currentAllSows.filter((s) => String(s.customer_id) === String(customerId));
 }
 
+// Opportunity ID, Purchase Order # and Contract Code shown on a Time and
+// Material row are always the linked SOW's own fields (never edited per
+// assignment - see _TM_ASSIGNMENT_SELECT in main.py), so both
+// buildTmAssignmentRow's edit form and the Add Entry draft row look them up
+// client-side from the already-fetched currentAllSows list for a live
+// preview, the same convention as billingHoursFor()'s preview.
+function tmSowDerivedFields(sowId) {
+  const sow = sowId ? currentAllSows.find((s) => String(s.id) === String(sowId)) : null;
+  return {
+    opportunity_id: sow ? sow.opportunity_id : null,
+    po_number: sow ? sow.po_number : null,
+    contract_code: sow ? sow.contract_code : null,
+  };
+}
+
 async function loadTmAssignments() {
   const data = await fetch(`${API}/tm/assignments?fiscal_year=${currentFiscalYear}`).then((r) => r.json());
   tmAssignmentsCache = new Map(data.rows.map((r) => [r.assignment_id, r]));
@@ -3531,34 +3500,42 @@ function buildTmAssignmentRow(r, editing) {
   if (editing) {
     cells += `
       <td><select class="tm-revenue-type-select"></select></td>
-      <td class="tm-employee-id-cell"><input type="text" class="tm-employee-id-input" value="${escapeHtml(r.employee_id || "")}" /></td>
-      <td><input type="text" class="tm-employee-name-input" value="${escapeHtml(r.employee_name || "")}" /></td>
-      <td><select class="tm-location-select"></select></td>
-      <td><select class="tm-practice-select"></select></td>
       <td><select class="tm-customer-select"></select></td>
       <td><select class="tm-sow-select"></select></td>
       <td><input type="text" class="tm-wbs-input" value="${escapeHtml(r.wbs_id || "")}" /></td>
+      <td class="tm-opportunity-id-cell">${escapeHtml(r.opportunity_id) || "—"}</td>
+      <td class="tm-po-number-cell">${escapeHtml(r.po_number) || "—"}</td>
+      <td class="tm-contract-code-cell">${escapeHtml(r.contract_code) || "—"}</td>
+      <td class="tm-employee-id-cell"><input type="text" class="tm-employee-id-input" value="${escapeHtml(r.employee_id || "")}" /></td>
+      <td><input type="text" class="tm-employee-name-input" value="${escapeHtml(r.employee_name || "")}" /></td>
+      <td><select class="tm-location-select"></select></td>
+      <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
+      <td><select class="tm-practice-select"></select></td>
+      <td><input type="text" class="tm-sow-role-input" value="${escapeHtml(r.sow_role || "")}" /></td>
       <td><input type="number" step="0.01" min="0" class="tm-rate-card-input" value="${r.rate_card ?? ""}" /></td>
       <td><input type="number" step="0.01" min="0" max="100" class="tm-discount-input" value="${r.discount_percent ?? ""}" /></td>
       <td class="tm-final-rate-cell tm-final-rate">${r.final_rate_card != null ? fmt(r.final_rate_card) : "—"}</td>
-      <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
       <td><input type="date" class="tm-start-date-input" value="${r.start_date || ""}" /></td>
       <td><input type="date" class="tm-end-date-input" value="${r.end_date || ""}" /></td>
     `;
   } else {
     cells += `
       <td>${escapeHtml(r.revenue_type_name) || "—"}</td>
-      <td class="tm-employee-id-cell">${escapeHtml(r.employee_id) || "—"}</td>
-      <td>${escapeHtml(r.employee_name) || "—"}</td>
-      <td>${escapeHtml(r.location_name) || "—"}</td>
-      <td>${escapeHtml(r.practice_name) || "—"}</td>
       <td>${escapeHtml(r.customer_name) || "—"}</td>
       <td>${escapeHtml(r.sow_title) || "—"}</td>
       <td>${escapeHtml(r.wbs_id) || "—"}</td>
+      <td>${escapeHtml(r.opportunity_id) || "—"}</td>
+      <td>${escapeHtml(r.po_number) || "—"}</td>
+      <td>${escapeHtml(r.contract_code) || "—"}</td>
+      <td class="tm-employee-id-cell">${escapeHtml(r.employee_id) || "—"}</td>
+      <td>${escapeHtml(r.employee_name) || "—"}</td>
+      <td>${escapeHtml(r.location_name) || "—"}</td>
+      <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
+      <td>${escapeHtml(r.practice_name) || "—"}</td>
+      <td>${escapeHtml(r.sow_role) || "—"}</td>
       <td class="rev-tcv-cell">${r.rate_card != null ? fmt(r.rate_card) : "—"}</td>
       <td>${r.discount_percent != null ? r.discount_percent + "%" : "—"}</td>
       <td class="rev-tcv-cell tm-final-rate">${r.final_rate_card != null ? fmt(r.final_rate_card) : "—"}</td>
-      <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
       <td>${fmtDate(r.start_date)}</td>
       <td>${fmtDate(r.end_date)}</td>
     `;
@@ -3645,6 +3622,22 @@ function buildTmAssignmentRow(r, editing) {
     refreshSowOptions(r.sow_id);
     customerSelect.addEventListener("change", () => refreshSowOptions(null));
 
+    const opportunityIdCell = tr.querySelector(".tm-opportunity-id-cell");
+    const poNumberCell = tr.querySelector(".tm-po-number-cell");
+    const contractCodeCell = tr.querySelector(".tm-contract-code-cell");
+    function refreshSowDerivedFields() {
+      const fields = tmSowDerivedFields(sowSelect.value);
+      opportunityIdCell.textContent = fields.opportunity_id || "—";
+      poNumberCell.textContent = fields.po_number || "—";
+      contractCodeCell.textContent = fields.contract_code || "—";
+    }
+    sowSelect.addEventListener("change", refreshSowDerivedFields);
+    // customerSelect's own "change" listener above (refreshSowOptions) always
+    // clears sowSelect back to no selection, so the derived fields must be
+    // cleared right along with it - otherwise they'd keep showing the old
+    // Contract's values after switching Customer.
+    customerSelect.addEventListener("change", refreshSowDerivedFields);
+
     const rateInput = tr.querySelector(".tm-rate-card-input");
     const discountInput = tr.querySelector(".tm-discount-input");
     const finalRateCell = tr.querySelector(".tm-final-rate-cell");
@@ -3673,7 +3666,7 @@ function buildTmAssignmentRow(r, editing) {
       openTmEntryDraft({
         customerId: r.customer_id, sowId: r.sow_id, revenueTypeId: r.revenue_type_id,
         employeeId: r.employee_id, employeeName: r.employee_name, locationId: r.location_id,
-        practiceId: r.practice_id, wbsId: r.wbs_id, rateCard: r.rate_card,
+        practiceId: r.practice_id, wbsId: r.wbs_id, sowRole: r.sow_role, rateCard: r.rate_card,
         discountPercent: r.discount_percent, startDate: r.start_date, endDate: r.end_date,
       });
     });
@@ -3723,6 +3716,7 @@ async function saveTmRow(assignmentId, tr) {
     location_id: locationVal ? parseInt(locationVal, 10) : null,
     practice_id: practiceVal ? parseInt(practiceVal, 10) : null,
     wbs_id: tr.querySelector(".tm-wbs-input").value.trim() || null,
+    sow_role: tr.querySelector(".tm-sow-role-input").value.trim() || null,
     rate_card: rateCardVal !== "" ? parseFloat(rateCardVal) : null,
     discount_percent: discountVal !== "" ? parseFloat(discountVal) : null,
     start_date: tr.querySelector(".tm-start-date-input").value || null,
@@ -3788,17 +3782,21 @@ async function openTmEntryDraft(prefill = {}) {
     </td>
     <td></td>
     <td><select class="tm-draft-revenue-type-select"></select></td>
-    <td><input type="text" class="tm-draft-employee-id-input" value="${escapeHtml(prefill.employeeId || "")}" /></td>
-    <td><input type="text" class="tm-draft-employee-name-input" value="${escapeHtml(prefill.employeeName || "")}" /></td>
-    <td><select class="tm-draft-location-select"></select></td>
-    <td><select class="tm-draft-practice-select"></select></td>
     <td><select class="tm-draft-customer-select"><option value="">Select customer&hellip;</option></select></td>
     <td><select class="tm-draft-sow-select" disabled><option value="">Select customer first&hellip;</option></select></td>
     <td><input type="text" class="tm-draft-wbs-input" value="${escapeHtml(prefill.wbsId || "")}" /></td>
+    <td class="tm-draft-opportunity-id-cell">&mdash;</td>
+    <td class="tm-draft-po-number-cell">&mdash;</td>
+    <td class="tm-draft-contract-code-cell">&mdash;</td>
+    <td><input type="text" class="tm-draft-employee-id-input" value="${escapeHtml(prefill.employeeId || "")}" /></td>
+    <td><input type="text" class="tm-draft-employee-name-input" value="${escapeHtml(prefill.employeeName || "")}" /></td>
+    <td><select class="tm-draft-location-select"></select></td>
+    <td class="tm-draft-billing-hours-cell">&mdash;</td>
+    <td><select class="tm-draft-practice-select"></select></td>
+    <td><input type="text" class="tm-draft-sow-role-input" value="${escapeHtml(prefill.sowRole || "")}" /></td>
     <td><input type="number" step="0.01" min="0" class="tm-draft-rate-card-input" value="${prefill.rateCard ?? ""}" /></td>
     <td><input type="number" step="0.01" min="0" max="100" class="tm-draft-discount-input" value="${prefill.discountPercent ?? ""}" /></td>
     <td class="tm-draft-final-rate-cell tm-final-rate">&mdash;</td>
-    <td class="tm-draft-billing-hours-cell">&mdash;</td>
     <td><input type="date" class="tm-draft-start-date-input" value="${prefill.startDate || ""}" /></td>
     <td><input type="date" class="tm-draft-end-date-input" value="${prefill.endDate || ""}" /></td>
     ${tmDraftMonthCellsHtml()}
@@ -3830,6 +3828,9 @@ async function openTmEntryDraft(prefill = {}) {
   const discountInput = tr.querySelector(".tm-draft-discount-input");
   const finalRateCell = tr.querySelector(".tm-draft-final-rate-cell");
   const billingHoursCell = tr.querySelector(".tm-draft-billing-hours-cell");
+  const opportunityIdCell = tr.querySelector(".tm-draft-opportunity-id-cell");
+  const poNumberCell = tr.querySelector(".tm-draft-po-number-cell");
+  const contractCodeCell = tr.querySelector(".tm-draft-contract-code-cell");
   const saveBtn = tr.querySelector(".tm-draft-save-btn");
 
   function refreshFinalRate() {
@@ -3846,6 +3847,17 @@ async function openTmEntryDraft(prefill = {}) {
     billingHoursCell.textContent = hours != null ? fmtPlain(hours) : "—";
   }
   locationSelect.addEventListener("change", refreshBillingHours);
+
+  // Opportunity ID/Purchase Order (#)/Contract Code are always the linked
+  // SOW's own fields (see tmSowDerivedFields's comment) - never entered
+  // directly on this draft row.
+  function refreshSowDerivedFields() {
+    const fields = tmSowDerivedFields(sowSelect.value);
+    opportunityIdCell.textContent = fields.opportunity_id || "—";
+    poNumberCell.textContent = fields.po_number || "—";
+    contractCodeCell.textContent = fields.contract_code || "—";
+  }
+  sowSelect.addEventListener("change", refreshSowDerivedFields);
 
   function updateSaveEnabled() {
     saveBtn.disabled = !tr.querySelector(".tm-draft-employee-name-input").value.trim() || !customerSelect.value;
@@ -3868,6 +3880,7 @@ async function openTmEntryDraft(prefill = {}) {
     }
     updateSaveEnabled();
     refreshBillingHours();
+    refreshSowDerivedFields();
   });
 
   tr.querySelector(".tm-draft-cancel-btn").addEventListener("click", () => {
@@ -3897,6 +3910,7 @@ async function openTmEntryDraft(prefill = {}) {
       location_id: locationVal ? parseInt(locationVal, 10) : null,
       practice_id: practiceVal ? parseInt(practiceVal, 10) : null,
       wbs_id: tr.querySelector(".tm-draft-wbs-input").value.trim() || null,
+      sow_role: tr.querySelector(".tm-draft-sow-role-input").value.trim() || null,
       rate_card: rateCardVal !== "" ? parseFloat(rateCardVal) : null,
       discount_percent: discountVal !== "" ? parseFloat(discountVal) : null,
       start_date: tr.querySelector(".tm-draft-start-date-input").value || null,
@@ -3933,15 +3947,17 @@ async function openTmEntryDraft(prefill = {}) {
   // (populating sowSelect's options and refreshing the Billing Hours
   // preview) exactly as if the user had just picked this customer
   // themselves; sowSelect's value is then set directly since its own
-  // options aren't tied to a change listener. refreshFinalRate() is called
-  // once explicitly since the Rate Card/Discount inputs were only prefilled
-  // via their initial value attribute, which doesn't fire the "input"
-  // event that normally keeps Final Rate Card in sync. Every piece here is
-  // a no-op for a plain "Add Entry" click (prefill fields all undefined).
+  // options aren't tied to a change listener, so refreshSowDerivedFields()
+  // (which that same customerSelect listener already ran, against the
+  // not-yet-set sowSelect.value) is called again explicitly afterward, same
+  // reasoning as refreshFinalRate() below for Rate Card/Discount. Every
+  // piece here is a no-op for a plain "Add Entry" click (prefill fields all
+  // undefined).
   if (prefill.customerId) {
     customerSelect.dispatchEvent(new Event("change"));
     if (prefill.sowId) sowSelect.value = String(prefill.sowId);
   }
+  refreshSowDerivedFields();
   refreshFinalRate();
 }
 
