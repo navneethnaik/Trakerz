@@ -1,26 +1,76 @@
+/* Body/UI typeface: Inter, self-hosted (see vendor/fonts/, same
+   no-external-CDN pattern as vendor/chart.umd.min.js so the app keeps
+   working with no internet access). Chosen over Roboto and Plus Jakarta
+   Sans specifically for this app's dense, numbers-heavy tables (SOW/TM
+   grids, currency and date columns): Inter is drawn for small UI text
+   rather than print or display use, its digits are tabular/fixed-width by
+   default so figures line up column-to-column without extra CSS, and it
+   still reads cleanly at the 12-13px sizes this app's grids use. Only the
+   four weights actually used in the UI (400/500/600/700) are included -
+   the brand wordmark (.topbar h1 / .landing-brand-lockup) keeps its own
+   separate "Segoe UI" stack per earlier request and is left untouched. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("vendor/fonts/inter-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("vendor/fonts/inter-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("vendor/fonts/inter-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("vendor/fonts/inter-latin-700-normal.woff2") format("woff2");
+}
+
 :root {
-  --bg: #f2f7fb;
+  /* Palette per request: https://colorhunt.co/palette/524646a8a492fcf2e5ec5b38
+     - #524646 (dark warm charcoal-brown) -> text / dark chrome
+     - #a8a492 (muted warm tan) -> borders / secondary neutral
+     - #fcf2e5 (cream) -> page background
+     - #ec5b38 (burnt orange) -> primary accent
+     Semantic status colors (danger/warn/ok) and the decorative multi-hue
+     accents used for chart slices, stat tiles and card-icon badges are left
+     as-is - those exist to visually distinguish unrelated categories
+     (SOW statuses, resource locations, KPI groupings) from each other, not
+     to carry the brand color, so recoloring them to one accent would make
+     those pages harder to scan rather than more "on brand". */
+  --bg: #fcf2e5;
   --surface: #ffffff;
-  --border: #dbe7f0;
-  --text: #0f2733;
-  --text-muted: #5b7686;
-  --primary: #0369a1;
-  --primary-2: #0284c7;
-  --primary-hover: #075985;
+  --border: #e6dcc9;
+  --text: #524646;
+  --text-muted: #8c8178;
+  --primary: #ec5b38;
+  --primary-2: #f2764f;
+  --primary-hover: #c94a2c;
   --pink: #ec4899;
   --cyan: #06b6d4;
   --danger: #ef4444;
   --warn: #f59e0b;
   --ok: #10b981;
   --radius: 12px;
-  --shadow-sm: 0 1px 3px rgba(8, 45, 74, .06);
-  --shadow-md: 0 6px 20px rgba(3, 105, 161, .12);
-  --table-border: #bdbdbd;
-  /* Shared background for every table header (<th>) app-wide, per request -
-     one token so every table stays in sync if this color changes again.
-     Sampled (via PIL) from the user-supplied navy swatch: a subtle
-     left-to-right gradient from #14346a down to #0e2a5a. */
-  --table-header-bg: linear-gradient(90deg, #14346a 0%, #0e2a5a 100%);
+  --shadow-sm: 0 1px 3px rgba(82, 70, 70, .10);
+  --shadow-md: 0 6px 20px rgba(236, 91, 56, .15);
+  --table-border: #cfc3ae;
+  /* Shared background for every table header (<th>) app-wide - a dark warm
+     gradient built from the palette's #524646, mirroring the previous
+     navy-swatch treatment but in the new palette's dark tone. */
+  --table-header-bg: linear-gradient(90deg, #5c5350 0%, #443d3b 100%);
 }
 
 * { box-sizing: border-box; }
@@ -29,7 +79,11 @@ h1, h2, h3, h4, h5, h6, strong { font-weight: normal; }
 
 body {
   margin: 0;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Inter", Arial, Helvetica, sans-serif;
+  /* Tabular (fixed-width) figures - keeps currency/date columns in the SOW,
+     TM and Revenue grids aligned digit-to-digit down the column instead of
+     drifting with each row's own digit widths. */
+  font-feature-settings: "tnum" 1;
   background: var(--bg);
   color: var(--text);
   display: flex;
@@ -46,7 +100,7 @@ body {
   align-items: center;
   gap: 24px;
   padding: 14px 28px;
-  background: linear-gradient(120deg, #0c2a3d 0%, #0e4a68 60%, #081d29 120%);
+  background: linear-gradient(120deg, #3a3230 0%, #5c5350 60%, #241e1c 120%);
   box-shadow: var(--shadow-md);
   position: sticky;
   top: 0;
@@ -61,13 +115,16 @@ body {
      the mark reads identically wherever it appears. */
   font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
-.topbar h1 .icon { color: #fde68a; }
+.topbar h1 .icon { color: #f4a684; }
 /* The logo opens the About/landing page (see #logoHomeBtn in app.js) - cursor
    and a subtle hover/focus tint signal it's clickable, same treatment as the
    .tab-btn links beside it. */
 #logoHomeBtn { cursor: pointer; border-radius: 8px; padding: 4px 8px; margin: -4px -8px; transition: background .15s; }
 #logoHomeBtn:hover, #logoHomeBtn:focus-visible { background: rgba(255, 255, 255, .12); outline: none; }
-.tabs { display: flex; gap: 4px; flex: 1; }
+/* flex: 1 claims all the space between the logo and the theme toggle button;
+   justify-content: flex-end packs the menu items against that right edge
+   (right next to the toggle) instead of left-aligned against the logo. */
+.tabs { display: flex; gap: 4px; flex: 1; justify-content: flex-end; }
 .tab-btn {
   background: none; border: none; padding: 5px 12px; border-radius: 999px;
   cursor: pointer; font-size: 14px; font-weight: 400; color: rgba(255,255,255,.85); line-height: 1.3;
@@ -117,10 +174,36 @@ body.scroll-locked main { flex: 1 1 auto; min-height: 0; overflow: hidden; }
 body.scroll-locked #tab-sows,
 body.scroll-locked #tab-resources,
 body.scroll-locked #tab-revenue { flex: 1 1 auto; min-height: 0; }
+/* Managed Services and Time and Material each live in their own
+   .rev-category-section (see index.html) so only one shows at a time - each
+   needs to be its own nested flex column (rather than a plain block) for the
+   flex:1 1 auto / flex:0 0 auto rules below on its .table-scroll children to
+   have any effect, since those flex properties only apply relative to an
+   element's actual flex-container parent, which used to be #tab-revenue
+   itself before this wrapper existed. */
+/* :not([hidden]) matters here - setRevenueCategory() (app.js) toggles the
+   inactive section's [hidden] attribute to keep it out of layout, but this
+   rule's selector (id + 2 classes) is far more specific than the UA
+   stylesheet's [hidden]{display:none}, so without the exclusion it would
+   force *both* sections to display:flex at once regardless of which one is
+   supposed to be hidden. */
+body.scroll-locked #tab-revenue > .rev-category-section:not([hidden]) {
+  display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+}
 body.scroll-locked #tab-sows .table-scroll,
 body.scroll-locked #tab-resources .table-scroll,
-body.scroll-locked #tab-revenue .table-scroll {
+body.scroll-locked #tab-revenue .table-scroll:not(.revenue-type-summary-scroll) {
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
+}
+/* The Revenue Type summary table (see #tab-revenue in index.html) sits above
+   the SoW-level grid inside the same scroll-locked flex column, but it
+   should size to its own content (one row per Revenue Type) instead of
+   competing with the grid below for the page's remaining height - only the
+   grid's own .table-scroll gets flex:1 1 auto above. A max-height plus its
+   own overflow keeps a very long Revenue Type list from pushing the grid
+   below off screen instead of just scrolling in place. */
+body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
+  flex: 0 0 auto; max-height: 220px; overflow-y: auto; margin-bottom: 4px;
 }
 #tab-resources .sow-table thead th { position: sticky; top: 0; z-index: 2; }
 /* The SOW table has a two-row header (a "Contract Details / BTP Information /
@@ -149,16 +232,16 @@ body.scroll-locked #tab-revenue .table-scroll {
 #tab-resources .sow-table,
 #tab-revenue .sow-table { overflow: visible; }
 
-/* The Revenue Management table has a two-row header (a month name spanning
-   its Projections/Invoiced pair, same shape as every other month-based
-   table in the app) - both rows need to stick to the top of the scroll
-   container, with the second row offset by the first row's rendered height
-   so they stay stacked instead of overlapping. That height is a fixed
-   pixel value (not a CSS var) since it depends on the header cells' own
-   padding/font-size/border, which don't change at runtime - re-measure it
-   here if those ever do. */
-#tab-revenue .revenue-table thead tr:first-child th { position: sticky; top: 0; z-index: 3; }
-#tab-revenue .revenue-table thead tr:last-child th { position: sticky; top: 25px; z-index: 3; }
+/* The Revenue Management table has a single header row (one plain <th> per
+   month, now that Invoiced - and the two-row Projections/Invoiced subheader
+   it required - has been removed) that sticks to the top of the scroll
+   container. */
+#tab-revenue .rev-grid-table thead th { position: sticky; top: 0; z-index: 3; }
+/* The Revenue Type summary table above it (see #tab-revenue in index.html)
+   has its own short scroll container (.revenue-type-summary-scroll, capped
+   at 220px), so it gets the same sticky-header treatment on its single
+   header row. */
+#tab-revenue .revenue-type-summary-table thead th { position: sticky; top: 0; z-index: 2; }
 
 .alert-banner {
   background: linear-gradient(90deg, #fff7ed, #fef2f2);
@@ -275,7 +358,7 @@ a.stat-card { cursor: pointer; }
   display: flex; align-items: center; justify-content: center; color: #fff;
 }
 .card-icon svg { width: 15px; height: 15px; }
-.card-icon.icon-indigo { background: linear-gradient(135deg, #0369a1, #0284c7); }
+.card-icon.icon-indigo { background: linear-gradient(135deg, #ec5b38, #f2764f); }
 .card-icon.icon-emerald { background: linear-gradient(135deg, #10b981, #059669); }
 .card-icon.icon-amber { background: linear-gradient(135deg, #f59e0b, #d97706); }
 .card-icon.icon-red { background: linear-gradient(135deg, #f87171, #ef4444); }
@@ -303,15 +386,6 @@ a.stat-card { cursor: pointer; }
 /* SOW Status / Billing Models / SOWs Expiring - all SOW-related breakdowns
    grouped into one row of cards rather than separate stat tiles. */
 .dash-lists-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
-/* Monthly Projected vs Invoiced Revenue + its variance table, each on its
-   own line (full width) at the top of the page. The canvas sits in its own
-   explicitly-sized, relatively positioned wrapper so Chart.js's
-   maintainAspectRatio:false fills exactly that box regardless of the
-   card's heading height. */
-.dash-revenue-row { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
-.chart-card.chart-card-wide { min-height: unset; }
-.chart-canvas-wrap { position: relative; width: 100%; }
-.chart-canvas-wrap-wide { height: 170px; }
 /* Resources by Location / Band / Type row - shown shorter than the other
    dashboard cards (the pie chart's own aspect ratio is also reduced in
    app.js to match). */
@@ -325,15 +399,6 @@ a.stat-card { cursor: pointer; }
 }
 .list-card table tbody tr:last-child td { border-bottom: none; }
 .list-card table td.empty-state { color: var(--text-muted); padding: 10px 4px; }
-.list-card table td.variance-positive { color: #059669; font-weight: 700; }
-.list-card table td.variance-negative { color: #dc2626; font-weight: 700; }
-/* Variance table is laid out horizontally (one row per metric, one column
-   per month), so it's wider than its card - .table-scroll-x lets it scroll
-   sideways instead of squeezing 13 columns down to unreadable widths. */
-.table-scroll-x { overflow-x: auto; }
-.variance-table-horizontal { white-space: nowrap; }
-.variance-table-horizontal td:first-child { font-weight: 700; color: var(--text); }
-.variance-table-horizontal th:first-child { font-weight: 700; }
 /* All Dashboard section headings, per request - black and bold rather than
    the muted default weight shared with other pages' card headings. */
 #tab-home .chart-card h3, #tab-home .list-card h3 { color: var(--text); font-weight: 700; }
@@ -347,7 +412,7 @@ a.stat-card { cursor: pointer; }
   transition: border-color .15s, box-shadow .15s;
 }
 .dash-customer-filter:focus {
-  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(2,132,199,.15);
+  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(236, 91, 56, .15);
 }
 
 /* ---------- Dashboard card theme ----------
@@ -360,12 +425,12 @@ a.stat-card { cursor: pointer; }
    table rule automatically pick up these tokens through the normal CSS
    custom-property cascade, rather than duplicating each rule. */
 #tab-home {
-  --border: #e4e8f0;
-  --text-muted: #8792a6;
-  --shadow-sm: 0 2px 14px rgba(15, 39, 51, .08);
+  --border: #ecdfc9;
+  --text-muted: #96897d;
+  --shadow-sm: 0 2px 14px rgba(82, 70, 70, .10);
   --radius: 18px;
 }
-#tab-home .dash-chart-row, #tab-home .dash-lists-row, #tab-home .dash-revenue-row { gap: 16px; }
+#tab-home .dash-chart-row, #tab-home .dash-lists-row { gap: 16px; }
 #tab-home .chart-card, #tab-home .list-card { padding: 18px 20px; }
 .dash-title { font-size: 20px; font-weight: 700; margin: 0; color: var(--text); }
 #tab-home .dash-customer-filter { border-radius: 999px; padding: 7px 16px; }
@@ -424,27 +489,41 @@ a.stat-card { cursor: pointer; }
   background: var(--surface); transition: border-color .15s, box-shadow .15s;
 }
 .toolbar input:focus, .toolbar select:focus, .modal-box input:focus, .modal-box select:focus, .modal-box textarea:focus {
-  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(2,132,199,.15);
+  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(236, 91, 56, .15);
 }
 .toolbar input[type=search] { flex: 1; }
+/* Statement of Work list's own search box - smaller than the shared
+   toolbar input sizing above (which lets it grow to fill all remaining
+   toolbar space via flex:1): capped narrower and a touch shorter so it
+   doesn't dominate the toolbar next to the customer/status filters and
+   Export/New SOW buttons. */
+#searchInput { max-width: 260px; padding: 4px 10px; }
 /* Shared toolbar layout helpers - a heading that takes up the remaining
    space (pushing action buttons to the right) and a plain spacer for
    toolbars with no heading, e.g. Revenue Management's filter row. Replaces
    what used to be a repeated inline style="flex:1;margin:0" on every
    Configuration screen's toolbar heading (and again on the SOW detail
-   page's Milestones/Invoices toolbar) plus a one-off style="flex:1" spacer. */
-.toolbar h3 { flex: 1; margin: 0; }
+   page's Milestones/Invoices toolbar) plus a one-off style="flex:1" spacer.
+   .toolbar h4 is the same trick for the Revenue Management subsection
+   toolbars (SoW Level Detail/Assignment Level Detail - see
+   .subsection-toolbar below), whose heading is an h4, not an h3. */
+.toolbar h3, .toolbar h4 { flex: 1; margin: 0; }
 .toolbar-spacer { flex: 1; }
+/* "Download template" next to Import from Excel on those same toolbars - a
+   plain link rather than a button, since it's a starting point for an
+   action (fill it in, then Import) rather than the action itself. */
+.template-link { color: var(--primary-2); font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.template-link:hover { text-decoration: underline; }
 
 .primary-btn {
-  background: rgba(2, 132, 199, .12);
-  color: #075985; border: 1px solid rgba(2, 132, 199, .4); border-radius: 9px;
+  background: rgba(236, 91, 56, .12);
+  color: #c94a2c; border: 1px solid rgba(236, 91, 56, .4); border-radius: 9px;
   padding: 4px 14px; font-size: 13px; font-weight: 400; cursor: pointer; line-height: 1.4;
   display: inline-flex; align-items: center; gap: 6px;
   transition: background .15s, border-color .15s, transform .1s;
 }
-.primary-btn:hover { background: rgba(2, 132, 199, .2); border-color: rgba(2, 132, 199, .6); transform: translateY(-1px); }
-.primary-btn:active { background: rgba(2, 132, 199, .28); transform: translateY(0); }
+.primary-btn:hover { background: rgba(236, 91, 56, .2); border-color: rgba(236, 91, 56, .6); transform: translateY(-1px); }
+.primary-btn:active { background: rgba(236, 91, 56, .28); transform: translateY(0); }
 
 .ghost-btn {
   background: rgba(91, 118, 134, .06); border: 1px solid var(--border); border-radius: 8px;
@@ -452,10 +531,10 @@ a.stat-card { cursor: pointer; }
   display: inline-flex; align-items: center; gap: 5px;
   transition: background .12s, border-color .12s, color .12s, transform .1s;
 }
-.ghost-btn:hover { background: rgba(91, 118, 134, .13); border-color: #bfe0f0; transform: translateY(-1px); }
+.ghost-btn:hover { background: rgba(91, 118, 134, .13); border-color: #e8c4a8; transform: translateY(-1px); }
 
-.btn-edit { color: #075985; border-color: rgba(2, 132, 199, .35); background: rgba(2, 132, 199, .07); }
-.btn-edit:hover { background: rgba(2, 132, 199, .17); border-color: #0284c7; }
+.btn-edit { color: #c94a2c; border-color: rgba(236, 91, 56, .35); background: rgba(236, 91, 56, .07); }
+.btn-edit:hover { background: rgba(236, 91, 56, .17); border-color: #f2764f; }
 .btn-danger { color: #dc2626; border-color: rgba(239, 68, 68, .35); background: rgba(239, 68, 68, .07); }
 .btn-danger:hover { background: rgba(239, 68, 68, .15); border-color: #ef4444; }
 
@@ -470,14 +549,14 @@ a.stat-card { cursor: pointer; }
 .sow-table th, .sow-table td { text-align: left; padding: 7px 14px; font-size: 13px; border: 1px solid var(--table-border); }
 .sow-table th { color: #fff; font-weight: 700; font-size: 12.5px; background: var(--table-header-bg); }
 .sow-table tbody tr { transition: background .12s; }
-.sow-table tbody tr:hover { background: #f5fafd; cursor: pointer; }
+.sow-table tbody tr:hover { background: #f5e9d8; cursor: pointer; }
 #tab-sows .sow-table td, #tab-sows .sow-table th { white-space: nowrap; }
 /* Sortable SOW table columns - clickable header, small arrow indicator that
    only shows for whichever column is currently sorted. */
 #tab-sows .sow-table th.sortable-th { cursor: pointer; user-select: none; }
-#tab-sows .sow-table th.sortable-th:hover { background: #454f61; }
+#tab-sows .sow-table th.sortable-th:hover { background: #6f625c; }
 #tab-sows .sow-table th.sortable-th .sort-arrow { display: inline-block; margin-left: 4px; font-size: 10px; color: #fff; }
-#tab-sows .sow-table th.sortable-th.sorted { background: #4a5568; }
+#tab-sows .sow-table th.sortable-th.sorted { background: #4f4440; }
 /* End-date proximity highlight - 0-15 days out in red, 16-50 days out in
    amber, independent of the Status badge. :hover keeps the tint (with a
    slightly stronger shade) so the row doesn't flash back to plain white on
@@ -493,63 +572,120 @@ a.stat-card { cursor: pointer; }
 .table-scroll .sow-table { box-shadow: none; }
 
 /* ---------- Revenue Management ---------- */
-.revenue-table th, .revenue-table td { white-space: nowrap; text-align: center; padding: 5px 8px; }
-/* Actions (1st column) just scrolls with the rest of the table like any
-   plain cell; Sl. No (2nd column) is narrow/muted and also non-sticky;
-   Customer Name (3rd column) is the one that stays pinned while scrolling
-   through the 24 month columns, so all the sticky/left-align treatment
-   targets :nth-child(3). The header's th versions are scoped to thead's
-   first row only - with the header two rows tall (a month name spanning
-   its Projections/Invoiced pair), the second row's own leading cells are
-   just that month's Projections/Invoiced labels, not Actions/Sl. No/
-   Customer Name, and must not pick up this styling. */
-.revenue-table td:nth-child(2),
-.revenue-table thead tr:first-child th:nth-child(2) { color: var(--text-muted); width: 44px; }
+.rev-grid-table th, .rev-grid-table td { white-space: nowrap; text-align: center; padding: 5px 8px; }
+/* Sl. No (1st column) is narrow/muted and non-sticky; Actions (2nd column)
+   just scrolls with the rest of the table like any plain cell - shared by
+   every .rev-grid-table (Managed Services and Time and Material alike, both
+   lead with Actions/Sl. No in that order - Sl. No is column 2). Customer
+   Name (3rd column on the Managed Services table specifically - Time and
+   Material's 3rd column is Revenue Type, not an identifying column worth
+   pinning) is the one that stays pinned while scrolling through the 12
+   month columns, so that sticky/left-align treatment is scoped to
+   .revenue-table rather than shared. The header's th versions are scoped to
+   thead's single row (one plain <th> per month, now that Invoiced has been
+   removed). */
+.rev-grid-table td:nth-child(2),
+.rev-grid-table thead th:nth-child(2) { color: var(--text-muted); width: 44px; }
 .revenue-table td:nth-child(3),
-.revenue-table thead tr:first-child th:nth-child(3) { text-align: left; padding: 7px 14px; }
+.revenue-table thead th:nth-child(3) { text-align: left; padding: 7px 14px; }
 .revenue-table td:nth-child(3),
-.revenue-table thead tr:first-child th:nth-child(3) {
+.revenue-table thead th:nth-child(3) {
   position: sticky; left: 0; z-index: 1; background: var(--surface);
 }
-.revenue-table thead tr:first-child th:nth-child(3) { z-index: 2; background: var(--table-header-bg); }
-.revenue-table input[type=number] {
+.revenue-table thead th:nth-child(3) { z-index: 2; background: var(--table-header-bg); }
+.rev-grid-table input[type=number] {
   width: 90px; padding: 4px 6px; font-size: 12.5px; text-align: right;
   border: 1px solid var(--border); border-radius: 6px; font-family: inherit; color: var(--text); margin-top: 0;
 }
-.revenue-table input[type=number]:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(2,132,199,.15); }
-.revenue-draft-row select {
+.rev-grid-table input[type=number]:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(236, 91, 56, .15); }
+.revenue-draft-row select,
+.tm-draft-row select,
+.tm-editing-row select {
   width: 100%; min-width: 150px; padding: 5px 6px; font-size: 12.5px;
   border: 1px solid var(--border); border-radius: 6px; font-family: inherit; color: var(--text); background: var(--surface);
 }
-.revenue-draft-row select:disabled { color: var(--text-muted); background: var(--bg); }
+.revenue-draft-row select:disabled,
+.tm-draft-row select:disabled,
+.tm-editing-row select:disabled { color: var(--text-muted); background: var(--bg); }
 .revenue-draft-row td.empty-state { padding: 7px 14px; }
 .revenue-draft-row td.draft-billing-model { text-align: left; padding: 7px 10px; color: var(--text-muted); font-size: 12.5px; }
+/* Time and Material's Employee ID/Name, WBS ID (text) and Start/End Date
+   fields have no equivalent in the Managed Services grid (which has no free-
+   text or date inputs in its row), so they need their own sizing rule rather
+   than reusing .rev-grid-table input[type=number] (that one is right-aligned
+   and narrower, tuned for the monthly currency cells). */
+.tm-draft-row input[type=text],
+.tm-draft-row input[type=date],
+.tm-editing-row input[type=text],
+.tm-editing-row input[type=date] {
+  width: 100%; min-width: 100px; padding: 4px 6px; font-size: 12.5px; text-align: left;
+  border: 1px solid var(--border); border-radius: 6px; font-family: inherit; color: var(--text); background: var(--surface); margin-top: 0;
+}
+.tm-draft-row input[type=text]:focus,
+.tm-draft-row input[type=date]:focus,
+.tm-editing-row input[type=text]:focus,
+.tm-editing-row input[type=date]:focus {
+  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(236, 91, 56, .15);
+}
+.tm-final-rate-cell, .tm-draft-final-rate-cell {
+  text-align: right; padding-right: 12px; color: var(--text-muted); font-size: 12.5px; white-space: nowrap;
+}
+/* Final Rate Card's value itself is always bold, in every row state (read-
+   only, editing, and the Add Entry draft row) - .tm-final-rate is added
+   alongside each cell's other classes rather than replacing them. */
+.tm-final-rate { font-weight: 700; }
+.tm-billing-hours-cell, .tm-draft-billing-hours-cell {
+  text-align: right; padding-right: 12px; color: var(--text-muted); font-size: 12.5px; white-space: nowrap;
+}
+/* Duplicate Employee ID highlight (toggled by highlightDuplicateTmEmployeeIds()
+   in app.js) - same red treatment as the app's other "needs attention" states
+   (.btn-danger, .sow-table tr.expiry-red) rather than the brand accent color,
+   since a duplicate ID is a data problem to flag, not a themed UI element. */
+.tm-employee-id-cell.tm-dup-emp-id { background: #fee2e2; color: #b91c1c; font-weight: 700; }
+.tm-employee-id-cell.tm-dup-emp-id .tm-employee-id-input {
+  border-color: #ef4444; background: #fee2e2; color: #b91c1c; font-weight: 700;
+}
+html[data-theme="dark"] .tm-employee-id-cell.tm-dup-emp-id { background: rgba(248, 113, 113, .18); color: #fca5a5; }
+html[data-theme="dark"] .tm-employee-id-cell.tm-dup-emp-id .tm-employee-id-input {
+  border-color: #f87171; background: rgba(248, 113, 113, .18); color: #fca5a5;
+}
+/* TCV column - auto-derived from the selected Contract (see the sowSelect
+   change handler for the "Add Entry" draft row, and total_value passed
+   straight through from /api/revenue/sows for saved rows), so it's always a
+   plain currency display, never an input - right-aligned like the month
+   Projection cells rather than the table's default centered text. */
+.rev-grid-table td.rev-tcv-cell { text-align: right; padding-right: 12px; }
+.revenue-draft-row td.draft-tcv { color: var(--text-muted); font-size: 12.5px; }
 .rev-readonly-cell { text-align: right !important; padding-right: 12px !important; }
 /* Alternating band per month (rev-band-a/rev-band-b, assigned in the static
-   header markup and in app.js's buildRevenueSowRow) - both of a month's
-   columns (Projections + Invoiced) share one band, so with 24 otherwise-
-   identical columns it's obvious at a glance where one month ends and the
-   next begins. Body cells get the actual color difference; header cells
-   keep their navy gradient background and instead pick up a thin accent
-   underline in the same alternating color, so the grouping reads
-   continuously from header down into the data. */
-.revenue-table tbody td.rev-band-a { background: rgba(2, 132, 199, .06); }
-.revenue-table tbody td.rev-band-b { background: transparent; }
-/* Only the header's bottom row (Projections/Invoiced) carries the accent -
-   that's the edge that actually touches the table body, so that's where the
-   band grouping needs to visually continue from. */
-.revenue-table thead tr:last-child th.rev-band-a { box-shadow: inset 0 -3px 0 rgba(56, 189, 248, .55); }
-.revenue-table thead tr:last-child th.rev-band-b { box-shadow: inset 0 -3px 0 transparent; }
-html[data-theme="dark"] .revenue-table tbody td.rev-band-a { background: rgba(255, 255, 255, .045); }
-html[data-theme="dark"] .revenue-table tbody td.rev-band-b { background: transparent; }
-.revenue-editing-row td:not(:nth-child(2)) { background: #fffbea; }
+   header markup and in app.js's buildRevenueSowRow/buildTmAssignmentRow) -
+   so with 12 otherwise-identical month columns it's obvious at a glance
+   where one month ends and the next begins. Body cells get the actual color
+   difference; header cells keep their navy gradient background and instead
+   pick up a thin accent underline in the same alternating color, so the
+   grouping reads continuously from header down into the data. */
+.rev-grid-table tbody td.rev-band-a { background: rgba(236, 91, 56, .06); }
+.rev-grid-table tbody td.rev-band-b { background: transparent; }
+/* The header's single row carries the accent on its bottom edge - that's
+   the edge that actually touches the table body, so that's where the band
+   grouping needs to visually continue from. */
+.rev-grid-table thead th.rev-band-a { box-shadow: inset 0 -3px 0 rgba(56, 189, 248, .55); }
+.rev-grid-table thead th.rev-band-b { box-shadow: inset 0 -3px 0 transparent; }
+html[data-theme="dark"] .rev-grid-table tbody td.rev-band-a { background: rgba(255, 255, 255, .045); }
+html[data-theme="dark"] .rev-grid-table tbody td.rev-band-b { background: transparent; }
+.revenue-editing-row td:not(:nth-child(1)),
+.tm-editing-row td:not(:nth-child(1)) { background: #fffbea; }
 /* Editing highlight always wins over the month band while a row is open
    for editing (higher specificity than the rev-band-a/b rules above, which
    otherwise would since they target more specific td.class selectors). */
-.revenue-table tbody tr.revenue-editing-row td.rev-band-a,
-.revenue-table tbody tr.revenue-editing-row td.rev-band-b { background: #fffbea; }
-html[data-theme="dark"] .revenue-table tbody tr.revenue-editing-row td.rev-band-a,
-html[data-theme="dark"] .revenue-table tbody tr.revenue-editing-row td.rev-band-b { background: #33301a; }
+.rev-grid-table tbody tr.revenue-editing-row td.rev-band-a,
+.rev-grid-table tbody tr.revenue-editing-row td.rev-band-b,
+.rev-grid-table tbody tr.tm-editing-row td.rev-band-a,
+.rev-grid-table tbody tr.tm-editing-row td.rev-band-b { background: #fffbea; }
+html[data-theme="dark"] .rev-grid-table tbody tr.revenue-editing-row td.rev-band-a,
+html[data-theme="dark"] .rev-grid-table tbody tr.revenue-editing-row td.rev-band-b,
+html[data-theme="dark"] .rev-grid-table tbody tr.tm-editing-row td.rev-band-a,
+html[data-theme="dark"] .rev-grid-table tbody tr.tm-editing-row td.rev-band-b { background: #33301a; }
 
 /* Generic "row is open for inline editing" highlight for plain data tables
    (e.g. Settings > Customer) - same soft-yellow treatment as the Revenue
@@ -571,45 +707,28 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
 .inline-editing-row input[type=number]:focus,
 .inline-editing-row input[type=date]:focus,
 .inline-editing-row select:focus,
-.inline-editing-row textarea:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(2,132,199,.15); }
-/* Bottom "Total" row - sums Projections/Invoiced per month across the
-   currently filtered rows (see buildRevenueTotalsRow() in app.js). Its own
-   solid background + top border wins over the alternating band colors,
-   same specificity trick as the editing-row override above, so the totals
-   read as a clear footer rather than blending into the last data row. */
-.revenue-table tbody tr.revenue-total-row td {
-  font-weight: 700;
-  border-top: 2px solid var(--border);
-  background: var(--bg);
-}
-.revenue-table tbody tr.revenue-total-row td.rev-band-a,
-.revenue-table tbody tr.revenue-total-row td.rev-band-b { background: var(--bg); }
-html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td.rev-band-a,
-html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td.rev-band-b { background: #1a2333; }
-html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td { background: #1a2333; }
-/* The sticky Customer Name column normally gets its own background
-   (var(--surface)) so it stays opaque while scrolling horizontally -
-   override it here too, so the "Total" label cell matches the rest of the
-   totals row instead of looking like a leftover data cell. */
-.revenue-table tbody tr.revenue-total-row td:nth-child(3) { background: var(--bg); }
-html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3) { background: #1a2333; }
+.inline-editing-row textarea:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(236, 91, 56, .15); }
 .revenue-section-title {
   display: flex; align-items: center; gap: 10px; margin: 0 0 4px; font-size: 15px; font-weight: 700; color: var(--text);
 }
 .revenue-section-title .section-subtitle { font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 2px; }
-
-/* Financial nav presets (Projections/Actuals, each split by Time and
-   Material/Managed Services) narrow this same table to just one of the
-   two month sub-columns instead of showing Projections+Invoiced side by
-   side. #tab-revenue carries a view-mode-* class (set by
-   setRevenueViewMode() in app.js, default "both") and every Projections/
-   Invoiced header + data cell in the table already carries a matching
-   rev-col-proj/rev-col-inv class (see buildRevenueSowRow, buildRevenueTotalsRow
-   and draftMonthCellsHtml), so hiding one set here is enough - the month
-   group header's colspan is kept in sync separately in JS since CSS can't
-   change it. */
-#tab-revenue.view-mode-projections .rev-col-inv { display: none; }
-#tab-revenue.view-mode-actuals .rev-col-proj { display: none; }
+/* Small labels above the Revenue Type summary table and the SoW-level grid
+   (see #tab-revenue in index.html), just enough to separate the two tables
+   visually without competing with the page's main .revenue-section-title.
+   Each one that carries its own actions (Download template/Import from
+   Excel/Add Entry) is wrapped in a .toolbar (see ".toolbar h4" above) rather
+   than standing alone - .subsection-toolbar just adds a bit of top margin
+   so that row doesn't look glued to the table above it. */
+.subsection-toolbar { margin-top: 12px; }
+.revenue-subsection-title {
+  margin: 10px 0 6px; font-size: 12.5px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.revenue-subsection-title:first-of-type { margin-top: 6px; }
+.revenue-type-summary-table th, .revenue-type-summary-table td { text-align: center; white-space: nowrap; }
+.revenue-type-summary-table td:first-child, .revenue-type-summary-table th:first-child { text-align: left; padding-left: 14px; }
+.revenue-type-summary-table td:not(:first-child) { text-align: right; padding-right: 14px; font-variant-numeric: tabular-nums; }
+.revenue-type-summary-table tbody tr.revenue-type-empty-row td { color: var(--text-muted); }
 
 .chart-card canvas { max-width: 100%; }
 .alert-list li .empty, .alert-list li.empty { color: var(--text-muted); }
@@ -625,18 +744,18 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3
 .expand-btn:hover { background: rgba(91, 118, 134, .12); color: var(--primary); }
 .expand-btn.expanded { transform: rotate(90deg); color: var(--primary); }
 
-.milestone-subrow { cursor: default; background: #f5fafd; }
-.milestone-subrow:hover { background: #f5fafd; }
+.milestone-subrow { cursor: default; background: #f5e9d8; }
+.milestone-subrow:hover { background: #f5e9d8; }
 .milestone-subrow td { padding: 12px 14px 16px 42px; white-space: normal; }
 .milestone-subtable { width: 100%; max-width: 640px; border-collapse: collapse; background: var(--surface); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); border: 1px solid var(--table-border); }
 .milestone-subtable th, .milestone-subtable td { text-align: left; padding: 6px 10px; font-size: 12.5px; border: 1px solid var(--table-border); white-space: nowrap; }
 .milestone-subtable th { color: #fff; font-weight: 700; font-size: 11.5px; background: var(--table-header-bg); }
 .milestone-subtable tbody tr:last-child td { border-bottom: none; }
 
-.badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 400; color: #fff; letter-spacing: .02em; background: #0284c7; }
+.badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 400; color: #fff; letter-spacing: .02em; background: #f2764f; }
 .badge-draft { background: #94a3b8; }
 .badge-active { background: linear-gradient(135deg, #10b981, #059669); }
-.badge-completed { background: linear-gradient(135deg, #0369a1, #0284c7); }
+.badge-completed { background: linear-gradient(135deg, #ec5b38, #f2764f); }
 .badge-expired { background: linear-gradient(135deg, #f87171, #ef4444); }
 .badge-cancelled { background: #64748b; }
 
@@ -652,14 +771,14 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3
 
 /* ---------- Modals ---------- */
 .modal {
-  position: fixed; inset: 0; background: rgba(8,30,45,.5);
+  position: fixed; inset: 0; background: rgba(45, 38, 36, .5);
   display: flex; align-items: center; justify-content: center; z-index: 100;
   backdrop-filter: blur(2px);
 }
 .modal[hidden] { display: none; }
 .modal-box {
   background: var(--surface); border-radius: 16px; padding: 26px; width: 460px; max-width: 92vw;
-  max-height: 88vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(8,30,45,.35);
+  max-height: 88vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(45, 38, 36, .35);
 }
 .modal-box.modal-wide { width: 720px; }
 .modal-box.modal-wide .two-col { grid-template-columns: 1fr 1fr; }
@@ -684,6 +803,7 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3
 }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.four-col { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 
 /* Section headers inside a long modal form (e.g. the New/Edit SOW form),
@@ -744,7 +864,7 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3
 .dropdown-menu {
   position: absolute; top: calc(100% + 8px); left: 0;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(8,30,45,.2); min-width: 210px; z-index: 20;
+  box-shadow: 0 10px 30px rgba(45, 38, 36, .2); min-width: 210px; z-index: 20;
   padding: 6px;
 }
 .dropdown-item {
@@ -752,28 +872,36 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3
   padding: 8px 12px; font-size: 14px; font-weight: 400; border-radius: 7px; cursor: pointer; color: var(--text);
 }
 .dropdown-item .icon { color: var(--primary-2); }
-.dropdown-item:hover { background: #eaf4fa; }
+.dropdown-item:hover { background: #f5e9d8; }
 
-/* Two-level nav menus (currently just Financial: Projections/Actuals as
-   submenu triggers, each flying out to Time and Material/Management
-   Services). .dropdown-item-group wraps a trigger .dropdown-item button plus
+/* Generic two-level nav menu support (a top-level dropdown item that flies
+   out to its own submenu instead of navigating directly) - not currently
+   used by any menu (Best Estimates flattened its old two-level Financial >
+   Projections structure into one flat dropdown, see #bestEstimatesMenu in
+   index.html), but kept as reusable infrastructure for a future menu that
+   needs it. .dropdown-item-group wraps a trigger .dropdown-item button plus
    its .dropdown-submenu flyout as siblings (a <button> can't contain another
    interactive element, hence the wrapper rather than nesting the flyout
-   inside the trigger button itself) - see #financialMenu in index.html and
-   the [data-toggle-submenu] wiring in app.js. */
+   inside the trigger button itself) - see the [data-toggle-submenu] wiring
+   in app.js. */
 .dropdown-item-group { position: relative; }
 .dropdown-item-group .dropdown-item-label { flex: 1; }
 .dropdown-item-group .submenu-caret { color: var(--text-muted); flex-shrink: 0; }
 .dropdown-submenu {
   position: absolute; top: -6px; left: calc(100% + 6px);
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(8,30,45,.2); min-width: 190px; z-index: 22;
+  box-shadow: 0 10px 30px rgba(45, 38, 36, .2); min-width: 190px; z-index: 22;
   padding: 6px;
 }
 
 /* ---------- Configuration screen ---------- */
 .two-col-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
-.config-card table.sow-table th:last-child, .config-card table.sow-table td:last-child { width: 1%; white-space: nowrap; }
+/* Actions leads each config table's row, with Sl. No right after it (see
+   the actionsTd-then-slTd markup in buildBillingHoursRow()/buildHolidayRow()/
+   buildLeaveRow()/makeInlineListManager() and the matching <thead> order in
+   index.html), so keep Actions narrow by targeting the row-actions cells/
+   header directly rather than a positional selector. */
+.config-card table.sow-table td.row-actions, .config-card table.sow-table th:nth-child(1) { width: 1%; white-space: nowrap; }
 
 /* ---------- Footer ---------- */
 .app-footer {
@@ -804,19 +932,19 @@ html[data-theme="dark"] .revenue-table tbody tr.revenue-total-row td:nth-child(3
    here re-themes cards, tables, modals, inputs, dropdowns etc. app-wide
    without touching their individual rules. What's left below are the
    handful of hover/highlight colors that were hardcoded to light-mode
-   values (e.g. "#f5fafd" row hover) rather than a variable. The dark navy
+   values (e.g. "#f5e9d8" row hover) rather than a variable. The dark navy
    topbar, colored badges/tags and status highlight tints are left as-is in
    both themes - they're already dark or saturated enough to read fine on
    either background. */
 html[data-theme="dark"] {
-  --bg: #10151f;
-  --surface: #1a2233;
-  --border: #2c3648;
-  --text: #e7ecf5;
-  --text-muted: #93a1b8;
+  --bg: #201a17;
+  --surface: #2b2321;
+  --border: #453a36;
+  --text: #f3e9dd;
+  --text-muted: #b8a99d;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, .35);
   --shadow-md: 0 6px 20px rgba(0, 0, 0, .45);
-  --table-border: #3a4459;
+  --table-border: #4a3e3a;
   /* Lets the browser render native form-control chrome (date-picker icon,
      select dropdown arrow, etc) in a light-on-dark style instead of its
      default dark-on-transparent, which would otherwise go invisible now
@@ -824,40 +952,43 @@ html[data-theme="dark"] {
   color-scheme: dark;
 }
 html[data-theme="dark"] #tab-home {
-  --border: #2c3648;
-  --text-muted: #93a1b8;
+  --border: #453a36;
+  --text-muted: #b8a99d;
   --shadow-sm: 0 2px 14px rgba(0, 0, 0, .4);
 }
 html[data-theme="dark"] .dropdown-item:hover { background: rgba(255, 255, 255, .07); }
-html[data-theme="dark"] .sow-table tbody tr:hover { background: #212b40; }
+html[data-theme="dark"] .sow-table tbody tr:hover { background: #362c27; }
 html[data-theme="dark"] .milestone-subrow,
-html[data-theme="dark"] .milestone-subrow:hover { background: #1c2536; }
-html[data-theme="dark"] .revenue-editing-row td:not(:first-child) { background: #33301a; }
+html[data-theme="dark"] .milestone-subrow:hover { background: #302722; }
+html[data-theme="dark"] .revenue-editing-row td:not(:nth-child(1)),
+html[data-theme="dark"] .tm-editing-row td:not(:nth-child(1)) { background: #33301a; }
 html[data-theme="dark"] .expand-btn:hover { background: rgba(255, 255, 255, .08); }
 html[data-theme="dark"] .ghost-btn { background: rgba(255, 255, 255, .05); }
-html[data-theme="dark"] .ghost-btn:hover { background: rgba(255, 255, 255, .1); border-color: #3a4459; }
+html[data-theme="dark"] .ghost-btn:hover { background: rgba(255, 255, 255, .1); border-color: #4a3e3a; }
 html[data-theme="dark"] .toolbar input, html[data-theme="dark"] .toolbar select { color: var(--text); }
-html[data-theme="dark"] .revenue-draft-row select:disabled { background: #151b28; }
+html[data-theme="dark"] .revenue-draft-row select:disabled,
+html[data-theme="dark"] .tm-draft-row select:disabled,
+html[data-theme="dark"] .tm-editing-row select:disabled { background: #1c1613; }
 /* .primary-btn/.btn-edit/.btn-danger all pair a dark, low-luminance text
-   color (navy blue / red) with a translucent tint of that same color - on
-   the light background they were designed for that reads fine, but on a
-   dark surface both the text and the background tint sit close to black,
-   so the button (e.g. the SOW/Staffing/Revenue row "Edit" action) was
-   nearly invisible. Lighter, more saturated text plus a bit more background
-   opacity restores contrast without changing these buttons in light mode. */
-html[data-theme="dark"] .primary-btn { color: #7dd3fc; background: rgba(56, 189, 248, .14); border-color: rgba(56, 189, 248, .45); }
-html[data-theme="dark"] .primary-btn:hover { background: rgba(56, 189, 248, .24); border-color: #38bdf8; }
-html[data-theme="dark"] .primary-btn:active { background: rgba(56, 189, 248, .32); }
-html[data-theme="dark"] .btn-edit { color: #7dd3fc; border-color: rgba(56, 189, 248, .4); background: rgba(56, 189, 248, .12); }
-html[data-theme="dark"] .btn-edit:hover { background: rgba(56, 189, 248, .22); border-color: #38bdf8; }
+   color with a translucent tint of that same color - on the light
+   background they were designed for that reads fine, but on a dark surface
+   both the text and the background tint sit close to black, so the button
+   (e.g. the SOW/Staffing/Revenue row "Edit" action) was nearly invisible.
+   Lighter, more saturated text plus a bit more background opacity restores
+   contrast without changing these buttons in light mode. */
+html[data-theme="dark"] .primary-btn { color: #f7b799; background: rgba(242, 118, 79, .16); border-color: rgba(242, 118, 79, .5); }
+html[data-theme="dark"] .primary-btn:hover { background: rgba(242, 118, 79, .26); border-color: #f2764f; }
+html[data-theme="dark"] .primary-btn:active { background: rgba(242, 118, 79, .34); }
+html[data-theme="dark"] .btn-edit { color: #f7b799; border-color: rgba(242, 118, 79, .45); background: rgba(242, 118, 79, .14); }
+html[data-theme="dark"] .btn-edit:hover { background: rgba(242, 118, 79, .24); border-color: #f2764f; }
 html[data-theme="dark"] .btn-danger { color: #fca5a5; border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .12); }
 html[data-theme="dark"] .btn-danger:hover { background: rgba(248, 113, 113, .22); border-color: #f87171; }
 /* Modal field labels (Customer name, SOW title, etc.) default to bold
-   var(--text), which in dark mode is a bright near-white - too heavy/loud
-   against the dark form fields. Recolored to the same light-blue accent
+   var(--text), which in dark mode is a warm near-white - too heavy/loud
+   against the dark form fields. Recolored to the same light-orange accent
    used for dark-mode buttons (.btn-edit/.primary-btn) so labels stay
    clearly legible against the dark form fields; light mode is untouched. */
-html[data-theme="dark"] .modal-box form label { color: #7dd3fc; font-weight: 600; }
+html[data-theme="dark"] .modal-box form label { color: #f7b799; font-weight: 600; }
 
 /* ---------- About / Landing page ----------
    Opened via the Trakerz logo (#logoHomeBtn in app.js), not part of the
@@ -870,7 +1001,7 @@ html[data-theme="dark"] .modal-box form label { color: #7dd3fc; font-weight: 600
 .landing-hero {
   display: flex; align-items: center; gap: 40px;
   margin: -14px -20px 32px; padding: 56px 40px;
-  background: linear-gradient(120deg, #0c2a3d 0%, #0e4a68 60%, #081d29 120%);
+  background: linear-gradient(120deg, #3a3230 0%, #5c5350 60%, #241e1c 120%);
   color: #fff; overflow: hidden;
 }
 .landing-hero-copy { flex: 1 1 420px; min-width: 320px; }
@@ -880,7 +1011,7 @@ html[data-theme="dark"] .modal-box form label { color: #7dd3fc; font-weight: 600
    further down the page, scrolled past the header. Same icon markup and
    font stack as #logoHomeBtn so the mark is identical everywhere. */
 .landing-brand-lockup { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
-.landing-brand-lockup .icon { color: #fde68a; }
+.landing-brand-lockup .icon { color: #f4a684; }
 .landing-brand-lockup span {
   font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 22px; font-weight: 700; color: #fff; letter-spacing: .02em;
@@ -893,9 +1024,9 @@ html[data-theme="dark"] .modal-box form label { color: #7dd3fc; font-weight: 600
 }
 .landing-hero-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .landing-hero .primary-btn.landing-cta {
-  background: #fde68a; color: #1e293b; border-color: #fde68a; font-size: 14px; font-weight: 700; padding: 10px 20px;
+  background: var(--primary); color: #fff; border-color: var(--primary); font-size: 14px; font-weight: 700; padding: 10px 20px;
 }
-.landing-hero .primary-btn.landing-cta:hover { background: #fcd34d; border-color: #fcd34d; }
+.landing-hero .primary-btn.landing-cta:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
 .landing-hero .ghost-btn.landing-cta {
   background: rgba(255, 255, 255, .1); color: #fff; border-color: rgba(255, 255, 255, .4); font-size: 14px; padding: 10px 20px;
 }
@@ -903,10 +1034,10 @@ html[data-theme="dark"] .modal-box form label { color: #7dd3fc; font-weight: 600
 .landing-hero-note { font-size: 12.5px; color: rgba(255, 255, 255, .6); margin: 0; }
 .landing-hero-art { position: relative; flex: 1 1 420px; min-width: 320px; }
 .landing-browser-frame {
-  background: #0f1a24; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 50px rgba(0, 0, 0, .45);
+  background: #1c1613; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 50px rgba(0, 0, 0, .45);
   border: 1px solid rgba(255, 255, 255, .1);
 }
-.landing-browser-bar { display: flex; gap: 6px; padding: 10px 12px; background: #16222e; }
+.landing-browser-bar { display: flex; gap: 6px; padding: 10px 12px; background: #241d1a; }
 .landing-browser-bar span { width: 9px; height: 9px; border-radius: 50%; background: rgba(255, 255, 255, .25); }
 
 /* Filmstrip carousel inside the browser-frame mockup - 5 product screenshots,
@@ -930,7 +1061,7 @@ html[data-theme="dark"] .modal-box form label { color: #7dd3fc; font-weight: 600
 .landing-carousel-prev { left: 10px; }
 .landing-carousel-next { right: 10px; }
 .landing-carousel-caption {
-  padding: 11px 16px; font-size: 12.5px; color: rgba(255, 255, 255, .75); background: #0f1a24;
+  padding: 11px 16px; font-size: 12.5px; color: rgba(255, 255, 255, .75); background: #1c1613;
   border-top: 1px solid rgba(255, 255, 255, .08); min-height: 18px;
 }
 .landing-carousel-dots { display: flex; justify-content: center; gap: 8px; margin-top: 14px; }
@@ -939,7 +1070,7 @@ html[data-theme="dark"] .modal-box form label { color: #7dd3fc; font-weight: 600
   background: rgba(255, 255, 255, .3); transition: background .15s, transform .15s;
 }
 .landing-carousel-dot:hover { background: rgba(255, 255, 255, .5); }
-.landing-carousel-dot.active { background: #fde68a; transform: scale(1.25); }
+.landing-carousel-dot.active { background: var(--primary); transform: scale(1.25); }
 
 .landing-section { margin-bottom: 40px; }
 .landing-section-title { font-size: 22px; font-weight: 700; color: var(--text); margin: 0 0 14px; }
@@ -961,6 +1092,17 @@ html[data-theme="dark"] .modal-box form label { color: #7dd3fc; font-weight: 600
 }
 .landing-tech-name { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
 .landing-tech-desc { font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
+
+/* Download Center: reuses .list-card/.config-card, .two-col-row and
+   .landing-tech-card for layout, but the "Download Template" links are
+   .primary-btn applied to an <a> for the first time in this app -
+   .primary-btn alone has no text-decoration rule, so without this override
+   the link would show a default browser underline. */
+.download-center-intro { font-size: 13px; line-height: 1.6; color: var(--text-muted); margin: 0 0 16px; }
+.download-center-grid { margin-top: 4px; }
+.download-center-card { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.download-center-btn { text-decoration: none; margin-top: 4px; }
+.download-center-btn:hover { text-decoration: none; }
 
 .landing-steps { list-style: none; counter-reset: landing-step; margin: 20px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; max-width: 900px; }
 .landing-steps li {

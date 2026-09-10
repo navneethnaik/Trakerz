@@ -4,11 +4,12 @@ Fully local: SQLite file storage, no external services.
 Run with: uvicorn main:app --host 127.0.0.1 --port 8000
 (see ../run.sh or ../run.bat)
 """
+import calendar
 import re
 import shutil
 import sqlite3
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, List, Dict
@@ -16,7 +17,7 @@ from typing import Optional, List, Dict
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from pydantic import BaseModel
@@ -67,14 +68,22 @@ class SowIn(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     total_value: float = 0
+    duration_months: Optional[float] = None
     gm_percent: Optional[float] = None
     billing_model_id: Optional[int] = None
     operating_model_id: Optional[int] = None
+    revenue_type_id: Optional[int] = None
+    practice_id: Optional[int] = None
     status: str = "draft"            # draft | active | completed | expired | cancelled
     notes: Optional[str] = None
     doc_link: Optional[str] = None
     po_doc_link: Optional[str] = None
     deal_sheet_link: Optional[str] = None
+
+
+class SowClassificationIn(BaseModel):
+    revenue_type_id: Optional[int] = None
+    practice_id: Optional[int] = None
 
 
 class CustomerIn(BaseModel):
@@ -105,6 +114,35 @@ class HolidayCalendarIn(BaseModel):
     holiday_details: Optional[str] = None
 
 
+# Leave Management (Customer Configuration > Leave Management) - one row per
+# Customer + Employee ID, with a flat leave-day count per fiscal month
+# (Apr-Mar) rather than specific leave dates. Field order matches the
+# fiscal-month convention used throughout (fiscal_month 1=Apr ... 12=Mar -
+# see FISCAL_MONTH_LABELS) so _LEAVE_MONTH_COLUMNS[fiscal_month - 1] is a
+# direct index into this model's fields.
+class LeaveManagementIn(BaseModel):
+    customer_id: int
+    employee_id: str
+    employee_name: Optional[str] = None
+    location_id: Optional[int] = None
+    band_id: Optional[int] = None
+    employee_type_id: Optional[int] = None
+    sow_id: Optional[int] = None
+    wbs_id: Optional[str] = None
+    leave_apr: float = 0
+    leave_may: float = 0
+    leave_jun: float = 0
+    leave_jul: float = 0
+    leave_aug: float = 0
+    leave_sep: float = 0
+    leave_oct: float = 0
+    leave_nov: float = 0
+    leave_dec: float = 0
+    leave_jan: float = 0
+    leave_feb: float = 0
+    leave_mar: float = 0
+
+
 class ResourceIn(BaseModel):
     account_name: Optional[str] = None
     project_name: Optional[str] = None
@@ -123,11 +161,37 @@ class RevenueCellIn(BaseModel):
     fiscal_year: int
     fiscal_month: int          # 1-12, fiscal position: 1=Apr ... 9=Dec, 10=Jan, 11=Feb, 12=Mar
     projection: float = 0
-    invoiced: float = 0
 
 
 class RevenueSowIn(BaseModel):
     sow_id: int
+    fiscal_year: int
+
+
+# Time and Material tracking (Financial > Projections > Time and
+# Material) - one row per employee assignment to a Contract, not per SOW.
+# See tm_assignments/tm_assignment_fiscal_years in db.py.
+class TmAssignmentIn(BaseModel):
+    customer_id: Optional[int] = None
+    sow_id: Optional[int] = None
+    revenue_type_id: Optional[int] = None
+    employee_id: Optional[str] = None
+    employee_name: Optional[str] = None
+    location_id: Optional[int] = None
+    practice_id: Optional[int] = None
+    wbs_id: Optional[str] = None
+    rate_card: Optional[float] = None
+    discount_percent: Optional[float] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+
+class TmAssignmentCreateIn(TmAssignmentIn):
+    """Add Entry on the Time and Material grid creates the assignment and
+    registers it for a fiscal year in one step - there's no separate
+    "manage assignments" page the way SOWs have Contract Management, so
+    unlike revenue_sow_accounts (which tracks a pre-existing SOW), this is
+    the only place a tm_assignment row is ever created."""
     fiscal_year: int
 
 
@@ -164,24 +228,28 @@ def _execute_delete(conn, sql: str, params: tuple, in_use_label: str):
 
 def _load_lookup_maps(conn):
     """Return {id: name} maps for customers, billing_models, operating_models,
-    opportunity_types (plus a {id: code} map for customers) so SOW rows can be
-    annotated with human-readable names without one query per foreign key per
-    row."""
+    opportunity_types, revenue_types, practices (plus a {id: code} map for
+    customers) so SOW rows can be annotated with human-readable names without
+    one query per foreign key per row."""
     customer_rows = conn.execute("SELECT id, customer_name, customer_code FROM customers").fetchall()
     customers = {r["id"]: r["customer_name"] for r in customer_rows}
     customer_codes = {r["id"]: r["customer_code"] for r in customer_rows}
     billing_models = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM billing_models")}
     operating_models = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM operating_models")}
     opportunity_types = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM opportunity_types")}
-    return customers, billing_models, operating_models, opportunity_types, customer_codes
+    revenue_types = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM revenue_types")}
+    practices = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM practices")}
+    return customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices
 
 
-def _attach_names(sow: dict, customers: Dict[int, str], billing_models: Dict[int, str], operating_models: Dict[int, str], opportunity_types: Dict[int, str], customer_codes: Dict[int, str]) -> dict:
+def _attach_names(sow: dict, customers: Dict[int, str], billing_models: Dict[int, str], operating_models: Dict[int, str], opportunity_types: Dict[int, str], customer_codes: Dict[int, str], revenue_types: Dict[int, str], practices: Dict[int, str]) -> dict:
     sow["customer_name"] = customers.get(sow.get("customer_id"))
     sow["customer_code"] = customer_codes.get(sow.get("customer_id"))
     sow["billing_model_name"] = billing_models.get(sow.get("billing_model_id"))
     sow["operating_model_name"] = operating_models.get(sow.get("operating_model_id"))
     sow["opportunity_type_name"] = opportunity_types.get(sow.get("opportunity_type_id"))
+    sow["revenue_type_name"] = revenue_types.get(sow.get("revenue_type_id"))
+    sow["practice_name"] = practices.get(sow.get("practice_id"))
     return sow
 
 
@@ -210,8 +278,27 @@ def _enrich_sow(sow: dict, milestones: List[dict]) -> dict:
     if billed_total > total_value > 0:
         alerts.append("over_budget")
 
+    # ACV (USD): find the SOW's monthly run rate (TCV / Contract Duration
+    # (Months) - a plain manually-entered field, see SowIn.duration_months),
+    # then multiply by however many of those months count toward one fiscal
+    # year (at most 12 - a fiscal year never has more than 12 months to give
+    # a contract, even if the contract itself runs longer). Net effect: a
+    # SOW of 12 months or less has ACV == TCV (its whole value already fits
+    # in a single fiscal year); a multi-year SOW gets its TCV normalized down
+    # to a per-year figure, e.g. a 24-month SOW shows half its TCV as ACV. A
+    # blank/zero duration can't be annualized - ACV falls back to 0 rather
+    # than dividing by zero.
+    duration_months = sow.get("duration_months") or 0
+    if duration_months > 0:
+        monthly_value = total_value / duration_months
+        months_in_fiscal_year = min(duration_months, 12)
+        acv = monthly_value * months_in_fiscal_year
+    else:
+        acv = 0
+
     sow["billed_total"] = round(billed_total, 2)
     sow["remaining_budget"] = round(remaining_budget, 2)
+    sow["acv"] = round(acv, 2)
     sow["days_to_end"] = days_to_end
     sow["alerts"] = alerts
     sow["milestone_count"] = len(milestones)
@@ -280,6 +367,27 @@ def _build_workbook(sheet_title: str, headers: List[str], rows: List[list],
     return wb
 
 
+def _add_reference_sheet(wb: Workbook, title: str, columns: Dict[str, List[str]]) -> None:
+    """Appends a second, read-only "reference" sheet to an already-built
+    template workbook - one bold header per column, the given values listed
+    underneath, columns as given (no lookups back into the data sheet; this
+    is purely a "here's what you can type" cheat sheet for whoever is
+    filling in Sheet 1 by hand). Column widths are sized to the longest
+    value in each column, with a floor/ceiling so a very short or very long
+    list doesn't produce a sliver or a runaway-wide column."""
+    ws = wb.create_sheet(title)
+    headers = list(columns.keys())
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    max_len = max((len(v) for v in columns.values()), default=0)
+    for row_idx in range(max_len):
+        ws.append([values[row_idx] if row_idx < len(values) else None for values in columns.values()])
+    for col_idx, (header, values) in enumerate(columns.items(), start=1):
+        longest = max([len(header)] + [len(str(v)) for v in values]) if values else len(header)
+        ws.column_dimensions[get_column_letter(col_idx)].width = max(16, min(40, longest + 2))
+
+
 def _xlsx_response(wb: Workbook, filename: str) -> StreamingResponse:
     buf = BytesIO()
     wb.save(buf)
@@ -289,6 +397,133 @@ def _xlsx_response(wb: Workbook, filename: str) -> StreamingResponse:
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------- Excel import helpers (Revenue Management: SoW Level and Time
+# and Material grids both offer "Import from Excel" against a downloadable
+# template - see /import-template and /import below each export endpoint).
+# Columns are matched by header text rather than position so a reordered or
+# narrowed copy of the template still imports; identifying rows (a SOW, a
+# Customer) are matched by name rather than internal id since that's what's
+# visible/editable in a spreadsheet.
+
+def _cell_str(v) -> Optional[str]:
+    """None/blank -> None; anything else -> its trimmed string form (Excel
+    hands back numbers/dates as native Python types, not just strings)."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
+
+
+def _cell_float(v) -> float:
+    """Blank -> 0.0 (the same default an un-typed-into month cell has
+    everywhere else in the app); anything non-blank must parse as a number."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return 0.0
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"'{v}' is not a number")
+
+
+def _cell_float_or_none(v) -> Optional[float]:
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    return _cell_float(v)
+
+
+def _cell_date(v) -> Optional[str]:
+    """Accepts a real Excel date (openpyxl hands those back as datetime/date
+    objects) or a plain YYYY-MM-DD/DD-MMM-YYYY/MM-DD-YYYY string; blank ->
+    None. Returns the same 'YYYY-MM-DD' string every other date field in the
+    app stores."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    if isinstance(v, datetime):
+        return v.date().isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d", "%d-%b-%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    raise ValueError(f"'{v}' is not a recognizable date (expected YYYY-MM-DD)")
+
+
+def _read_import_rows(file_bytes: bytes, required_headers: List[str]) -> List[Dict[str, object]]:
+    """Parses an uploaded .xlsx into a list of {lowercased header: cell
+    value} dicts, one per non-blank data row (the header row - row 1 - is
+    matched by text, case/whitespace-insensitively, not by position).
+    Raises ValueError (turned into a 400 by the caller) if the file can't be
+    read at all, or if any of required_headers is missing from row 1."""
+    try:
+        wb = load_workbook(BytesIO(file_bytes), data_only=True)
+    except Exception:
+        raise ValueError("Could not read this file - please upload a .xlsx file")
+    ws = wb.active
+    rows_iter = ws.iter_rows(values_only=True)
+    try:
+        header_row = next(rows_iter)
+    except StopIteration:
+        raise ValueError("This file has no header row")
+
+    header_map: Dict[str, int] = {}
+    for idx, h in enumerate(header_row or []):
+        if h is None:
+            continue
+        header_map[str(h).strip().lower()] = idx
+
+    missing = [h for h in required_headers if h.lower() not in header_map]
+    if missing:
+        raise ValueError(f"Missing required column(s): {', '.join(missing)} - please use the downloaded template")
+
+    records = []
+    for row in rows_iter:
+        if row is None or all(v is None or (isinstance(v, str) and not v.strip()) for v in row):
+            continue  # skip fully blank rows
+        records.append({h: (row[i] if i < len(row) else None) for h, i in header_map.items()})
+    return records
+
+
+def _lookup_customer_id_by_name(conn, name: Optional[str]) -> Optional[int]:
+    if not name:
+        return None
+    row = conn.execute("SELECT id FROM customers WHERE lower(customer_name) = lower(?)", (name,)).fetchone()
+    if not row:
+        raise ValueError(f"Customer '{name}' was not found")
+    return row["id"]
+
+
+def _lookup_id_by_name(conn, table: str, name: Optional[str]) -> Optional[int]:
+    """Case-insensitive exact-match lookup against a master-data table's
+    'name' column (Revenue Types, Locations, Practices - all shaped that
+    way). table is always one of a fixed set of literal strings from this
+    file, never request data, so the f-string is safe here."""
+    if not name:
+        return None
+    row = conn.execute(f"SELECT id FROM {table} WHERE lower(name) = lower(?)", (name,)).fetchone()
+    if not row:
+        raise ValueError(f"'{name}' was not found")
+    return row["id"]
+
+
+def _lookup_sow_id(conn, customer_id: int, title: Optional[str]) -> Optional[int]:
+    """Contract Title is only unique within a customer (not globally), so
+    the match is scoped to customer_id - and treated as an error rather than
+    "pick the first one" if that still leaves more than one match."""
+    if not title:
+        return None
+    rows = conn.execute(
+        "SELECT id FROM sows WHERE customer_id = ? AND lower(title) = lower(?)", (customer_id, title)
+    ).fetchall()
+    if not rows:
+        raise ValueError(f"Statement of Work '{title}' was not found for this customer")
+    if len(rows) > 1:
+        raise ValueError(f"Statement of Work '{title}' matches more than one SOW for this customer")
+    return rows[0]["id"]
 
 
 def _validate_sow_refs(conn, sow: SowIn):
@@ -306,6 +541,14 @@ def _validate_sow_refs(conn, sow: SowIn):
         "SELECT 1 FROM opportunity_types WHERE id = ?", (sow.opportunity_type_id,)
     ).fetchone():
         raise HTTPException(status_code=400, detail="Selected opportunity type does not exist")
+    if sow.revenue_type_id is not None and not conn.execute(
+        "SELECT 1 FROM revenue_types WHERE id = ?", (sow.revenue_type_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected revenue type does not exist")
+    if sow.practice_id is not None and not conn.execute(
+        "SELECT 1 FROM practices WHERE id = ?", (sow.practice_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected practice does not exist")
 
 
 def _get_resource_or_404(conn, resource_id: int) -> dict:
@@ -354,8 +597,8 @@ def list_sows(status: Optional[str] = None, customer_id: Optional[int] = None, q
     with db.get_db() as conn:
         rows = conn.execute("SELECT * FROM sows ORDER BY end_date IS NULL, end_date ASC").fetchall()
         sows = [_row_to_dict(r) for r in rows]
-        customers, billing_models, operating_models, opportunity_types, customer_codes = _load_lookup_maps(conn)
-        sows = [_attach_names(s, customers, billing_models, operating_models, opportunity_types, customer_codes) for s in sows]
+        customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices = _load_lookup_maps(conn)
+        sows = [_attach_names(s, customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices) for s in sows]
 
         if status:
             sows = [s for s in sows if s["status"] == status]
@@ -383,18 +626,18 @@ def create_sow(sow: SowIn):
         cur = conn.execute(
             """INSERT INTO sows (customer_id, title, project_title, project_code, contract_code,
                opportunity_id, opportunity_type_id, po_number, start_date, end_date,
-               total_value, gm_percent, billing_model_id, operating_model_id, status, notes, doc_link,
+               total_value, duration_months, gm_percent, billing_model_id, operating_model_id, revenue_type_id, practice_id, status, notes, doc_link,
                po_doc_link, deal_sheet_link, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (sow.customer_id, sow.title, sow.project_title, sow.project_code, sow.contract_code,
              sow.opportunity_id, sow.opportunity_type_id, sow.po_number, sow.start_date, sow.end_date,
-             sow.total_value, sow.gm_percent, sow.billing_model_id, sow.operating_model_id, sow.status, sow.notes, sow.doc_link,
+             sow.total_value, sow.duration_months, sow.gm_percent, sow.billing_model_id, sow.operating_model_id, sow.revenue_type_id, sow.practice_id, sow.status, sow.notes, sow.doc_link,
              sow.po_doc_link, sow.deal_sheet_link),
         )
         new_id = cur.lastrowid
         row = _get_sow_or_404(conn, new_id)
-        customers, billing_models, operating_models, opportunity_types, customer_codes = _load_lookup_maps(conn)
-        row = _attach_names(row, customers, billing_models, operating_models, opportunity_types, customer_codes)
+        customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices = _load_lookup_maps(conn)
+        row = _attach_names(row, customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices)
         return _enrich_sow(row, [])
 
 
@@ -411,7 +654,7 @@ def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None,
     # and the same order used for the on-screen SOW list table.
     headers = [
         "Opportunity ID", "Opportunity Type", "Contract Title", "Customer Name", "Purchase Order #",
-        "Start date", "End date", "TCV", "GM %", "Status", "Billing model", "Operating model",
+        "Start date", "End date", "TCV", "Duration (Months)", "ACV (USD)", "GM %", "Status", "Billing model", "Operating model",
         "Customer Code", "Project Title", "Contract Code", "Project Code",
         "Contract (SoW) link", "Purchase order link", "Deal sheet link",
         "Additional information",
@@ -426,6 +669,8 @@ def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None,
             _parse_iso_date(s.get("start_date")),
             _parse_iso_date(s.get("end_date")),
             s.get("total_value") or 0,
+            s.get("duration_months"),
+            s.get("acv") or 0,
             s.get("gm_percent"),
             s.get("status") or "",
             s.get("billing_model_name") or "",
@@ -442,9 +687,9 @@ def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None,
         for s in sows
     ]
     date_cols = (6, 7)
-    currency_cols = (8,)
-    percent_cols = (9,)
-    widths = [16, 16, 28, 22, 14, 13, 13, 14, 10, 14, 18, 18, 16, 24, 16, 16, 30, 22, 22, 34]
+    currency_cols = (8, 10)
+    percent_cols = (11,)
+    widths = [16, 16, 28, 22, 14, 13, 13, 14, 16, 14, 10, 14, 18, 18, 16, 24, 16, 16, 30, 22, 22, 34]
     wb = _build_workbook("SOWs", headers, rows, date_cols=date_cols, currency_cols=currency_cols,
                           percent_cols=percent_cols, widths=widths)
     return _xlsx_response(wb, f"trakerz_sows_{date.today().isoformat()}.xlsx")
@@ -454,8 +699,8 @@ def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None,
 def get_sow(sow_id: int):
     with db.get_db() as conn:
         sow = _get_sow_or_404(conn, sow_id)
-        customers, billing_models, operating_models, opportunity_types, customer_codes = _load_lookup_maps(conn)
-        sow = _attach_names(sow, customers, billing_models, operating_models, opportunity_types, customer_codes)
+        customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices = _load_lookup_maps(conn)
+        sow = _attach_names(sow, customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices)
         m_rows = conn.execute("SELECT * FROM milestones WHERE sow_id = ? ORDER BY due_date IS NULL, due_date ASC", (sow_id,)).fetchall()
         milestones = [_row_to_dict(m) for m in m_rows]
         enriched = _enrich_sow(sow, milestones)
@@ -471,20 +716,47 @@ def update_sow(sow_id: int, sow: SowIn):
         conn.execute(
             """UPDATE sows SET customer_id=?, title=?, project_title=?, project_code=?, contract_code=?,
                opportunity_id=?, opportunity_type_id=?, po_number=?, start_date=?, end_date=?,
-               total_value=?, gm_percent=?, billing_model_id=?, operating_model_id=?, status=?, notes=?, doc_link=?,
+               total_value=?, duration_months=?, gm_percent=?, billing_model_id=?, operating_model_id=?, revenue_type_id=?, practice_id=?, status=?, notes=?, doc_link=?,
                po_doc_link=?, deal_sheet_link=?,
                updated_at=datetime('now') WHERE id=?""",
             (sow.customer_id, sow.title, sow.project_title, sow.project_code, sow.contract_code,
              sow.opportunity_id, sow.opportunity_type_id, sow.po_number, sow.start_date, sow.end_date,
-             sow.total_value, sow.gm_percent, sow.billing_model_id, sow.operating_model_id, sow.status, sow.notes, sow.doc_link,
+             sow.total_value, sow.duration_months, sow.gm_percent, sow.billing_model_id, sow.operating_model_id, sow.revenue_type_id, sow.practice_id, sow.status, sow.notes, sow.doc_link,
              sow.po_doc_link, sow.deal_sheet_link,
              sow_id),
         )
         row = _get_sow_or_404(conn, sow_id)
-        customers, billing_models, operating_models, opportunity_types, customer_codes = _load_lookup_maps(conn)
-        row = _attach_names(row, customers, billing_models, operating_models, opportunity_types, customer_codes)
+        customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices = _load_lookup_maps(conn)
+        row = _attach_names(row, customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices)
         m_rows = conn.execute("SELECT * FROM milestones WHERE sow_id = ?", (sow_id,)).fetchall()
         return _enrich_sow(row, [_row_to_dict(m) for m in m_rows])
+
+
+@app.put("/api/sows/{sow_id}/classification")
+def update_sow_classification(sow_id: int, payload: SowClassificationIn):
+    """Narrow update for just Revenue Type and Practice - used by Revenue
+    Management's SoW Level Detail grid, whose inline Edit only exposes those
+    two Contract fields (not the full Contract form), so it must touch
+    nothing else on the SOW. A full PUT /api/sows/{sow_id} would require -
+    and silently null out - every other field this endpoint's caller never
+    sees."""
+    with db.get_db() as conn:
+        _get_sow_or_404(conn, sow_id)
+        if payload.revenue_type_id is not None and not conn.execute(
+            "SELECT 1 FROM revenue_types WHERE id = ?", (payload.revenue_type_id,)
+        ).fetchone():
+            raise HTTPException(status_code=400, detail="Selected revenue type does not exist")
+        if payload.practice_id is not None and not conn.execute(
+            "SELECT 1 FROM practices WHERE id = ?", (payload.practice_id,)
+        ).fetchone():
+            raise HTTPException(status_code=400, detail="Selected practice does not exist")
+        conn.execute(
+            "UPDATE sows SET revenue_type_id=?, practice_id=?, updated_at=datetime('now') WHERE id=?",
+            (payload.revenue_type_id, payload.practice_id, sow_id),
+        )
+        row = _get_sow_or_404(conn, sow_id)
+        customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices = _load_lookup_maps(conn)
+        return _attach_names(row, customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices)
 
 
 @app.delete("/api/sows/{sow_id}", status_code=204)
@@ -751,12 +1023,11 @@ def _current_fiscal_year() -> int:
 def _fiscal_months(entries: Dict[int, dict]) -> List[dict]:
     months = []
     for fm in range(1, 13):
-        cell = entries.get(fm, {"projection": 0, "invoiced": 0})
+        cell = entries.get(fm, {"projection": 0})
         months.append({
             "fiscal_month": fm,
             "month_label": FISCAL_MONTH_LABELS[fm - 1],
             "projection": cell["projection"],
-            "invoiced": cell["invoiced"],
         })
     return months
 
@@ -771,24 +1042,28 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
     with db.get_db() as conn:
         tracked = conn.execute(
             """SELECT s.id AS sow_id, s.title AS sow_title, s.customer_id, c.customer_name,
-                      bm.name AS billing_model_name
+                      s.total_value, bm.name AS billing_model_name,
+                      s.revenue_type_id, rt.name AS revenue_type_name,
+                      s.practice_id, p.name AS practice_name
                FROM revenue_sow_accounts ra
                JOIN sows s ON s.id = ra.sow_id
                LEFT JOIN customers c ON c.id = s.customer_id
                LEFT JOIN billing_models bm ON bm.id = s.billing_model_id
+               LEFT JOIN revenue_types rt ON rt.id = s.revenue_type_id
+               LEFT JOIN practices p ON p.id = s.practice_id
                WHERE ra.fiscal_year = ?
                ORDER BY c.customer_name COLLATE NOCASE, s.title COLLATE NOCASE""",
             (fy,),
         ).fetchall()
         entries = conn.execute(
-            "SELECT sow_id, fiscal_month, projection, invoiced FROM revenue_entries WHERE fiscal_year = ?",
+            "SELECT sow_id, fiscal_month, projection FROM revenue_entries WHERE fiscal_year = ?",
             (fy,),
         ).fetchall()
 
         by_sow: Dict[int, Dict[int, dict]] = {}
         for e in entries:
             by_sow.setdefault(e["sow_id"], {})[e["fiscal_month"]] = {
-                "projection": e["projection"], "invoiced": e["invoiced"],
+                "projection": e["projection"],
             }
 
         rows = [
@@ -797,7 +1072,12 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
                 "sow_title": s["sow_title"],
                 "customer_id": s["customer_id"],
                 "customer_name": s["customer_name"] or "Unassigned",
+                "total_value": s["total_value"],
                 "billing_model_name": s["billing_model_name"],
+                "revenue_type_id": s["revenue_type_id"],
+                "revenue_type_name": s["revenue_type_name"],
+                "practice_id": s["practice_id"],
+                "practice_name": s["practice_name"],
                 "months": _fiscal_months(by_sow.get(s["sow_id"], {})),
             }
             for s in tracked
@@ -822,14 +1102,13 @@ def revenue_summary(fiscal_year: Optional[int] = None):
                 "customer_id": row["customer_id"],
                 "customer_name": row["customer_name"],
                 "months": [
-                    {"fiscal_month": fm, "month_label": FISCAL_MONTH_LABELS[fm - 1], "projection": 0, "invoiced": 0}
+                    {"fiscal_month": fm, "month_label": FISCAL_MONTH_LABELS[fm - 1], "projection": 0}
                     for fm in range(1, 13)
                 ],
             }
             order.append(cid)
         for i, m in enumerate(row["months"]):
             by_customer[cid]["months"][i]["projection"] += m["projection"]
-            by_customer[cid]["months"][i]["invoiced"] += m["invoiced"]
 
     accounts = sorted((by_customer[cid] for cid in order), key=lambda a: (a["customer_name"] or "").lower())
     return {"fiscal_year": fy, "accounts": accounts}
@@ -841,10 +1120,15 @@ def add_revenue_sow(payload: RevenueSowIn):
     (an explicit "Add Entry" action, mirroring how SOWs/Resources are added)."""
     with db.get_db() as conn:
         sow = conn.execute(
-            """SELECT s.id, s.title, s.customer_id, c.customer_name, bm.name AS billing_model_name
+            """SELECT s.id, s.title, s.customer_id, s.total_value, c.customer_name,
+                      bm.name AS billing_model_name,
+                      s.revenue_type_id, rt.name AS revenue_type_name,
+                      s.practice_id, p.name AS practice_name
                FROM sows s
                LEFT JOIN customers c ON c.id = s.customer_id
                LEFT JOIN billing_models bm ON bm.id = s.billing_model_id
+               LEFT JOIN revenue_types rt ON rt.id = s.revenue_type_id
+               LEFT JOIN practices p ON p.id = s.practice_id
                WHERE s.id = ?""",
             (payload.sow_id,),
         ).fetchone()
@@ -857,7 +1141,7 @@ def add_revenue_sow(payload: RevenueSowIn):
         entries = {
             e["fiscal_month"]: e
             for e in conn.execute(
-                "SELECT fiscal_month, projection, invoiced FROM revenue_entries WHERE sow_id=? AND fiscal_year=?",
+                "SELECT fiscal_month, projection FROM revenue_entries WHERE sow_id=? AND fiscal_year=?",
                 (payload.sow_id, payload.fiscal_year),
             ).fetchall()
         }
@@ -866,7 +1150,12 @@ def add_revenue_sow(payload: RevenueSowIn):
             "sow_title": sow["title"],
             "customer_id": sow["customer_id"],
             "customer_name": sow["customer_name"] or "Unassigned",
+            "total_value": sow["total_value"],
             "billing_model_name": sow["billing_model_name"],
+            "revenue_type_id": sow["revenue_type_id"],
+            "revenue_type_name": sow["revenue_type_name"],
+            "practice_id": sow["practice_id"],
+            "practice_name": sow["practice_name"],
             "months": _fiscal_months(entries),
         }
 
@@ -895,23 +1184,95 @@ def export_revenue_sows(fiscal_year: Optional[int] = None):
     fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
     data = list_revenue_sows(fiscal_year=fy)
 
-    headers = ["Account Name", "SOW Title", "Billing Model"]
+    headers = ["Account Name", "Contract Title", "TCV", "Billing Model", "Revenue Type", "Practice"]
     for label in FISCAL_MONTH_LABELS:
         headers.append(f"{label} projections")
-        headers.append(f"{label} invoiced")
 
     rows = []
     for r in data["rows"]:
-        row = [r["customer_name"], r["sow_title"], r["billing_model_name"] or ""]
+        row = [r["customer_name"], r["sow_title"], r["total_value"], r["billing_model_name"] or "", r["revenue_type_name"] or "", r["practice_name"] or ""]
         for m in r["months"]:
             row.append(m["projection"])
-            row.append(m["invoiced"])
         rows.append(row)
 
-    currency_cols = tuple(range(4, len(headers) + 1))
-    widths = [24, 28, 18] + [14] * (len(headers) - 3)
+    # TCV (column 3) and every month column (7 onward - Billing Model/Revenue
+    # Type/Practice at 4/5/6 are plain text) are currency-formatted; kept as
+    # one non-contiguous tuple rather than two separate ranges since
+    # _build_workbook takes a single currency_cols argument.
+    currency_cols = (3,) + tuple(range(7, len(headers) + 1))
+    widths = [24, 28, 14, 18, 18, 18] + [14] * (len(headers) - 6)
     wb = _build_workbook(f"Revenue SoW Level FY{fy}", headers, rows, currency_cols=currency_cols, widths=widths)
     return _xlsx_response(wb, f"trakerz_revenue_sow_level_fy{fy}_{date.today().isoformat()}.xlsx")
+
+
+@app.get("/api/revenue/sows/import-template")
+def revenue_sows_import_template():
+    """Blank counterpart to export_revenue_sows() above - same headers, no
+    data rows, downloaded via the "Download template" link next to Import
+    from Excel. Account Name + Contract Title identify which SOW a row
+    belongs to; TCV/Billing Model/Revenue Type/Practice are read-only here
+    (derived from the SOW/Contract itself) and ignored on import - they're
+    only included so a template filled from a real Export round-trips
+    without deleting columns first."""
+    headers = ["Account Name", "Contract Title", "TCV", "Billing Model", "Revenue Type", "Practice"]
+    for label in FISCAL_MONTH_LABELS:
+        headers.append(f"{label} projections")
+    widths = [24, 28, 14, 18, 18, 18] + [14] * (len(headers) - 6)
+    wb = _build_workbook("Revenue SoW Level Template", headers, [], widths=widths)
+    return _xlsx_response(wb, "trakerz_revenue_sow_level_template.xlsx")
+
+
+@app.post("/api/revenue/sows/import")
+async def import_revenue_sows(fiscal_year: Optional[int] = None, file: UploadFile = File(...)):
+    """Bulk version of "Add Entry" + typing in the months: each row picks an
+    existing SOW (by Account Name + Contract Title) and sets its 12 monthly
+    Projections for the fiscal year, registering it into tracking first if
+    it wasn't already (same INSERT OR IGNORE as add_revenue_sow/
+    upsert_revenue_cell). A row already tracked for this fiscal year is
+    simply overwritten with the sheet's numbers rather than rejected, so
+    re-importing an edited export is the expected workflow. Every row is
+    validated in full before anything is written for it, so one bad row
+    can't leave a half-written entry behind; other rows still import even if
+    this one fails."""
+    fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
+    content = await file.read()
+    try:
+        records = _read_import_rows(content, ["Account Name", "Contract Title"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    imported = 0
+    errors = []
+    with db.get_db() as conn:
+        for i, rec in enumerate(records, start=2):  # row 1 is the header
+            try:
+                account_name = _cell_str(rec.get("account name"))
+                title = _cell_str(rec.get("contract title"))
+                if not account_name or not title:
+                    raise ValueError("Account Name and Contract Title are both required")
+                customer_id = _lookup_customer_id_by_name(conn, account_name)
+                sow_id = _lookup_sow_id(conn, customer_id, title)
+
+                months = []
+                for m_idx, label in enumerate(FISCAL_MONTH_LABELS, start=1):
+                    months.append((m_idx, _cell_float(rec.get(f"{label.lower()} projections"))))
+
+                conn.execute(
+                    "INSERT OR IGNORE INTO revenue_sow_accounts (sow_id, fiscal_year) VALUES (?, ?)",
+                    (sow_id, fy),
+                )
+                for m_idx, projection in months:
+                    conn.execute(
+                        """INSERT INTO revenue_entries (sow_id, fiscal_year, fiscal_month, projection, updated_at)
+                           VALUES (?, ?, ?, ?, datetime('now'))
+                           ON CONFLICT(sow_id, fiscal_year, fiscal_month)
+                           DO UPDATE SET projection = excluded.projection, updated_at = datetime('now')""",
+                        (sow_id, fy, m_idx, projection),
+                    )
+                imported += 1
+            except Exception as e:
+                errors.append({"row": i, "message": str(e)})
+    return {"fiscal_year": fy, "imported": imported, "errors": errors}
 
 
 @app.get("/api/revenue/summary/export")
@@ -922,14 +1283,12 @@ def export_revenue_summary(fiscal_year: Optional[int] = None):
     headers = ["Account Name"]
     for label in FISCAL_MONTH_LABELS:
         headers.append(f"{label} projections")
-        headers.append(f"{label} invoiced")
 
     rows = []
     for acc in data["accounts"]:
         row = [acc["customer_name"]]
         for m in acc["months"]:
             row.append(m["projection"])
-            row.append(m["invoiced"])
         rows.append(row)
 
     currency_cols = tuple(range(2, len(headers) + 1))
@@ -954,18 +1313,430 @@ def upsert_revenue_cell(cell: RevenueCellIn):
             (cell.sow_id, cell.fiscal_year),
         )
         conn.execute(
-            """INSERT INTO revenue_entries (sow_id, fiscal_year, fiscal_month, projection, invoiced, updated_at)
-               VALUES (?, ?, ?, ?, ?, datetime('now'))
+            """INSERT INTO revenue_entries (sow_id, fiscal_year, fiscal_month, projection, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now'))
                ON CONFLICT(sow_id, fiscal_year, fiscal_month)
-               DO UPDATE SET projection = excluded.projection, invoiced = excluded.invoiced, updated_at = datetime('now')""",
-            (cell.sow_id, cell.fiscal_year, cell.fiscal_month, cell.projection, cell.invoiced),
+               DO UPDATE SET projection = excluded.projection, updated_at = datetime('now')""",
+            (cell.sow_id, cell.fiscal_year, cell.fiscal_month, cell.projection),
         )
         row = conn.execute(
-            """SELECT sow_id, fiscal_year, fiscal_month, projection, invoiced FROM revenue_entries
+            """SELECT sow_id, fiscal_year, fiscal_month, projection FROM revenue_entries
                WHERE sow_id=? AND fiscal_year=? AND fiscal_month=?""",
             (cell.sow_id, cell.fiscal_year, cell.fiscal_month),
         ).fetchone()
         return _row_to_dict(row)
+
+
+# ---------- Time and Material tracking (Financial > Projections > Time and Material) ----------
+# One row per employee assignment to a Contract (not per SOW - see db.py's
+# tm_assignments comment), with its own Revenue Type/Employee Practice
+# separate from the linked Contract's.
+
+def _final_rate_card(rate_card: Optional[float], discount_percent: Optional[float]) -> Optional[float]:
+    """Rate Card with Discount % applied. Computed on every read rather than
+    stored, so editing rate_card or discount_percent later can never leave a
+    stale Final Rate Card behind."""
+    if rate_card is None:
+        return None
+    pct = discount_percent or 0
+    return round(rate_card * (1 - pct / 100), 2)
+
+
+def _billing_hours_per_day(conn, customer_id: Optional[int], location_id: Optional[int]) -> Optional[float]:
+    """Looked up from Billing Hours Configuration (Customer Configuration),
+    never stored on the assignment - so re-configuring it there is picked up
+    immediately by every assignment at that Customer+Location. None when
+    Location isn't set yet, or no configuration exists for that pair."""
+    if not customer_id or not location_id:
+        return None
+    row = conn.execute(
+        "SELECT billing_hours_per_day FROM billing_hour_configs WHERE customer_id=? AND location_id=?",
+        (customer_id, location_id),
+    ).fetchone()
+    return row["billing_hours_per_day"] if row else None
+
+
+def _fiscal_month_calendar_range(fiscal_year: int, fiscal_month: int):
+    """The (first_day, last_day) calendar-month range a fiscal_month falls
+    in, for a fiscal year that runs Apr(fiscal_year)-Mar(fiscal_year+1) -
+    same convention as _current_fiscal_year/FISCAL_MONTH_LABELS."""
+    if fiscal_month <= 9:
+        cal_year, cal_month = fiscal_year, fiscal_month + 3
+    else:
+        cal_year, cal_month = fiscal_year + 1, fiscal_month - 9
+    first_day = date(cal_year, cal_month, 1)
+    last_day = date(cal_year, cal_month, calendar.monthrange(cal_year, cal_month)[1])
+    return first_day, last_day
+
+
+def _count_weekdays(start: date, end: date) -> int:
+    """Count Mon-Fri calendar days in [start, end] inclusive (0 if start is
+    after end)."""
+    if start > end:
+        return 0
+    total_days = (end - start).days + 1
+    full_weeks, remainder = divmod(total_days, 7)
+    count = full_weeks * 5
+    for i in range(remainder):
+        if (start + timedelta(days=full_weeks * 7 + i)).weekday() < 5:
+            count += 1
+    return count
+
+
+def _compute_tm_projections(conn, a, fiscal_year: int, billing_hours: Optional[float]) -> Dict[int, float]:
+    """Time and Material's Projections are auto-calculated, never manually
+    entered - for each fiscal month:
+        billable_days = max(working_days - holidays - leaves, 0)
+        projection = billable_days * final_rate_card * billing_hours_per_day
+    where working_days is Mon-Fri only, counted over the overlap between the
+    assignment's [start_date, end_date] and that fiscal month; holidays come
+    from Holiday Calendar for this assignment's Customer+Location (only
+    counting ones that themselves fall on a weekday within that overlap, so
+    a holiday is never subtracted twice by also not being a "working day");
+    leaves come from Leave Management for this assignment's Customer+
+    Employee ID as a flat per-month count (not clipped to the overlap the
+    way individual holiday dates are, since leave is only tracked as a
+    monthly total). Returns all-zero when start/end date, location, or rate
+    aren't set yet, or no Billing Hours Configuration exists for the
+    Customer+Location - there's nothing to compute against."""
+    result: Dict[int, float] = {fm: 0.0 for fm in range(1, 13)}
+
+    final_rate = _final_rate_card(a["rate_card"], a["discount_percent"])
+    if not billing_hours or final_rate is None:
+        return result
+
+    try:
+        assignment_start = date.fromisoformat(a["start_date"]) if a["start_date"] else None
+        assignment_end = date.fromisoformat(a["end_date"]) if a["end_date"] else None
+    except ValueError:
+        return result
+    if not assignment_start or not assignment_end or assignment_start > assignment_end:
+        return result
+
+    customer_id = a["customer_id"]
+    location_id = a["location_id"]
+    employee_id = a["employee_id"]
+
+    holiday_dates = set()
+    if customer_id and location_id:
+        for hr in conn.execute(
+            "SELECT holiday_date FROM holiday_calendar WHERE customer_id=? AND location_id=?",
+            (customer_id, location_id),
+        ).fetchall():
+            try:
+                holiday_dates.add(date.fromisoformat(hr["holiday_date"]))
+            except (TypeError, ValueError):
+                continue
+
+    leave_row = None
+    if customer_id and employee_id:
+        leave_row = conn.execute(
+            "SELECT * FROM leave_management WHERE customer_id=? AND employee_id = ? COLLATE NOCASE",
+            (customer_id, employee_id),
+        ).fetchone()
+
+    for fm in range(1, 13):
+        month_first, month_last = _fiscal_month_calendar_range(fiscal_year, fm)
+        range_start = max(month_first, assignment_start)
+        range_end = min(month_last, assignment_end)
+        if range_start > range_end:
+            continue  # this fiscal month is entirely outside the assignment's dates
+
+        working_days = _count_weekdays(range_start, range_end)
+        holidays_in_range = sum(
+            1 for d in holiday_dates if range_start <= d <= range_end and d.weekday() < 5
+        )
+        leave_days = leave_row[_LEAVE_MONTH_COLUMNS[fm - 1]] if leave_row else 0
+
+        billable_days = max(working_days - holidays_in_range - (leave_days or 0), 0)
+        result[fm] = round(billable_days * final_rate * billing_hours, 2)
+
+    return result
+
+
+def _tm_row_dict(conn, a, fiscal_year: int) -> dict:
+    billing_hours = _billing_hours_per_day(conn, a["customer_id"], a["location_id"])
+    computed_projections = _compute_tm_projections(conn, a, fiscal_year, billing_hours)
+    months = [
+        {"fiscal_month": fm, "month_label": FISCAL_MONTH_LABELS[fm - 1], "projection": computed_projections.get(fm, 0)}
+        for fm in range(1, 13)
+    ]
+    return {
+        "assignment_id": a["assignment_id"],
+        "customer_id": a["customer_id"],
+        "customer_name": a["customer_name"] or "Unassigned",
+        "sow_id": a["sow_id"],
+        "sow_title": a["sow_title"],
+        "revenue_type_id": a["revenue_type_id"],
+        "revenue_type_name": a["revenue_type_name"],
+        "employee_id": a["employee_id"],
+        "employee_name": a["employee_name"],
+        "location_id": a["location_id"],
+        "location_name": a["location_name"],
+        "practice_id": a["practice_id"],
+        "practice_name": a["practice_name"],
+        "wbs_id": a["wbs_id"],
+        "rate_card": a["rate_card"],
+        "discount_percent": a["discount_percent"],
+        "final_rate_card": _final_rate_card(a["rate_card"], a["discount_percent"]),
+        "billing_hours_per_day": billing_hours,
+        "start_date": a["start_date"],
+        "end_date": a["end_date"],
+        "months": months,
+    }
+
+
+_TM_ASSIGNMENT_SELECT = """
+    SELECT a.id AS assignment_id, a.customer_id, c.customer_name,
+           a.sow_id, s.title AS sow_title,
+           a.revenue_type_id, rt.name AS revenue_type_name,
+           a.employee_id, a.employee_name,
+           a.location_id, l.name AS location_name,
+           a.practice_id, p.name AS practice_name,
+           a.wbs_id, a.rate_card, a.discount_percent,
+           a.start_date, a.end_date
+    FROM tm_assignments a
+    LEFT JOIN customers c ON c.id = a.customer_id
+    LEFT JOIN sows s ON s.id = a.sow_id
+    LEFT JOIN revenue_types rt ON rt.id = a.revenue_type_id
+    LEFT JOIN locations l ON l.id = a.location_id
+    LEFT JOIN practices p ON p.id = a.practice_id
+"""
+
+
+def _validate_tm_refs(conn, payload: TmAssignmentIn):
+    if payload.customer_id is not None and not conn.execute(
+        "SELECT 1 FROM customers WHERE id = ?", (payload.customer_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected customer does not exist")
+    if payload.sow_id is not None and not conn.execute(
+        "SELECT 1 FROM sows WHERE id = ?", (payload.sow_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected Statement of Work does not exist")
+    if payload.revenue_type_id is not None and not conn.execute(
+        "SELECT 1 FROM revenue_types WHERE id = ?", (payload.revenue_type_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected revenue type does not exist")
+    if payload.location_id is not None and not conn.execute(
+        "SELECT 1 FROM locations WHERE id = ?", (payload.location_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected location does not exist")
+    if payload.practice_id is not None and not conn.execute(
+        "SELECT 1 FROM practices WHERE id = ?", (payload.practice_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected practice does not exist")
+
+
+@app.get("/api/tm/assignments")
+def list_tm_assignments(fiscal_year: Optional[int] = None):
+    """Time and Material grid: one row per employee assignment explicitly
+    added to this fiscal year (see POST /api/tm/assignments), each with all
+    12 fiscal months - mirrors GET /api/revenue/sows but keyed by assignment
+    rather than by SOW, since several assignments can share one Contract."""
+    fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
+    with db.get_db() as conn:
+        tracked = conn.execute(
+            _TM_ASSIGNMENT_SELECT + """
+               JOIN tm_assignment_fiscal_years fy ON fy.assignment_id = a.id
+               WHERE fy.fiscal_year = ?
+               ORDER BY c.customer_name COLLATE NOCASE, a.employee_name COLLATE NOCASE""",
+            (fy,),
+        ).fetchall()
+
+        rows = [_tm_row_dict(conn, a, fy) for a in tracked]
+        return {"fiscal_year": fy, "rows": rows}
+
+
+@app.post("/api/tm/assignments", status_code=201)
+def add_tm_assignment(payload: TmAssignmentCreateIn):
+    """Add Entry on the Time and Material grid: creates the assignment and
+    registers it for a fiscal year in one step (there's no separate
+    "manage assignments" page the way SOWs have Contract Management)."""
+    with db.get_db() as conn:
+        _validate_tm_refs(conn, payload)
+        cur = conn.execute(
+            """INSERT INTO tm_assignments (customer_id, sow_id, revenue_type_id, employee_id, employee_name,
+               location_id, practice_id, wbs_id, rate_card, discount_percent, start_date, end_date, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (payload.customer_id, payload.sow_id, payload.revenue_type_id, payload.employee_id, payload.employee_name,
+             payload.location_id, payload.practice_id, payload.wbs_id, payload.rate_card, payload.discount_percent,
+             payload.start_date, payload.end_date),
+        )
+        assignment_id = cur.lastrowid
+        conn.execute(
+            "INSERT OR IGNORE INTO tm_assignment_fiscal_years (assignment_id, fiscal_year) VALUES (?, ?)",
+            (assignment_id, payload.fiscal_year),
+        )
+        row = conn.execute(_TM_ASSIGNMENT_SELECT + "WHERE a.id = ?", (assignment_id,)).fetchone()
+        return _tm_row_dict(conn, row, payload.fiscal_year)
+
+
+@app.put("/api/tm/assignments/{assignment_id}")
+def update_tm_assignment(assignment_id: int, payload: TmAssignmentIn):
+    """Edits an assignment's descriptive fields (Revenue Type, Employee
+    ID/Name, Location, Employee Practice, Contract, WBS ID, Rate Card,
+    Discount %, Start/End Date) - used by the grid's row-level Edit/Save,
+    paired with PUT /api/tm/entries for the 12 month cells."""
+    with db.get_db() as conn:
+        if not conn.execute("SELECT 1 FROM tm_assignments WHERE id = ?", (assignment_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="Assignment not found")
+        _validate_tm_refs(conn, payload)
+        conn.execute(
+            """UPDATE tm_assignments SET customer_id=?, sow_id=?, revenue_type_id=?, employee_id=?, employee_name=?,
+               location_id=?, practice_id=?, wbs_id=?, rate_card=?, discount_percent=?, start_date=?, end_date=?,
+               updated_at=datetime('now') WHERE id=?""",
+            (payload.customer_id, payload.sow_id, payload.revenue_type_id, payload.employee_id, payload.employee_name,
+             payload.location_id, payload.practice_id, payload.wbs_id, payload.rate_card, payload.discount_percent,
+             payload.start_date, payload.end_date, assignment_id),
+        )
+        row = conn.execute(_TM_ASSIGNMENT_SELECT + "WHERE a.id = ?", (assignment_id,)).fetchone()
+        # Note: the caller's currently-selected fiscal year isn't part of this
+        # payload (an assignment isn't itself scoped to one - see
+        # tm_assignment_fiscal_years), and this response's computed months
+        # aren't used directly anyway (the grid's row-level Save always
+        # follows up with a full loadTmAssignments() reload), so any fiscal
+        # year works here.
+        return _tm_row_dict(conn, row, _current_fiscal_year())
+
+
+@app.delete("/api/tm/assignments/{assignment_id}/{fiscal_year}", status_code=204)
+def delete_tm_assignment(assignment_id: int, fiscal_year: int):
+    """Removes this assignment from just this fiscal year's grid - mirrors
+    DELETE /api/revenue/sows/{sow_id}/{fy}. The assignment record itself
+    survives if it's still tracked in another fiscal year."""
+    with db.get_db() as conn:
+        conn.execute(
+            "DELETE FROM tm_assignment_fiscal_years WHERE assignment_id = ? AND fiscal_year = ?",
+            (assignment_id, fiscal_year),
+        )
+    return None
+
+
+@app.get("/api/tm/assignments/export")
+def export_tm_assignments(fiscal_year: Optional[int] = None):
+    fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
+    data = list_tm_assignments(fiscal_year=fy)
+
+    headers = ["Revenue Type", "Employee ID", "Employee Name", "Location", "Employee Practice",
+               "Customer Name", "Contract Title", "WBS ID", "Rate Card", "Discount %", "Final Rate Card",
+               "Billing Hours per day", "Start date", "End date"]
+    for label in FISCAL_MONTH_LABELS:
+        headers.append(f"{label} projections")
+
+    rows = []
+    for r in data["rows"]:
+        row = [
+            r["revenue_type_name"] or "", r["employee_id"] or "", r["employee_name"] or "",
+            r["location_name"] or "", r["practice_name"] or "",
+            r["customer_name"] or "", r["sow_title"] or "", r["wbs_id"] or "",
+            r["rate_card"] or 0, r["discount_percent"] or 0, r["final_rate_card"] or 0,
+            r["billing_hours_per_day"] or 0,
+            _parse_iso_date(r.get("start_date")), _parse_iso_date(r.get("end_date")),
+        ]
+        for m in r["months"]:
+            row.append(m["projection"])
+        rows.append(row)
+
+    date_cols = (13, 14)
+    currency_cols = (9, 11) + tuple(range(15, len(headers) + 1))
+    percent_cols = (10,)
+    widths = [16, 14, 20, 16, 18, 22, 26, 14, 12, 10, 14, 16, 13, 13] + [14] * (len(headers) - 14)
+    wb = _build_workbook(f"Time and Material FY{fy}", headers, rows, date_cols=date_cols,
+                          currency_cols=currency_cols, percent_cols=percent_cols, widths=widths)
+    return _xlsx_response(wb, f"trakerz_time_material_fy{fy}_{date.today().isoformat()}.xlsx")
+
+
+@app.get("/api/tm/assignments/import-template")
+def tm_assignments_import_template():
+    """Deliberately narrower than export_tm_assignments() - Sheet 1 carries
+    only the fields someone actually fills in by hand (Employee Name +
+    Customer Name are the only two required, matching the "Add Entry" draft
+    row's own Save-enabling rule); Discount %, Final Rate Card, Billing
+    Hours per day and every month's Projections are all either derived from
+    other fields or server-computed (see _final_rate_card/
+    _billing_hours_per_day/_compute_tm_projections) and left out entirely so
+    the template doesn't imply they're editable input. Sheet 2 is a plain
+    reference list of the Revenue Types and Customers already configured, so
+    whoever is filling in Sheet 1 knows which exact spellings will match on
+    import (see _lookup_id_by_name/_lookup_customer_id_by_name - both are
+    case-insensitive but still need an exact name match)."""
+    headers = ["Revenue Type", "Employee ID", "Employee Name", "Location", "Employee Practice",
+               "Customer Name", "Contract Title", "WBS ID", "Rate Card", "Start Date", "End Date"]
+    date_cols = (10, 11)
+    widths = [16, 14, 20, 16, 18, 22, 26, 14, 12, 13, 13]
+    wb = _build_workbook("Time and Material Template", headers, [], date_cols=date_cols, widths=widths)
+    with db.get_db() as conn:
+        revenue_types = [r["name"] for r in conn.execute("SELECT name FROM revenue_types ORDER BY name COLLATE NOCASE").fetchall()]
+        customer_names = [r["customer_name"] for r in conn.execute("SELECT customer_name FROM customers ORDER BY customer_name COLLATE NOCASE").fetchall()]
+    _add_reference_sheet(wb, "Reference Lists", {
+        "Available Revenue Types": revenue_types,
+        "Available Customer Name": customer_names,
+    })
+    return _xlsx_response(wb, "trakerz_time_material_template.xlsx")
+
+
+@app.post("/api/tm/assignments/import")
+async def import_tm_assignments(fiscal_year: Optional[int] = None, file: UploadFile = File(...)):
+    """Bulk version of "Add Entry": unlike the SoW Level grid, an assignment
+    has no uniqueness rule (each Add Entry always creates a brand-new row,
+    even a duplicate one), so every row here becomes a new tm_assignments
+    row - there's no matching-existing-row/upsert case to handle. Contract
+    Title is optional (an assignment need not be tied to a SOW) but, when
+    given, is looked up scoped to the row's Customer Name. Only the columns
+    in tm_assignments_import_template()'s Sheet 1 are read here - Discount %
+    isn't one of them, so every imported row starts undiscounted (Final Rate
+    Card equal to Rate Card, same as a freshly-typed "Add Entry" row with
+    Discount % left blank) and can be set afterward in the grid. Final Rate
+    Card, Billing Hours per day and Projections are all likewise never read
+    from the sheet - they're computed server-side on every read (see
+    _final_rate_card/_billing_hours_per_day/_compute_tm_projections), so
+    nothing but the assignment's own descriptive fields below is written
+    here. Every row is validated in full before anything is written for it,
+    so one bad row can't leave a half-written assignment behind; other rows
+    still import even if this one fails."""
+    fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
+    content = await file.read()
+    try:
+        records = _read_import_rows(content, ["Employee Name", "Customer Name"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    imported = 0
+    errors = []
+    with db.get_db() as conn:
+        for i, rec in enumerate(records, start=2):  # row 1 is the header
+            try:
+                employee_name = _cell_str(rec.get("employee name"))
+                customer_name = _cell_str(rec.get("customer name"))
+                if not employee_name or not customer_name:
+                    raise ValueError("Employee Name and Customer Name are both required")
+                customer_id = _lookup_customer_id_by_name(conn, customer_name)
+                sow_id = _lookup_sow_id(conn, customer_id, _cell_str(rec.get("contract title")))
+                revenue_type_id = _lookup_id_by_name(conn, "revenue_types", _cell_str(rec.get("revenue type")))
+                location_id = _lookup_id_by_name(conn, "locations", _cell_str(rec.get("location")))
+                practice_id = _lookup_id_by_name(conn, "practices", _cell_str(rec.get("employee practice")))
+                employee_id = _cell_str(rec.get("employee id"))
+                wbs_id = _cell_str(rec.get("wbs id"))
+                rate_card = _cell_float_or_none(rec.get("rate card"))
+                start_date = _cell_date(rec.get("start date"))
+                end_date = _cell_date(rec.get("end date"))
+
+                cur = conn.execute(
+                    """INSERT INTO tm_assignments (customer_id, sow_id, revenue_type_id, employee_id, employee_name,
+                       location_id, practice_id, wbs_id, rate_card, discount_percent, start_date, end_date, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    (customer_id, sow_id, revenue_type_id, employee_id, employee_name,
+                     location_id, practice_id, wbs_id, rate_card, None, start_date, end_date),
+                )
+                assignment_id = cur.lastrowid
+                conn.execute(
+                    "INSERT OR IGNORE INTO tm_assignment_fiscal_years (assignment_id, fiscal_year) VALUES (?, ?)",
+                    (assignment_id, fy),
+                )
+                imported += 1
+            except Exception as e:
+                errors.append({"row": i, "message": str(e)})
+    return {"fiscal_year": fy, "imported": imported, "errors": errors}
 
 
 # ---------- Configuration lookups: Locations, Billing Models, Operating Models ----------
@@ -1029,6 +1800,7 @@ _register_lookup_crud("employee-types", "employee_types", "Employee type")
 _register_lookup_crud("bands", "bands", "Band")
 _register_lookup_crud("opportunity-types", "opportunity_types", "Opportunity type")
 _register_lookup_crud("revenue-types", "revenue_types", "Revenue type")
+_register_lookup_crud("practices", "practices", "Practice")
 
 
 # ---------- Customer Configuration: Billing Hours ----------
@@ -1168,6 +1940,187 @@ def delete_holiday(item_id: int):
     return None
 
 
+# ---------- Customer Configuration: Leave Management ----------
+# One row per Customer + Employee ID with a leave-day count per fiscal month
+# (Apr-Mar) - own small CRUD like Billing Hours/Holiday Calendar above,
+# since it has an FK dropdown (Customer) plus more fields than a plain
+# lookup. Feeds the Time and Material Projections formula (see
+# _compute_tm_projections) - not tied to a fiscal year itself, same as
+# Billing Hours Configuration.
+
+_LEAVE_MONTH_COLUMNS = [
+    "leave_apr", "leave_may", "leave_jun", "leave_jul", "leave_aug", "leave_sep",
+    "leave_oct", "leave_nov", "leave_dec", "leave_jan", "leave_feb", "leave_mar",
+]
+
+_LEAVE_SELECT = """
+    SELECT lm.*, c.customer_name, s.title AS sow_title
+    FROM leave_management lm
+    LEFT JOIN customers c ON c.id = lm.customer_id
+    LEFT JOIN sows s ON s.id = lm.sow_id
+"""
+
+
+def _validate_leave_refs(conn, item: LeaveManagementIn):
+    if not conn.execute("SELECT 1 FROM customers WHERE id = ?", (item.customer_id,)).fetchone():
+        raise HTTPException(status_code=400, detail="Selected customer does not exist")
+    if item.location_id is not None and not conn.execute(
+        "SELECT 1 FROM locations WHERE id = ?", (item.location_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected location does not exist")
+    if item.band_id is not None and not conn.execute(
+        "SELECT 1 FROM bands WHERE id = ?", (item.band_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected band does not exist")
+    if item.employee_type_id is not None and not conn.execute(
+        "SELECT 1 FROM employee_types WHERE id = ?", (item.employee_type_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected employee type does not exist")
+    if item.sow_id is not None and not conn.execute(
+        "SELECT 1 FROM sows WHERE id = ?", (item.sow_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected Statement of Work does not exist")
+
+
+@app.get("/api/leaves")
+def list_leaves():
+    with db.get_db() as conn:
+        rows = conn.execute(
+            _LEAVE_SELECT + " ORDER BY c.customer_name COLLATE NOCASE, lm.employee_name COLLATE NOCASE"
+        ).fetchall()
+        locations, employee_types, bands = _load_resource_lookup_maps(conn)
+        return [_attach_resource_names(_row_to_dict(r), locations, employee_types, bands) for r in rows]
+
+
+@app.post("/api/leaves", status_code=201)
+def create_leave(item: LeaveManagementIn):
+    with db.get_db() as conn:
+        _validate_leave_refs(conn, item)
+        month_values = [getattr(item, col) for col in _LEAVE_MONTH_COLUMNS]
+        cur = conn.execute(
+            f"""INSERT INTO leave_management (customer_id, employee_id, employee_name,
+                location_id, band_id, employee_type_id, sow_id, wbs_id,
+                {", ".join(_LEAVE_MONTH_COLUMNS)}, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, {", ".join(["?"] * 12)}, datetime('now'))""",
+            (item.customer_id, item.employee_id, item.employee_name,
+             item.location_id, item.band_id, item.employee_type_id,
+             item.sow_id, item.wbs_id, *month_values),
+        )
+        row = conn.execute(_LEAVE_SELECT + " WHERE lm.id = ?", (cur.lastrowid,)).fetchone()
+        locations, employee_types, bands = _load_resource_lookup_maps(conn)
+        return _attach_resource_names(_row_to_dict(row), locations, employee_types, bands)
+
+
+@app.put("/api/leaves/{item_id}")
+def update_leave(item_id: int, item: LeaveManagementIn):
+    with db.get_db() as conn:
+        existing = conn.execute("SELECT * FROM leave_management WHERE id = ?", (item_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Leave record not found")
+        _validate_leave_refs(conn, item)
+        month_values = [getattr(item, col) for col in _LEAVE_MONTH_COLUMNS]
+        set_clause = ", ".join(f"{col}=?" for col in _LEAVE_MONTH_COLUMNS)
+        conn.execute(
+            f"""UPDATE leave_management SET customer_id=?, employee_id=?, employee_name=?,
+                location_id=?, band_id=?, employee_type_id=?, sow_id=?, wbs_id=?,
+                {set_clause}, updated_at=datetime('now') WHERE id=?""",
+            (item.customer_id, item.employee_id, item.employee_name,
+             item.location_id, item.band_id, item.employee_type_id,
+             item.sow_id, item.wbs_id, *month_values, item_id),
+        )
+        row = conn.execute(_LEAVE_SELECT + " WHERE lm.id = ?", (item_id,)).fetchone()
+        locations, employee_types, bands = _load_resource_lookup_maps(conn)
+        return _attach_resource_names(_row_to_dict(row), locations, employee_types, bands)
+
+
+@app.delete("/api/leaves/{item_id}", status_code=204)
+def delete_leave(item_id: int):
+    with db.get_db() as conn:
+        existing = conn.execute("SELECT * FROM leave_management WHERE id = ?", (item_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Leave record not found")
+        _execute_delete(conn, "DELETE FROM leave_management WHERE id = ?", (item_id,), "leave record")
+    return None
+
+
+@app.get("/api/leaves/import-template")
+def leaves_import_template():
+    """Sheet 1 carries only the fields someone fills in by hand for a new
+    Leave Tracker row - Statement of Work Title is left out because in the
+    UI it's a Customer-scoped dropdown (see the Statement of Work Title
+    column, sourced from that row's Customer's own SOWs), not free text, so
+    there's no stable spelling to import against; the twelve Apr-Mar
+    leave-day counts are also left out and simply default to 0, same as a
+    freshly added row in the grid, to be filled in afterward. Sheet 2 is a
+    plain reference list of the Customers, Locations, Bands and Employee
+    Types already configured, so whoever is filling in Sheet 1 knows which
+    exact spellings will match on import (see _lookup_id_by_name/
+    _lookup_customer_id_by_name below - both are case-insensitive but still
+    need an exact name match)."""
+    headers = ["Customer Name", "Employee ID", "Employee Name", "Location", "Band", "Employee Type", "WBS ID"]
+    widths = [22, 14, 20, 16, 14, 16, 14]
+    wb = _build_workbook("Leave Tracker Template", headers, [], widths=widths)
+    with db.get_db() as conn:
+        customer_names = [r["customer_name"] for r in conn.execute("SELECT customer_name FROM customers ORDER BY customer_name COLLATE NOCASE").fetchall()]
+        location_names = [r["name"] for r in conn.execute("SELECT name FROM locations ORDER BY name COLLATE NOCASE").fetchall()]
+        band_names = [r["name"] for r in conn.execute("SELECT name FROM bands ORDER BY name COLLATE NOCASE").fetchall()]
+        employee_type_names = [r["name"] for r in conn.execute("SELECT name FROM employee_types ORDER BY name COLLATE NOCASE").fetchall()]
+    _add_reference_sheet(wb, "Reference Lists", {
+        "Available Customer Name": customer_names,
+        "Available Location": location_names,
+        "Available Band": band_names,
+        "Available Employee Type": employee_type_names,
+    })
+    return _xlsx_response(wb, "trakerz_leave_tracker_template.xlsx")
+
+
+@app.post("/api/leaves/import")
+async def import_leaves(file: UploadFile = File(...)):
+    """Bulk version of "Add Leave Record": like the Time and Material grid's
+    own import, each row here always becomes a brand-new leave_management
+    row - there's no matching-existing-row/upsert case (Customer + Employee
+    ID isn't a uniqueness rule the way a SoW Level grid row is), so
+    importing the same sheet twice creates duplicates. Only the columns in
+    leaves_import_template()'s Sheet 1 are read here; Statement of Work
+    Title and every month's leave-day count are left at their defaults
+    (unset / 0) and can be filled in afterward in the grid. Every row is
+    validated in full before anything is written for it, so one bad row
+    can't leave a half-written record behind; other rows still import even
+    if this one fails."""
+    content = await file.read()
+    try:
+        records = _read_import_rows(content, ["Customer Name", "Employee ID"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    imported = 0
+    errors = []
+    with db.get_db() as conn:
+        for i, rec in enumerate(records, start=2):  # row 1 is the header
+            try:
+                customer_name = _cell_str(rec.get("customer name"))
+                employee_id = _cell_str(rec.get("employee id"))
+                if not customer_name or not employee_id:
+                    raise ValueError("Customer Name and Employee ID are both required")
+                customer_id = _lookup_customer_id_by_name(conn, customer_name)
+                employee_name = _cell_str(rec.get("employee name"))
+                location_id = _lookup_id_by_name(conn, "locations", _cell_str(rec.get("location")))
+                band_id = _lookup_id_by_name(conn, "bands", _cell_str(rec.get("band")))
+                employee_type_id = _lookup_id_by_name(conn, "employee_types", _cell_str(rec.get("employee type")))
+                wbs_id = _cell_str(rec.get("wbs id"))
+
+                conn.execute(
+                    """INSERT INTO leave_management (customer_id, employee_id, employee_name,
+                       location_id, band_id, employee_type_id, wbs_id, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    (customer_id, employee_id, employee_name, location_id, band_id, employee_type_id, wbs_id),
+                )
+                imported += 1
+            except Exception as e:
+                errors.append({"row": i, "message": str(e)})
+    return {"imported": imported, "errors": errors}
+
+
 # ---------- File uploads (SOW documents) ----------
 
 def _safe_filename(name: str) -> str:
@@ -1196,11 +2149,11 @@ def dashboard():
     with db.get_db() as conn:
         sow_rows = conn.execute("SELECT * FROM sows").fetchall()
         sows = [_row_to_dict(r) for r in sow_rows]
-        customers, billing_models, operating_models, opportunity_types, customer_codes = _load_lookup_maps(conn)
+        customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices = _load_lookup_maps(conn)
 
         enriched = []
         for s in sows:
-            s = _attach_names(s, customers, billing_models, operating_models, opportunity_types, customer_codes)
+            s = _attach_names(s, customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices)
             m_rows = conn.execute("SELECT * FROM milestones WHERE sow_id = ?", (s["id"],)).fetchall()
             enriched.append(_enrich_sow(s, [_row_to_dict(m) for m in m_rows]))
 
