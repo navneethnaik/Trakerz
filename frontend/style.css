@@ -39,37 +39,45 @@
 }
 
 :root {
-  /* Palette per request: https://colorhunt.co/palette/524646a8a492fcf2e5ec5b38
-     - #524646 (dark warm charcoal-brown) -> text / dark chrome
-     - #a8a492 (muted warm tan) -> borders / secondary neutral
-     - #fcf2e5 (cream) -> page background
-     - #ec5b38 (burnt orange) -> primary accent
-     Semantic status colors (danger/warn/ok) and the decorative multi-hue
-     accents used for chart slices, stat tiles and card-icon badges are left
-     as-is - those exist to visually distinguish unrelated categories
-     (SOW statuses, resource locations, KPI groupings) from each other, not
-     to carry the brand color, so recoloring them to one accent would make
-     those pages harder to scan rather than more "on brand". */
-  --bg: #fcf2e5;
+  /* Palette per request: https://colorhunt.co/palette/ff9d50fff9d81dced855e07e
+     - #ff9d50 (orange/peach) -> primary accent (buttons, active states, links)
+     - #fff9d8 (pale cream) -> page background
+     - #1dced8 (teal/cyan) -> secondary accent - takes over the app's existing
+       "cyan" role (stat-cyan/circle-cyan tiles, icon-cyan/icon-teal badges)
+     - #55e07e (mint green) -> tertiary accent - takes over the app's existing
+       "success/active" role (badge-active, stat-emerald/circle-emerald tiles,
+       icon-emerald badges)
+     --text/--border/--table-border stay dark-neutral tones (this palette has
+     no dark swatch of its own to read as body text) but are re-derived to
+     pair with the new cream background. The other decorative multi-hue
+     accents used for chart slices, stat tiles and card-icon badges (indigo/
+     violet/pink/amber/red - hues this palette doesn't include at all) are
+     left as-is: they exist to visually distinguish unrelated categories (SOW
+     statuses, resource locations, KPI groupings) from each other, not to
+     carry the brand color, so recoloring them too would make those pages
+     harder to scan rather than more "on brand". */
+  --bg: #fff9d8;
   --surface: #ffffff;
-  --border: #e6dcc9;
+  --border: #e9e3bc;
   --text: #524646;
   --text-muted: #8c8178;
-  --primary: #ec5b38;
-  --primary-2: #f2764f;
-  --primary-hover: #c94a2c;
+  --primary: #ff9d50;
+  --primary-2: #cc7e40;
+  --primary-hover: #995e30;
   --pink: #ec4899;
-  --cyan: #06b6d4;
+  --cyan: #1dced8;
   --danger: #ef4444;
   --warn: #f59e0b;
-  --ok: #10b981;
+  --ok: #55e07e;
   --radius: 12px;
   --shadow-sm: 0 1px 3px rgba(82, 70, 70, .10);
-  --shadow-md: 0 6px 20px rgba(236, 91, 56, .15);
-  --table-border: #cfc3ae;
+  --shadow-md: 0 6px 20px rgba(255, 157, 80, .18);
+  --table-border: #d2caa1;
   /* Shared background for every table header (<th>) app-wide - a dark warm
-     gradient built from the palette's #524646, mirroring the previous
-     navy-swatch treatment but in the new palette's dark tone. */
+     gradient built from the neutral text tone, mirroring the previous
+     navy-swatch treatment but in that dark tone. Left as a dark neutral
+     (not the accent palette) since white header text needs a dark surface
+     underneath it, which none of this palette's 4 colors provide. */
   --table-header-bg: linear-gradient(90deg, #5c5350 0%, #443d3b 100%);
 }
 
@@ -115,7 +123,7 @@ body {
      the mark reads identically wherever it appears. */
   font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
-.topbar h1 .icon { color: #f4a684; }
+.topbar h1 .icon { color: var(--primary); }
 /* The logo opens the About/landing page (see #logoHomeBtn in app.js) - cursor
    and a subtle hover/focus tint signal it's clickable, same treatment as the
    .tab-btn links beside it. */
@@ -131,7 +139,13 @@ body {
   display: inline-flex; align-items: center; transition: background .15s, color .15s;
 }
 .tab-btn:hover { background: rgba(255,255,255,.14); color: #fff; }
-.tab-btn.active { background: #fff; color: var(--primary); box-shadow: var(--shadow-sm); }
+/* --primary-hover rather than --primary here (and in the other small-text/
+   icon usages below) - the new palette's #ff9d50 is light enough that it
+   reads as washed-out when used as text/icon color on a white surface;
+   --primary-hover is the same orange darkened for legibility there, while
+   --primary itself stays the true palette swatch for backgrounds, rings and
+   tinted fills, where that contrast concern doesn't apply. */
+.tab-btn.active { background: #fff; color: var(--primary-hover); box-shadow: var(--shadow-sm); }
 .tab-btn.active:hover { background: #fff; }
 
 .nav-dropdown { position: relative; }
@@ -225,6 +239,17 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
    through both header rows). */
 .sow-table .group-header { text-align: center; letter-spacing: .03em; }
 .sow-table .group-divider { border-left: 2px solid rgba(255,255,255,.35); }
+/* Billing Hours' Onsite/Offshore/Nearshore columns - forced to equal width
+   via the <col> elements in index.html's colgroup (see the comment there)
+   plus table-layout: fixed, since the browser's auto table-layout doesn't
+   reliably split a colspan group header's width evenly across its leaf
+   columns even when each <col> has its own width hint. Fixed layout uses
+   these widths exactly; Customer Name's <col> is left without a width so
+   it gets whatever space the other five don't use. */
+.billing-hours-table { table-layout: fixed; }
+.bh-actions-col { width: 120px; }
+.bh-slno-col { width: 50px; }
+.bh-hours-col { width: 140px; }
 /* .sow-table's own overflow:hidden (used elsewhere for corner clipping) breaks
    position:sticky on its th descendants relative to the .table-scroll
    ancestor, so it's lifted just for these pages' tables. */
@@ -251,7 +276,7 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
   display: flex; align-items: center; gap: 8px;
 }
 .alert-banner[hidden] { display: none; }
-.alert-banner .icon { color: #ea580c; }
+.alert-banner .icon { color: var(--primary-hover); }
 .alert-banner span { flex: 1; }
 /* Dismiss (x) button, pinned to the right of the banner text - user-closeable
    per renderAlertBanner()'s dismissedAlertSignature tracking in app.js. */
@@ -292,11 +317,11 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
 a.stat-card { cursor: pointer; }
 .stat-card.stat-indigo { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #4a5aa8, #232c5c); }
-.stat-card.stat-emerald { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #34c37a, #157a3d); }
-.stat-card.stat-cyan { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #22d3ee, #0e7490); }
+.stat-card.stat-emerald { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #55e07e, #2f7b45); }
+.stat-card.stat-cyan { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #1dced8, #107177); }
 .stat-card.stat-amber { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #edab2f, #a56b06); }
 .stat-card.stat-red { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f87171, #b91c1c); }
-.stat-card.stat-orange { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f0863f, #b04f14); }
+.stat-card.stat-orange { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #ff9d50, #cc7e40); }
 .stat-card.stat-violet { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #a78bfa, #6d28d9); }
 .stat-card.stat-pink { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f472b6, #be185d); }
 .stat-value { font-size: 22px; font-weight: 800; color: var(--text); line-height: 1.1; }
@@ -322,11 +347,11 @@ a.stat-card { cursor: pointer; }
   padding: 16px 12px;
 }
 #sowStatRow .stat-card.stat-indigo { border-top-color: #4a5aa8; }
-#sowStatRow .stat-card.stat-emerald { border-top-color: #34c37a; }
-#sowStatRow .stat-card.stat-cyan { border-top-color: #22d3ee; }
+#sowStatRow .stat-card.stat-emerald { border-top-color: #55e07e; }
+#sowStatRow .stat-card.stat-cyan { border-top-color: #1dced8; }
 #sowStatRow .stat-card.stat-amber { border-top-color: #edab2f; }
 #sowStatRow .stat-card.stat-red { border-top-color: #f87171; }
-#sowStatRow .stat-card.stat-orange { border-top-color: #f0863f; }
+#sowStatRow .stat-card.stat-orange { border-top-color: #ff9d50; }
 #sowStatRow .stat-card.stat-violet { border-top-color: #a78bfa; }
 #sowStatRow .stat-card.stat-pink { border-top-color: #f472b6; }
 
@@ -358,15 +383,15 @@ a.stat-card { cursor: pointer; }
   display: flex; align-items: center; justify-content: center; color: #fff;
 }
 .card-icon svg { width: 15px; height: 15px; }
-.card-icon.icon-indigo { background: linear-gradient(135deg, #ec5b38, #f2764f); }
-.card-icon.icon-emerald { background: linear-gradient(135deg, #10b981, #059669); }
+.card-icon.icon-indigo { background: linear-gradient(135deg, #ff9d50, #cc7e40); }
+.card-icon.icon-emerald { background: linear-gradient(135deg, #55e07e, #2f7b45); }
 .card-icon.icon-amber { background: linear-gradient(135deg, #f59e0b, #d97706); }
 .card-icon.icon-red { background: linear-gradient(135deg, #f87171, #ef4444); }
-.card-icon.icon-orange { background: linear-gradient(135deg, #fb923c, #ea580c); }
-.card-icon.icon-cyan { background: linear-gradient(135deg, #22d3ee, #0891b2); }
+.card-icon.icon-orange { background: linear-gradient(135deg, #ff9d50, #cc7e40); }
+.card-icon.icon-cyan { background: linear-gradient(135deg, #1dced8, #107177); }
 .card-icon.icon-pink { background: linear-gradient(135deg, #f472b6, #db2777); }
 .card-icon.icon-violet { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
-.card-icon.icon-teal { background: linear-gradient(135deg, #2dd4bf, #0d9488); }
+.card-icon.icon-teal { background: linear-gradient(135deg, #1dced8, #107177); }
 .card-icon.icon-rose { background: linear-gradient(135deg, #fb7185, #e11d48); }
 
 .lists-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -378,7 +403,7 @@ a.stat-card { cursor: pointer; }
 .alert-list li { padding: 5px 0; border-bottom: 1px solid var(--border); }
 .alert-list li:last-child { border-bottom: none; }
 .alert-list .empty { color: var(--text-muted); }
-.alert-list li:not(.empty):hover { color: var(--primary); }
+.alert-list li:not(.empty):hover { color: var(--primary-hover); }
 
 /* ---------- Dashboard ---------- */
 /* Resources by Location / Band / Type - always exactly these 3 cards. */
@@ -412,7 +437,7 @@ a.stat-card { cursor: pointer; }
   transition: border-color .15s, box-shadow .15s;
 }
 .dash-customer-filter:focus {
-  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(236, 91, 56, .15);
+  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(255, 157, 80, .3);
 }
 
 /* ---------- Dashboard card theme ----------
@@ -425,7 +450,7 @@ a.stat-card { cursor: pointer; }
    table rule automatically pick up these tokens through the normal CSS
    custom-property cascade, rather than duplicating each rule. */
 #tab-home {
-  --border: #ecdfc9;
+  --border: #efe6bc;
   --text-muted: #96897d;
   --shadow-sm: 0 2px 14px rgba(82, 70, 70, .10);
   --radius: 18px;
@@ -457,11 +482,11 @@ a.stat-card { cursor: pointer; }
   background-origin: padding-box, border-box;
 }
 .dash-circle-tile.circle-indigo { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #4a5aa8, #232c5c); }
-.dash-circle-tile.circle-emerald { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #34c37a, #157a3d); }
-.dash-circle-tile.circle-orange { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f0863f, #b04f14); }
+.dash-circle-tile.circle-emerald { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #55e07e, #2f7b45); }
+.dash-circle-tile.circle-orange { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #ff9d50, #cc7e40); }
 .dash-circle-tile.circle-amber { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #edab2f, #a56b06); }
 .dash-circle-tile.circle-red { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f87171, #b91c1c); }
-.dash-circle-tile.circle-cyan { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #22d3ee, #0e7490); }
+.dash-circle-tile.circle-cyan { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #1dced8, #107177); }
 .dash-circle-tile.circle-pink { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f472b6, #db2777); }
 .dash-circle-tile .circle-value { font-size: 22px; font-weight: 800; color: var(--text); line-height: 1.1; }
 .dash-circle-tile .circle-label { font-size: 11px; font-weight: 700; color: var(--text-muted); margin-top: 4px; }
@@ -473,9 +498,9 @@ a.stat-card { cursor: pointer; }
 #tab-home .card-icon { width: 42px; height: 42px; border-radius: 13px; }
 #tab-home .card-icon svg { width: 20px; height: 20px; }
 #tab-home .card-icon.icon-amber { background: #fdecc9; color: #c9820a; }
-#tab-home .card-icon.icon-emerald { background: #dcf3e4; color: #1f9d55; }
-#tab-home .card-icon.icon-cyan { background: #dbe6f7; color: #1f4e96; }
-#tab-home .card-icon.icon-orange { background: #fbe1cf; color: #d1631c; }
+#tab-home .card-icon.icon-emerald { background: #d9f5e1; color: #225a32; }
+#tab-home .card-icon.icon-cyan { background: #d6f5f6; color: #0c5256; }
+#tab-home .card-icon.icon-orange { background: #fde6cc; color: var(--primary-hover); }
 #tab-home .card-icon.icon-indigo { background: #e2e6f5; color: #33417a; }
 #tab-home .card-icon.icon-red { background: #fbdedb; color: #d1453b; }
 #tab-home .chart-card h3, #tab-home .list-card h3 { font-size: 14.5px; }
@@ -489,7 +514,7 @@ a.stat-card { cursor: pointer; }
   background: var(--surface); transition: border-color .15s, box-shadow .15s;
 }
 .toolbar input:focus, .toolbar select:focus, .modal-box input:focus, .modal-box select:focus, .modal-box textarea:focus {
-  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(236, 91, 56, .15);
+  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(255, 157, 80, .3);
 }
 .toolbar input[type=search] { flex: 1; }
 /* Statement of Work list's own search box - smaller than the shared
@@ -516,14 +541,14 @@ a.stat-card { cursor: pointer; }
 .template-link:hover { text-decoration: underline; }
 
 .primary-btn {
-  background: rgba(236, 91, 56, .12);
-  color: #c94a2c; border: 1px solid rgba(236, 91, 56, .4); border-radius: 9px;
+  background: rgba(255, 157, 80, .18);
+  color: var(--primary-hover); border: 1px solid rgba(255, 157, 80, .55); border-radius: 9px;
   padding: 4px 14px; font-size: 13px; font-weight: 400; cursor: pointer; line-height: 1.4;
   display: inline-flex; align-items: center; gap: 6px;
   transition: background .15s, border-color .15s, transform .1s;
 }
-.primary-btn:hover { background: rgba(236, 91, 56, .2); border-color: rgba(236, 91, 56, .6); transform: translateY(-1px); }
-.primary-btn:active { background: rgba(236, 91, 56, .28); transform: translateY(0); }
+.primary-btn:hover { background: rgba(255, 157, 80, .3); border-color: rgba(255, 157, 80, .7); transform: translateY(-1px); }
+.primary-btn:active { background: rgba(255, 157, 80, .38); transform: translateY(0); }
 
 .ghost-btn {
   background: rgba(91, 118, 134, .06); border: 1px solid var(--border); border-radius: 8px;
@@ -531,10 +556,10 @@ a.stat-card { cursor: pointer; }
   display: inline-flex; align-items: center; gap: 5px;
   transition: background .12s, border-color .12s, color .12s, transform .1s;
 }
-.ghost-btn:hover { background: rgba(91, 118, 134, .13); border-color: #e8c4a8; transform: translateY(-1px); }
+.ghost-btn:hover { background: rgba(91, 118, 134, .13); border-color: var(--primary-2); transform: translateY(-1px); }
 
-.btn-edit { color: #c94a2c; border-color: rgba(236, 91, 56, .35); background: rgba(236, 91, 56, .07); }
-.btn-edit:hover { background: rgba(236, 91, 56, .17); border-color: #f2764f; }
+.btn-edit { color: var(--primary-hover); border-color: rgba(255, 157, 80, .45); background: rgba(255, 157, 80, .12); }
+.btn-edit:hover { background: rgba(255, 157, 80, .25); border-color: var(--primary-2); }
 .btn-danger { color: #dc2626; border-color: rgba(239, 68, 68, .35); background: rgba(239, 68, 68, .07); }
 .btn-danger:hover { background: rgba(239, 68, 68, .15); border-color: #ef4444; }
 
@@ -547,9 +572,18 @@ a.stat-card { cursor: pointer; }
 /* ---------- Tables ---------- */
 .sow-table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); border: 1px solid var(--table-border); }
 .sow-table th, .sow-table td { text-align: left; padding: 7px 14px; font-size: 13px; border: 1px solid var(--table-border); }
-.sow-table th { color: #fff; font-weight: 700; font-size: 12.5px; background: var(--table-header-bg); }
+/* App-wide: header labels center-aligned, Sl.No column data center-aligned,
+   and the icon buttons in the Actions column center-aligned (per explicit
+   instruction) - overriding the left-align default above just for these. */
+.sow-table th { color: #fff; font-weight: 700; font-size: 12.5px; background: var(--table-header-bg); text-align: center; }
+/* Narrow, not just centered - a 1-3 digit row number doesn't need the same
+   14px side padding as a text column, and without an explicit width the
+   browser's auto table-layout can hand this column far more space than it
+   needs whenever the rest of the table has room to spare. */
+.sow-table td.sl-no-cell { text-align: center; width: 50px; padding-left: 8px; padding-right: 8px; }
+.sow-table td.row-actions { text-align: center; }
 .sow-table tbody tr { transition: background .12s; }
-.sow-table tbody tr:hover { background: #f5e9d8; cursor: pointer; }
+.sow-table tbody tr:hover { background: #f8f0cb; cursor: pointer; }
 #tab-sows .sow-table td, #tab-sows .sow-table th { white-space: nowrap; }
 /* Sortable SOW table columns - clickable header, small arrow indicator that
    only shows for whichever column is currently sorted. */
@@ -597,7 +631,7 @@ a.stat-card { cursor: pointer; }
   width: 90px; padding: 4px 6px; font-size: 12.5px; text-align: right;
   border: 1px solid var(--border); border-radius: 6px; font-family: inherit; color: var(--text); margin-top: 0;
 }
-.rev-grid-table input[type=number]:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(236, 91, 56, .15); }
+.rev-grid-table input[type=number]:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(255, 157, 80, .3); }
 .revenue-draft-row select,
 .tm-draft-row select,
 .tm-editing-row select {
@@ -625,7 +659,7 @@ a.stat-card { cursor: pointer; }
 .tm-draft-row input[type=date]:focus,
 .tm-editing-row input[type=text]:focus,
 .tm-editing-row input[type=date]:focus {
-  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(236, 91, 56, .15);
+  outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(255, 157, 80, .3);
 }
 .tm-final-rate-cell, .tm-draft-final-rate-cell {
   text-align: right; padding-right: 12px; color: var(--text-muted); font-size: 12.5px; white-space: nowrap;
@@ -664,7 +698,7 @@ html[data-theme="dark"] .tm-employee-id-cell.tm-dup-emp-id .tm-employee-id-input
    difference; header cells keep their navy gradient background and instead
    pick up a thin accent underline in the same alternating color, so the
    grouping reads continuously from header down into the data. */
-.rev-grid-table tbody td.rev-band-a { background: rgba(236, 91, 56, .06); }
+.rev-grid-table tbody td.rev-band-a { background: rgba(255, 157, 80, .1); }
 .rev-grid-table tbody td.rev-band-b { background: transparent; }
 /* The header's single row carries the accent on its bottom edge - that's
    the edge that actually touches the table body, so that's where the band
@@ -707,7 +741,7 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
 .inline-editing-row input[type=number]:focus,
 .inline-editing-row input[type=date]:focus,
 .inline-editing-row select:focus,
-.inline-editing-row textarea:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(236, 91, 56, .15); }
+.inline-editing-row textarea:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(255, 157, 80, .3); }
 .revenue-section-title {
   display: flex; align-items: center; gap: 10px; margin: 0 0 4px; font-size: 15px; font-weight: 700; color: var(--text);
 }
@@ -729,6 +763,12 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
 .revenue-type-summary-table td:first-child, .revenue-type-summary-table th:first-child { text-align: left; padding-left: 14px; }
 .revenue-type-summary-table td:not(:first-child) { text-align: right; padding-right: 14px; font-variant-numeric: tabular-nums; }
 .revenue-type-summary-table tbody tr.revenue-type-empty-row td { color: var(--text-muted); }
+/* Total/Q1/Q2/Q3/Q4 - the aggregate columns among the plain monthly detail
+   ones - get a distinct accent color (now the app's own primary accent, per
+   the palette request) so they're easy to pick out at a glance, instead of
+   blending in with the Apr-Mar figures they're summing. */
+.revenue-type-summary-table th.rts-highlight-col { background: var(--primary-hover); }
+.revenue-type-summary-table td.rts-highlight-col { background: rgba(255, 157, 80, .14); color: var(--primary-hover); font-weight: 700; }
 
 .chart-card canvas { max-width: 100%; }
 .alert-list li .empty, .alert-list li.empty { color: var(--text-muted); }
@@ -741,21 +781,21 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
   transition: transform .15s, background .12s, color .12s;
   vertical-align: middle; margin-left: 4px;
 }
-.expand-btn:hover { background: rgba(91, 118, 134, .12); color: var(--primary); }
-.expand-btn.expanded { transform: rotate(90deg); color: var(--primary); }
+.expand-btn:hover { background: rgba(91, 118, 134, .12); color: var(--primary-hover); }
+.expand-btn.expanded { transform: rotate(90deg); color: var(--primary-hover); }
 
-.milestone-subrow { cursor: default; background: #f5e9d8; }
-.milestone-subrow:hover { background: #f5e9d8; }
+.milestone-subrow { cursor: default; background: #f8f0cb; }
+.milestone-subrow:hover { background: #f8f0cb; }
 .milestone-subrow td { padding: 12px 14px 16px 42px; white-space: normal; }
 .milestone-subtable { width: 100%; max-width: 640px; border-collapse: collapse; background: var(--surface); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); border: 1px solid var(--table-border); }
 .milestone-subtable th, .milestone-subtable td { text-align: left; padding: 6px 10px; font-size: 12.5px; border: 1px solid var(--table-border); white-space: nowrap; }
 .milestone-subtable th { color: #fff; font-weight: 700; font-size: 11.5px; background: var(--table-header-bg); }
 .milestone-subtable tbody tr:last-child td { border-bottom: none; }
 
-.badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 400; color: #fff; letter-spacing: .02em; background: #f2764f; }
+.badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 400; color: #fff; letter-spacing: .02em; background: var(--primary-hover); }
 .badge-draft { background: #94a3b8; }
-.badge-active { background: linear-gradient(135deg, #10b981, #059669); }
-.badge-completed { background: linear-gradient(135deg, #ec5b38, #f2764f); }
+.badge-active { background: linear-gradient(135deg, #55e07e, #2f7b45); }
+.badge-completed { background: linear-gradient(135deg, var(--primary-hover), var(--primary-2)); }
 .badge-expired { background: linear-gradient(135deg, #f87171, #ef4444); }
 .badge-cancelled { background: #64748b; }
 
@@ -804,6 +844,10 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .four-col { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+/* Lets one field claim two tracks of the grid it sits in (e.g. the SOW
+   title next to Customer Name in a .three-col row) instead of every field
+   being forced to the same width regardless of what it holds. */
+.span-2 { grid-column: span 2; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 
 /* Section headers inside a long modal form (e.g. the New/Edit SOW form),
@@ -851,6 +895,8 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
 .row-actions { white-space: nowrap; }
 .row-actions button { margin-right: 6px; }
 .row-actions button:last-child { margin-right: 0; }
+/* Holiday Calendar's Onsite/Offshore/Nearshore checkbox cells. */
+.center-cell { text-align: center; }
 .empty-state { color: var(--text-muted); font-size: 13px; padding: 14px 0; text-align: center; }
 /* Modifiers for empty-state messages that sit inline in a table row instead
    of standing alone (left-aligned, tighter vertical padding) - replaces
@@ -872,7 +918,7 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
   padding: 8px 12px; font-size: 14px; font-weight: 400; border-radius: 7px; cursor: pointer; color: var(--text);
 }
 .dropdown-item .icon { color: var(--primary-2); }
-.dropdown-item:hover { background: #f5e9d8; }
+.dropdown-item:hover { background: #f8f0cb; }
 
 /* Generic two-level nav menu support (a top-level dropdown item that flies
    out to its own submenu instead of navigating directly) - not currently
@@ -932,7 +978,7 @@ html[data-theme="dark"] .inline-editing-row td { background: #33301a; }
    here re-themes cards, tables, modals, inputs, dropdowns etc. app-wide
    without touching their individual rules. What's left below are the
    handful of hover/highlight colors that were hardcoded to light-mode
-   values (e.g. "#f5e9d8" row hover) rather than a variable. The dark navy
+   values (e.g. "#f8f0cb" row hover) rather than a variable. The dark navy
    topbar, colored badges/tags and status highlight tints are left as-is in
    both themes - they're already dark or saturated enough to read fine on
    either background. */
@@ -976,11 +1022,11 @@ html[data-theme="dark"] .tm-editing-row select:disabled { background: #1c1613; }
    (e.g. the SOW/Staffing/Revenue row "Edit" action) was nearly invisible.
    Lighter, more saturated text plus a bit more background opacity restores
    contrast without changing these buttons in light mode. */
-html[data-theme="dark"] .primary-btn { color: #f7b799; background: rgba(242, 118, 79, .16); border-color: rgba(242, 118, 79, .5); }
-html[data-theme="dark"] .primary-btn:hover { background: rgba(242, 118, 79, .26); border-color: #f2764f; }
-html[data-theme="dark"] .primary-btn:active { background: rgba(242, 118, 79, .34); }
-html[data-theme="dark"] .btn-edit { color: #f7b799; border-color: rgba(242, 118, 79, .45); background: rgba(242, 118, 79, .14); }
-html[data-theme="dark"] .btn-edit:hover { background: rgba(242, 118, 79, .24); border-color: #f2764f; }
+html[data-theme="dark"] .primary-btn { color: #ffc48c; background: rgba(255, 157, 80, .16); border-color: rgba(255, 157, 80, .5); }
+html[data-theme="dark"] .primary-btn:hover { background: rgba(255, 157, 80, .26); border-color: #ff9d50; }
+html[data-theme="dark"] .primary-btn:active { background: rgba(255, 157, 80, .34); }
+html[data-theme="dark"] .btn-edit { color: #ffc48c; border-color: rgba(255, 157, 80, .45); background: rgba(255, 157, 80, .14); }
+html[data-theme="dark"] .btn-edit:hover { background: rgba(255, 157, 80, .24); border-color: #ff9d50; }
 html[data-theme="dark"] .btn-danger { color: #fca5a5; border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .12); }
 html[data-theme="dark"] .btn-danger:hover { background: rgba(248, 113, 113, .22); border-color: #f87171; }
 /* Modal field labels (Customer name, SOW title, etc.) default to bold
@@ -988,7 +1034,7 @@ html[data-theme="dark"] .btn-danger:hover { background: rgba(248, 113, 113, .22)
    against the dark form fields. Recolored to the same light-orange accent
    used for dark-mode buttons (.btn-edit/.primary-btn) so labels stay
    clearly legible against the dark form fields; light mode is untouched. */
-html[data-theme="dark"] .modal-box form label { color: #f7b799; font-weight: 600; }
+html[data-theme="dark"] .modal-box form label { color: #ffc48c; font-weight: 600; }
 
 /* ---------- About / Landing page ----------
    Opened via the Trakerz logo (#logoHomeBtn in app.js), not part of the
@@ -1011,7 +1057,7 @@ html[data-theme="dark"] .modal-box form label { color: #f7b799; font-weight: 600
    further down the page, scrolled past the header. Same icon markup and
    font stack as #logoHomeBtn so the mark is identical everywhere. */
 .landing-brand-lockup { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
-.landing-brand-lockup .icon { color: #f4a684; }
+.landing-brand-lockup .icon { color: var(--primary); }
 .landing-brand-lockup span {
   font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 22px; font-weight: 700; color: #fff; letter-spacing: .02em;
@@ -1023,10 +1069,15 @@ html[data-theme="dark"] .modal-box form label { color: #f7b799; font-weight: 600
   font-size: 15px; line-height: 1.6; color: rgba(255, 255, 255, .82); margin: 0 0 24px; max-width: 520px;
 }
 .landing-hero-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+/* --primary-hover (not --primary) as this button's own fill - same
+   legibility reasoning as the .tab-btn.active/.expand-btn comment above:
+   #ff9d50 is too light behind white text, and this button's own fill
+   (unlike a tint/ring) is exactly the shape white text sits on. Brightens
+   to the true --primary swatch on hover instead of darkening further. */
 .landing-hero .primary-btn.landing-cta {
-  background: var(--primary); color: #fff; border-color: var(--primary); font-size: 14px; font-weight: 700; padding: 10px 20px;
+  background: var(--primary-hover); color: #fff; border-color: var(--primary-hover); font-size: 14px; font-weight: 700; padding: 10px 20px;
 }
-.landing-hero .primary-btn.landing-cta:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.landing-hero .primary-btn.landing-cta:hover { background: var(--primary); border-color: var(--primary); }
 .landing-hero .ghost-btn.landing-cta {
   background: rgba(255, 255, 255, .1); color: #fff; border-color: rgba(255, 255, 255, .4); font-size: 14px; padding: 10px 20px;
 }

@@ -31,28 +31,38 @@ CREATE TABLE IF NOT EXISTS locations (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Per customer+location billing hours/day, managed under Customer
--- Configuration > Billing Hours Configuration (same inline-edit table
--- format as Locations, but two FK dropdowns plus a numeric field instead
--- of a plain name+details pair).
+-- One row per Customer, managed under Customer Configuration > Billing
+-- Hours - a fixed Onsite/Offshore/Nearshore hours-per-day triplet rather
+-- than one row per Customer+Location, since Locations itself is now a
+-- fixed three-value list (see the Locations seed below and the
+-- name-is-readonly-on-edit rule enforced in the UI). _billing_hours_per_day
+-- in main.py maps an assignment's location_id to whichever of these three
+-- columns matches that location's name.
 CREATE TABLE IF NOT EXISTS billing_hour_configs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    customer_id INTEGER NOT NULL REFERENCES customers(id),
-    location_id INTEGER NOT NULL REFERENCES locations(id),
-    billing_hours_per_day REAL NOT NULL DEFAULT 8,
+    customer_id INTEGER NOT NULL UNIQUE REFERENCES customers(id),
+    onsite_hours REAL,
+    offshore_hours REAL,
+    nearshore_hours REAL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Per customer+location holiday dates, managed under Customer Configuration
--- > Holiday Calendar - same inline-edit table shape as Billing Hours
--- Configuration (two FK dropdowns), plus a date and a free-text details
--- field instead of a numeric one.
+-- One row per Customer + Holiday Date, managed under Customer Configuration
+-- > Holiday Calendar - onsite/offshore/nearshore are 0/1 flags marking which
+-- of the three fixed locations observe that date (replacing the old
+-- one-row-per-Customer+Location shape, where the same date for two
+-- locations needed two rows), plus a free-text details field (e.g. the
+-- holiday's name). _compute_tm_projections in main.py maps an assignment's
+-- location_id to whichever of these three flag columns matches that
+-- location's name and only counts dates with that flag set.
 CREATE TABLE IF NOT EXISTS holiday_calendar (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_id INTEGER NOT NULL REFERENCES customers(id),
-    location_id INTEGER NOT NULL REFERENCES locations(id),
     holiday_date TEXT NOT NULL,
+    onsite INTEGER NOT NULL DEFAULT 0,
+    offshore INTEGER NOT NULL DEFAULT 0,
+    nearshore INTEGER NOT NULL DEFAULT 0,
     holiday_details TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -491,10 +501,105 @@ def _migrate(conn):
             # reading/writing it.
             pass
 
+    # Billing Hours moved from one row per Customer+Location to one row per
+    # Customer with fixed Onsite/Offshore/Nearshore columns (per explicit
+    # instruction - Locations is now a fixed three-value list, see
+    # DEFAULT_LOCATIONS below). Consolidate whatever old rows exist by
+    # matching each one's Location name to the new column it maps to; a row
+    # for a location outside Onsite/Offshore/Nearshore has no home in the new
+    # shape and is dropped.
+    if _column_exists(conn, "billing_hour_configs", "location_id"):
+        old_rows = conn.execute(
+            """SELECT bhc.customer_id, l.name AS location_name, bhc.billing_hours_per_day
+               FROM billing_hour_configs bhc LEFT JOIN locations l ON l.id = bhc.location_id"""
+        ).fetchall()
+        consolidated: dict = {}
+        for r in old_rows:
+            slug = (r["location_name"] or "").strip().lower()
+            if slug not in ("onsite", "offshore", "nearshore"):
+                continue
+            consolidated.setdefault(r["customer_id"], {})[f"{slug}_hours"] = r["billing_hours_per_day"]
+        conn.execute("DROP TABLE billing_hour_configs")
+        conn.execute(
+            """CREATE TABLE billing_hour_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL UNIQUE REFERENCES customers(id),
+                onsite_hours REAL,
+                offshore_hours REAL,
+                nearshore_hours REAL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )"""
+        )
+        for customer_id, hours in consolidated.items():
+            conn.execute(
+                """INSERT INTO billing_hour_configs (customer_id, onsite_hours, offshore_hours, nearshore_hours, updated_at)
+                   VALUES (?, ?, ?, ?, datetime('now'))""",
+                (customer_id, hours.get("onsite_hours"), hours.get("offshore_hours"), hours.get("nearshore_hours")),
+            )
+
+    # Holiday Calendar moved from one row per Customer+Location+Date to one
+    # row per Customer+Date, with onsite/offshore/nearshore 0/1 flags marking
+    # which locations observe it (per explicit instruction, same
+    # fixed-three-locations reasoning as Billing Hours above). Consolidate by
+    # merging old rows that share a Customer+Date into one, OR-ing their
+    # location flags together and keeping every distinct Holiday Details text
+    # seen for that date (joined with "; ") rather than picking just one.
+    if _column_exists(conn, "holiday_calendar", "location_id"):
+        old_rows = conn.execute(
+            """SELECT hc.customer_id, hc.holiday_date, hc.holiday_details, l.name AS location_name
+               FROM holiday_calendar hc LEFT JOIN locations l ON l.id = hc.location_id
+               ORDER BY hc.customer_id, hc.holiday_date"""
+        ).fetchall()
+        consolidated: dict = {}
+        for r in old_rows:
+            slug = (r["location_name"] or "").strip().lower()
+            if slug not in ("onsite", "offshore", "nearshore"):
+                continue
+            key = (r["customer_id"], r["holiday_date"])
+            entry = consolidated.setdefault(key, {"onsite": 0, "offshore": 0, "nearshore": 0, "details": []})
+            entry[slug] = 1
+            detail = (r["holiday_details"] or "").strip()
+            if detail and detail not in entry["details"]:
+                entry["details"].append(detail)
+        conn.execute("DROP TABLE holiday_calendar")
+        conn.execute(
+            """CREATE TABLE holiday_calendar (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL REFERENCES customers(id),
+                holiday_date TEXT NOT NULL,
+                onsite INTEGER NOT NULL DEFAULT 0,
+                offshore INTEGER NOT NULL DEFAULT 0,
+                nearshore INTEGER NOT NULL DEFAULT 0,
+                holiday_details TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )"""
+        )
+        for (customer_id, holiday_date), entry in consolidated.items():
+            conn.execute(
+                """INSERT INTO holiday_calendar (customer_id, holiday_date, onsite, offshore, nearshore, holiday_details, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+                (customer_id, holiday_date, entry["onsite"], entry["offshore"], entry["nearshore"],
+                 "; ".join(entry["details"]) or None),
+            )
+
 
 DEFAULT_STATUSES = ["draft", "active", "completed", "expired", "cancelled"]
 DEFAULT_EMPLOYEE_TYPES = ["FTE", "Contractor"]
 DEFAULT_OPPORTUNITY_TYPES = ["New", "Extension", "Amendment"]
+# Locations is now a fixed three-value list (Billing Hours/Holiday Calendar
+# both key off exactly these three names - see _billing_hours_per_day and
+# _compute_tm_projections in main.py) - seeded once, same
+# only-if-the-table-is-empty rule as the other defaults below, and the UI
+# no longer offers an "Add Location" button so these three stay the only
+# ones (Details stays freely editable per location; the name itself becomes
+# readonly once a row exists - see makeInlineListManager's lockNameOnEdit).
+DEFAULT_LOCATIONS = ["Onsite", "Offshore", "Nearshore"]
+# Revenue Type's "Add" button is disabled in the UI (per explicit
+# instruction) so these four stay the only ones short of someone using the
+# API directly; Details stays freely editable, only the name is locked.
+DEFAULT_REVENUE_TYPES = ["Contracted - Staffed", "Contracted - Not staffed", "Renewals", "Pipeline"]
 
 
 def _seed_defaults(conn):
@@ -522,6 +627,20 @@ def _seed_defaults(conn):
         conn.executemany(
             "INSERT INTO opportunity_types (name, updated_at) VALUES (?, datetime('now'))",
             [(t,) for t in DEFAULT_OPPORTUNITY_TYPES],
+        )
+
+    loc_count = conn.execute("SELECT COUNT(*) FROM locations").fetchone()[0]
+    if loc_count == 0:
+        conn.executemany(
+            "INSERT INTO locations (name, updated_at) VALUES (?, datetime('now'))",
+            [(l,) for l in DEFAULT_LOCATIONS],
+        )
+
+    rt_count = conn.execute("SELECT COUNT(*) FROM revenue_types").fetchone()[0]
+    if rt_count == 0:
+        conn.executemany(
+            "INSERT INTO revenue_types (name, updated_at) VALUES (?, datetime('now'))",
+            [(t,) for t in DEFAULT_REVENUE_TYPES],
         )
 
 

@@ -103,14 +103,17 @@ class NameIn(BaseModel):
 
 class BillingHoursConfigIn(BaseModel):
     customer_id: int
-    location_id: int
-    billing_hours_per_day: float
+    onsite_hours: Optional[float] = None
+    offshore_hours: Optional[float] = None
+    nearshore_hours: Optional[float] = None
 
 
 class HolidayCalendarIn(BaseModel):
     customer_id: int
-    location_id: int
     holiday_date: str
+    onsite: bool = False
+    offshore: bool = False
+    nearshore: bool = False
     holiday_details: Optional[str] = None
 
 
@@ -253,6 +256,22 @@ def _attach_names(sow: dict, customers: Dict[int, str], billing_models: Dict[int
     return sow
 
 
+def _compute_acv(total_value, duration_months) -> float:
+    """ACV (USD): find the SOW's monthly run rate (TCV / Contract Duration
+    (Months)), then multiply by however many of those months count toward
+    one fiscal year (at most 12). See _enrich_sow's fuller comment - pulled
+    out as its own helper so list_revenue_sows (Best Estimates > Managed
+    Services grid) can compute the same figure without duplicating the
+    formula."""
+    total_value = total_value or 0
+    duration_months = duration_months or 0
+    if duration_months > 0:
+        monthly_value = total_value / duration_months
+        months_in_fiscal_year = min(duration_months, 12)
+        return round(monthly_value * months_in_fiscal_year, 2)
+    return 0.0
+
+
 def _enrich_sow(sow: dict, milestones: List[dict]) -> dict:
     billed_total = sum(m["amount"] for m in milestones if m["status"] in BILLED_STATUSES)
     total_value = sow["total_value"] or 0
@@ -278,27 +297,16 @@ def _enrich_sow(sow: dict, milestones: List[dict]) -> dict:
     if billed_total > total_value > 0:
         alerts.append("over_budget")
 
-    # ACV (USD): find the SOW's monthly run rate (TCV / Contract Duration
-    # (Months) - a plain manually-entered field, see SowIn.duration_months),
-    # then multiply by however many of those months count toward one fiscal
-    # year (at most 12 - a fiscal year never has more than 12 months to give
-    # a contract, even if the contract itself runs longer). Net effect: a
-    # SOW of 12 months or less has ACV == TCV (its whole value already fits
-    # in a single fiscal year); a multi-year SOW gets its TCV normalized down
-    # to a per-year figure, e.g. a 24-month SOW shows half its TCV as ACV. A
-    # blank/zero duration can't be annualized - ACV falls back to 0 rather
-    # than dividing by zero.
-    duration_months = sow.get("duration_months") or 0
-    if duration_months > 0:
-        monthly_value = total_value / duration_months
-        months_in_fiscal_year = min(duration_months, 12)
-        acv = monthly_value * months_in_fiscal_year
-    else:
-        acv = 0
+    # ACV (USD) - see _compute_acv()'s own comment for the formula. Net
+    # effect: a SOW of 12 months or less has ACV == TCV (its whole value
+    # already fits in a single fiscal year); a multi-year SOW gets its TCV
+    # normalized down to a per-year figure, e.g. a 24-month SOW shows half
+    # its TCV as ACV.
+    acv = _compute_acv(total_value, sow.get("duration_months"))
 
     sow["billed_total"] = round(billed_total, 2)
     sow["remaining_budget"] = round(remaining_budget, 2)
-    sow["acv"] = round(acv, 2)
+    sow["acv"] = acv
     sow["days_to_end"] = days_to_end
     sow["alerts"] = alerts
     sow["milestone_count"] = len(milestones)
@@ -593,7 +601,7 @@ def _validate_resource_refs(conn, r: ResourceIn):
 # ---------- SOW endpoints ----------
 
 @app.get("/api/sows")
-def list_sows(status: Optional[str] = None, customer_id: Optional[int] = None, q: Optional[str] = None):
+def list_sows(status: Optional[str] = None, customer_id: Optional[int] = None, billing_model_id: Optional[int] = None, q: Optional[str] = None):
     with db.get_db() as conn:
         rows = conn.execute("SELECT * FROM sows ORDER BY end_date IS NULL, end_date ASC").fetchall()
         sows = [_row_to_dict(r) for r in rows]
@@ -604,6 +612,8 @@ def list_sows(status: Optional[str] = None, customer_id: Optional[int] = None, q
             sows = [s for s in sows if s["status"] == status]
         if customer_id:
             sows = [s for s in sows if s["customer_id"] == customer_id]
+        if billing_model_id:
+            sows = [s for s in sows if s["billing_model_id"] == billing_model_id]
         if q:
             ql = q.lower()
             sows = [
@@ -642,12 +652,12 @@ def create_sow(sow: SowIn):
 
 
 @app.get("/api/sows/export")
-def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None, q: Optional[str] = None):
+def export_sows(status: Optional[str] = None, customer_id: Optional[int] = None, billing_model_id: Optional[int] = None, q: Optional[str] = None):
     """Export the SOW list to an .xlsx workbook. Accepts the same filters as
     GET /api/sows, so exporting from a filtered/searched view downloads
     exactly what's on screen. Registered before /api/sows/{sow_id} so the
     literal "export" path isn't swallowed by that route's int converter."""
-    sows = list_sows(status=status, customer_id=customer_id, q=q)
+    sows = list_sows(status=status, customer_id=customer_id, billing_model_id=billing_model_id, q=q)
 
     # Column order mirrors the New/Edit SOW form's section layout (Contract
     # Details, BTP Information, Reference Documents, Additional Information)
@@ -735,11 +745,11 @@ def update_sow(sow_id: int, sow: SowIn):
 @app.put("/api/sows/{sow_id}/classification")
 def update_sow_classification(sow_id: int, payload: SowClassificationIn):
     """Narrow update for just Revenue Type and Practice - used by Revenue
-    Management's SoW Level Detail grid, whose inline Edit only exposes those
-    two Contract fields (not the full Contract form), so it must touch
-    nothing else on the SOW. A full PUT /api/sows/{sow_id} would require -
-    and silently null out - every other field this endpoint's caller never
-    sees."""
+    Management's SoW Level Detail grid, whose inline Edit (and Add Entry
+    draft) only exposes those two Contract fields (not the full Contract
+    form), so it must touch nothing else on the SOW. A full PUT
+    /api/sows/{sow_id} would require - and silently null out - every other
+    field this endpoint's caller never sees."""
     with db.get_db() as conn:
         _get_sow_or_404(conn, sow_id)
         if payload.revenue_type_id is not None and not conn.execute(
@@ -1042,7 +1052,7 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
     with db.get_db() as conn:
         tracked = conn.execute(
             """SELECT s.id AS sow_id, s.title AS sow_title, s.customer_id, c.customer_name,
-                      s.total_value, bm.name AS billing_model_name,
+                      s.total_value, s.duration_months, bm.name AS billing_model_name,
                       s.revenue_type_id, rt.name AS revenue_type_name,
                       s.practice_id, p.name AS practice_name
                FROM revenue_sow_accounts ra
@@ -1073,6 +1083,8 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
                 "customer_id": s["customer_id"],
                 "customer_name": s["customer_name"] or "Unassigned",
                 "total_value": s["total_value"],
+                "duration_months": s["duration_months"],
+                "acv": _compute_acv(s["total_value"], s["duration_months"]),
                 "billing_model_name": s["billing_model_name"],
                 "revenue_type_id": s["revenue_type_id"],
                 "revenue_type_name": s["revenue_type_name"],
@@ -1179,29 +1191,87 @@ def delete_revenue_sow(sow_id: int, fiscal_year: int):
     return None
 
 
+def _add_revenue_type_summary_sheet(wb: Workbook, rows: List[dict]) -> None:
+    """Appends a "Revenue Type Summary" sheet to an export workbook, with the
+    same Revenue Type x Month rollup (one row per Revenue Type in the master
+    list, plus "Unassigned" only if at least one row here has none, Total/
+    Q1-Q4 alongside Apr-Mar) shown on screen directly above the grid being
+    exported - see renderRevenueTypeSummaryTable in app.js, which this
+    mirrors exactly. Shared by both the Managed Services and Time and
+    Material exports."""
+    with db.get_db() as conn:
+        revenue_type_names = [
+            r["name"] for r in conn.execute("SELECT name FROM revenue_types ORDER BY name COLLATE NOCASE").fetchall()
+        ]
+
+    sums_by_type: Dict[str, List[float]] = {}
+    for r in rows:
+        key = r.get("revenue_type_name") or ""
+        sums = sums_by_type.setdefault(key, [0.0] * 12)
+        for i, m in enumerate(r["months"]):
+            sums[i] += m["projection"] or 0
+
+    labels = list(revenue_type_names)
+    if "" in sums_by_type:
+        labels.append("Unassigned")
+
+    headers = ["Revenue Type", "Total", "Apr", "May", "Jun", "Q1", "Jul", "Aug", "Sep", "Q2",
+               "Oct", "Nov", "Dec", "Q3", "Jan", "Feb", "Mar", "Q4"]
+    summary_rows = []
+    for label in labels:
+        key = "" if label == "Unassigned" else label
+        sums = sums_by_type.get(key, [0.0] * 12)
+        q1, q2, q3, q4 = sum(sums[0:3]), sum(sums[3:6]), sum(sums[6:9]), sum(sums[9:12])
+        summary_rows.append([
+            label, q1 + q2 + q3 + q4,
+            sums[0], sums[1], sums[2], q1,
+            sums[3], sums[4], sums[5], q2,
+            sums[6], sums[7], sums[8], q3,
+            sums[9], sums[10], sums[11], q4,
+        ])
+
+    ws = wb.create_sheet("Revenue Type Summary")
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for row in summary_rows:
+        ws.append(row)
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        for col in range(2, len(headers) + 1):
+            row[col - 1].number_format = "#,##0.00"
+    widths = [22] + [12] * (len(headers) - 1)
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+
 @app.get("/api/revenue/sows/export")
 def export_revenue_sows(fiscal_year: Optional[int] = None):
     fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
     data = list_revenue_sows(fiscal_year=fy)
 
-    headers = ["Account Name", "Contract Title", "TCV", "Billing Model", "Revenue Type", "Practice"]
-    for label in FISCAL_MONTH_LABELS:
-        headers.append(f"{label} projections")
+    headers = ["Account Name", "Contract Title", "TCV (USD)", "Duration (Months)", "ACV (USD)", "Billing Model", "Revenue Type", "Practice"]
+    headers.extend(FISCAL_MONTH_LABELS)
 
     rows = []
     for r in data["rows"]:
-        row = [r["customer_name"], r["sow_title"], r["total_value"], r["billing_model_name"] or "", r["revenue_type_name"] or "", r["practice_name"] or ""]
+        row = [r["customer_name"], r["sow_title"], r["total_value"], r["duration_months"], r["acv"], r["billing_model_name"] or "", r["revenue_type_name"] or "", r["practice_name"] or ""]
         for m in r["months"]:
             row.append(m["projection"])
         rows.append(row)
 
-    # TCV (column 3) and every month column (7 onward - Billing Model/Revenue
-    # Type/Practice at 4/5/6 are plain text) are currency-formatted; kept as
-    # one non-contiguous tuple rather than two separate ranges since
-    # _build_workbook takes a single currency_cols argument.
-    currency_cols = (3,) + tuple(range(7, len(headers) + 1))
-    widths = [24, 28, 14, 18, 18, 18] + [14] * (len(headers) - 6)
+    # TCV (USD)/ACV (USD) (columns 3, 5) and every month column (9 onward -
+    # Duration/Billing Model/Revenue Type/Practice at 4/6/7/8 are plain
+    # numbers/text) are currency-formatted; kept as one non-contiguous tuple
+    # rather than separate ranges since _build_workbook takes a single
+    # currency_cols argument.
+    currency_cols = (3, 5) + tuple(range(9, len(headers) + 1))
+    widths = [24, 28, 14, 16, 14, 18, 18, 18] + [14] * (len(headers) - 8)
     wb = _build_workbook(f"Revenue SoW Level FY{fy}", headers, rows, currency_cols=currency_cols, widths=widths)
+    # A second sheet with the same Revenue Type x Month rollup shown on
+    # screen right above this grid (see renderRevenueTypeSummaryTable in
+    # app.js), so the export isn't missing what the user is looking at when
+    # they click Export.
+    _add_revenue_type_summary_sheet(wb, data["rows"])
     return _xlsx_response(wb, f"trakerz_revenue_sow_level_fy{fy}_{date.today().isoformat()}.xlsx")
 
 
@@ -1210,14 +1280,13 @@ def revenue_sows_import_template():
     """Blank counterpart to export_revenue_sows() above - same headers, no
     data rows, downloaded via the "Download template" link next to Import
     from Excel. Account Name + Contract Title identify which SOW a row
-    belongs to; TCV/Billing Model/Revenue Type/Practice are read-only here
-    (derived from the SOW/Contract itself) and ignored on import - they're
-    only included so a template filled from a real Export round-trips
-    without deleting columns first."""
-    headers = ["Account Name", "Contract Title", "TCV", "Billing Model", "Revenue Type", "Practice"]
-    for label in FISCAL_MONTH_LABELS:
-        headers.append(f"{label} projections")
-    widths = [24, 28, 14, 18, 18, 18] + [14] * (len(headers) - 6)
+    belongs to; TCV (USD)/Duration (Months)/ACV (USD)/Billing Model/Revenue
+    Type/Practice are read-only here (derived from the SOW/Contract itself)
+    and ignored on import - they're only included so a template filled from
+    a real Export round-trips without deleting columns first."""
+    headers = ["Account Name", "Contract Title", "TCV (USD)", "Duration (Months)", "ACV (USD)", "Billing Model", "Revenue Type", "Practice"]
+    headers.extend(FISCAL_MONTH_LABELS)
+    widths = [24, 28, 14, 16, 14, 18, 18, 18] + [14] * (len(headers) - 8)
     wb = _build_workbook("Revenue SoW Level Template", headers, [], widths=widths)
     return _xlsx_response(wb, "trakerz_revenue_sow_level_template.xlsx")
 
@@ -1255,7 +1324,14 @@ async def import_revenue_sows(fiscal_year: Optional[int] = None, file: UploadFil
 
                 months = []
                 for m_idx, label in enumerate(FISCAL_MONTH_LABELS, start=1):
-                    months.append((m_idx, _cell_float(rec.get(f"{label.lower()} projections"))))
+                    # Plain month name (current export/template header) with a
+                    # fallback to the old "<month> projections" wording, so a
+                    # file exported before that header was shortened still
+                    # imports cleanly.
+                    cell = rec.get(label.lower())
+                    if cell is None:
+                        cell = rec.get(f"{label.lower()} projections")
+                    months.append((m_idx, _cell_float(cell)))
 
                 conn.execute(
                     "INSERT OR IGNORE INTO revenue_sow_accounts (sow_id, fiscal_year) VALUES (?, ?)",
@@ -1281,8 +1357,7 @@ def export_revenue_summary(fiscal_year: Optional[int] = None):
     data = revenue_summary(fiscal_year=fy)
 
     headers = ["Account Name"]
-    for label in FISCAL_MONTH_LABELS:
-        headers.append(f"{label} projections")
+    headers.extend(FISCAL_MONTH_LABELS)
 
     rows = []
     for acc in data["accounts"]:
@@ -1342,18 +1417,38 @@ def _final_rate_card(rate_card: Optional[float], discount_percent: Optional[floa
     return round(rate_card * (1 - pct / 100), 2)
 
 
+def _location_slug(conn, location_id: Optional[int]) -> Optional[str]:
+    """Maps a Location's id to "onsite"/"offshore"/"nearshore" - the fixed
+    three-value set Billing Hours and Holiday Calendar both key their
+    per-location columns off (see billing_hour_configs/holiday_calendar in
+    db.py). None for a missing id or a location whose name isn't one of the
+    three (Locations no longer offers an "Add" button, but a name typed
+    directly through the API is still possible)."""
+    if not location_id:
+        return None
+    row = conn.execute("SELECT name FROM locations WHERE id = ?", (location_id,)).fetchone()
+    if not row:
+        return None
+    slug = (row["name"] or "").strip().lower()
+    return slug if slug in ("onsite", "offshore", "nearshore") else None
+
+
 def _billing_hours_per_day(conn, customer_id: Optional[int], location_id: Optional[int]) -> Optional[float]:
-    """Looked up from Billing Hours Configuration (Customer Configuration),
-    never stored on the assignment - so re-configuring it there is picked up
-    immediately by every assignment at that Customer+Location. None when
-    Location isn't set yet, or no configuration exists for that pair."""
-    if not customer_id or not location_id:
+    """Looked up from Billing Hours (Customer Configuration), never stored on
+    the assignment - so re-configuring it there is picked up immediately by
+    every assignment at that Customer+Location. None when Location isn't set
+    yet, isn't one of the fixed three, or no configuration exists for that
+    Customer."""
+    if not customer_id:
+        return None
+    slug = _location_slug(conn, location_id)
+    if not slug:
         return None
     row = conn.execute(
-        "SELECT billing_hours_per_day FROM billing_hour_configs WHERE customer_id=? AND location_id=?",
-        (customer_id, location_id),
+        f"SELECT {slug}_hours FROM billing_hour_configs WHERE customer_id = ?",
+        (customer_id,),
     ).fetchone()
-    return row["billing_hours_per_day"] if row else None
+    return row[f"{slug}_hours"] if row else None
 
 
 def _fiscal_month_calendar_range(fiscal_year: int, fiscal_month: int):
@@ -1418,10 +1513,11 @@ def _compute_tm_projections(conn, a, fiscal_year: int, billing_hours: Optional[f
     employee_id = a["employee_id"]
 
     holiday_dates = set()
-    if customer_id and location_id:
+    location_slug = _location_slug(conn, location_id)
+    if customer_id and location_slug:
         for hr in conn.execute(
-            "SELECT holiday_date FROM holiday_calendar WHERE customer_id=? AND location_id=?",
-            (customer_id, location_id),
+            f"SELECT holiday_date FROM holiday_calendar WHERE customer_id=? AND {location_slug}=1",
+            (customer_id,),
         ).fetchall():
             try:
                 holiday_dates.add(date.fromisoformat(hr["holiday_date"]))
@@ -1467,6 +1563,8 @@ def _tm_row_dict(conn, a, fiscal_year: int) -> dict:
         "customer_name": a["customer_name"] or "Unassigned",
         "sow_id": a["sow_id"],
         "sow_title": a["sow_title"],
+        "billing_model_id": a["billing_model_id"],
+        "billing_model_name": a["billing_model_name"],
         "revenue_type_id": a["revenue_type_id"],
         "revenue_type_name": a["revenue_type_name"],
         "employee_id": a["employee_id"],
@@ -1489,6 +1587,7 @@ def _tm_row_dict(conn, a, fiscal_year: int) -> dict:
 _TM_ASSIGNMENT_SELECT = """
     SELECT a.id AS assignment_id, a.customer_id, c.customer_name,
            a.sow_id, s.title AS sow_title,
+           s.billing_model_id, bm.name AS billing_model_name,
            a.revenue_type_id, rt.name AS revenue_type_name,
            a.employee_id, a.employee_name,
            a.location_id, l.name AS location_name,
@@ -1498,6 +1597,7 @@ _TM_ASSIGNMENT_SELECT = """
     FROM tm_assignments a
     LEFT JOIN customers c ON c.id = a.customer_id
     LEFT JOIN sows s ON s.id = a.sow_id
+    LEFT JOIN billing_models bm ON bm.id = s.billing_model_id
     LEFT JOIN revenue_types rt ON rt.id = a.revenue_type_id
     LEFT JOIN locations l ON l.id = a.location_id
     LEFT JOIN practices p ON p.id = a.practice_id
@@ -1620,8 +1720,7 @@ def export_tm_assignments(fiscal_year: Optional[int] = None):
     headers = ["Revenue Type", "Employee ID", "Employee Name", "Location", "Employee Practice",
                "Customer Name", "Contract Title", "WBS ID", "Rate Card", "Discount %", "Final Rate Card",
                "Billing Hours per day", "Start date", "End date"]
-    for label in FISCAL_MONTH_LABELS:
-        headers.append(f"{label} projections")
+    headers.extend(FISCAL_MONTH_LABELS)
 
     rows = []
     for r in data["rows"]:
@@ -1641,8 +1740,12 @@ def export_tm_assignments(fiscal_year: Optional[int] = None):
     currency_cols = (9, 11) + tuple(range(15, len(headers) + 1))
     percent_cols = (10,)
     widths = [16, 14, 20, 16, 18, 22, 26, 14, 12, 10, 14, 16, 13, 13] + [14] * (len(headers) - 14)
-    wb = _build_workbook(f"Time and Material FY{fy}", headers, rows, date_cols=date_cols,
+    wb = _build_workbook("T&M Projections", headers, rows, date_cols=date_cols,
                           currency_cols=currency_cols, percent_cols=percent_cols, widths=widths)
+    # Same Revenue Type Summary sheet as the Managed Services export (see
+    # _add_revenue_type_summary_sheet) - the rollup shown on screen directly
+    # above this grid.
+    _add_revenue_type_summary_sheet(wb, data["rows"])
     return _xlsx_response(wb, f"trakerz_time_material_fy{fy}_{date.today().isoformat()}.xlsx")
 
 
@@ -1797,38 +1900,35 @@ _register_lookup_crud("billing-models", "billing_models", "Billing model")
 _register_lookup_crud("operating-models", "operating_models", "Operating model")
 _register_lookup_crud("statuses", "statuses", "Status")
 _register_lookup_crud("employee-types", "employee_types", "Employee type")
-_register_lookup_crud("bands", "bands", "Band")
+_register_lookup_crud("bands", "bands", "Employee band")
 _register_lookup_crud("opportunity-types", "opportunity_types", "Opportunity type")
 _register_lookup_crud("revenue-types", "revenue_types", "Revenue type")
 _register_lookup_crud("practices", "practices", "Practice")
 
 
 # ---------- Customer Configuration: Billing Hours ----------
-# Not a plain name+details list like the lookups above - each row is a
-# Customer + Location pair (both FKs, picked from dropdowns in the UI) plus
-# a numeric "billing hours per day" value, so it gets its own small CRUD
-# rather than going through _register_lookup_crud.
+# One row per Customer (customer_id is UNIQUE) with a fixed Onsite/Offshore/
+# Nearshore hours-per-day triplet - not a plain name+details list like the
+# lookups above, so it gets its own small CRUD rather than going through
+# _register_lookup_crud.
 
 _BILLING_HOURS_SELECT = """
-    SELECT bhc.*, c.customer_name, l.name AS location_name
+    SELECT bhc.*, c.customer_name
     FROM billing_hour_configs bhc
     LEFT JOIN customers c ON c.id = bhc.customer_id
-    LEFT JOIN locations l ON l.id = bhc.location_id
 """
 
 
 def _validate_billing_hours_refs(conn, item: BillingHoursConfigIn):
     if not conn.execute("SELECT 1 FROM customers WHERE id = ?", (item.customer_id,)).fetchone():
         raise HTTPException(status_code=400, detail="Selected customer does not exist")
-    if not conn.execute("SELECT 1 FROM locations WHERE id = ?", (item.location_id,)).fetchone():
-        raise HTTPException(status_code=400, detail="Selected location does not exist")
 
 
 @app.get("/api/billing-hours")
 def list_billing_hours():
     with db.get_db() as conn:
         rows = conn.execute(
-            _BILLING_HOURS_SELECT + " ORDER BY c.customer_name COLLATE NOCASE, l.name COLLATE NOCASE"
+            _BILLING_HOURS_SELECT + " ORDER BY c.customer_name COLLATE NOCASE"
         ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
@@ -1837,11 +1937,14 @@ def list_billing_hours():
 def create_billing_hours(item: BillingHoursConfigIn):
     with db.get_db() as conn:
         _validate_billing_hours_refs(conn, item)
-        cur = conn.execute(
-            """INSERT INTO billing_hour_configs (customer_id, location_id, billing_hours_per_day, updated_at)
-               VALUES (?, ?, ?, datetime('now'))""",
-            (item.customer_id, item.location_id, item.billing_hours_per_day),
-        )
+        try:
+            cur = conn.execute(
+                """INSERT INTO billing_hour_configs (customer_id, onsite_hours, offshore_hours, nearshore_hours, updated_at)
+                   VALUES (?, ?, ?, ?, datetime('now'))""",
+                (item.customer_id, item.onsite_hours, item.offshore_hours, item.nearshore_hours),
+            )
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=400, detail="Billing hours are already configured for this customer - edit that row instead")
         row = conn.execute(_BILLING_HOURS_SELECT + " WHERE bhc.id = ?", (cur.lastrowid,)).fetchone()
         return _row_to_dict(row)
 
@@ -1853,11 +1956,14 @@ def update_billing_hours(item_id: int, item: BillingHoursConfigIn):
         if not existing:
             raise HTTPException(status_code=404, detail="Billing hours configuration not found")
         _validate_billing_hours_refs(conn, item)
-        conn.execute(
-            """UPDATE billing_hour_configs SET customer_id=?, location_id=?, billing_hours_per_day=?,
-               updated_at=datetime('now') WHERE id=?""",
-            (item.customer_id, item.location_id, item.billing_hours_per_day, item_id),
-        )
+        try:
+            conn.execute(
+                """UPDATE billing_hour_configs SET customer_id=?, onsite_hours=?, offshore_hours=?, nearshore_hours=?,
+                   updated_at=datetime('now') WHERE id=?""",
+                (item.customer_id, item.onsite_hours, item.offshore_hours, item.nearshore_hours, item_id),
+            )
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=400, detail="Billing hours are already configured for this customer - edit that row instead")
         row = conn.execute(_BILLING_HOURS_SELECT + " WHERE bhc.id = ?", (item_id,)).fetchone()
         return _row_to_dict(row)
 
@@ -1873,30 +1979,27 @@ def delete_billing_hours(item_id: int):
 
 
 # ---------- Customer Configuration: Holiday Calendar ----------
-# Same shape as Billing Hours Configuration (Customer + Location FK
-# dropdowns) but with a holiday date and a free-text details field instead
-# of a numeric one - so it gets its own small CRUD too.
+# One row per Customer + Holiday Date, with onsite/offshore/nearshore 0/1
+# flags marking which of the fixed three locations observe that date (see
+# db.py) - not a plain name+details list, so it gets its own small CRUD too.
 
 _HOLIDAY_SELECT = """
-    SELECT hc.*, c.customer_name, l.name AS location_name
+    SELECT hc.*, c.customer_name
     FROM holiday_calendar hc
     LEFT JOIN customers c ON c.id = hc.customer_id
-    LEFT JOIN locations l ON l.id = hc.location_id
 """
 
 
 def _validate_holiday_refs(conn, item: HolidayCalendarIn):
     if not conn.execute("SELECT 1 FROM customers WHERE id = ?", (item.customer_id,)).fetchone():
         raise HTTPException(status_code=400, detail="Selected customer does not exist")
-    if not conn.execute("SELECT 1 FROM locations WHERE id = ?", (item.location_id,)).fetchone():
-        raise HTTPException(status_code=400, detail="Selected location does not exist")
 
 
 @app.get("/api/holidays")
 def list_holidays():
     with db.get_db() as conn:
         rows = conn.execute(
-            _HOLIDAY_SELECT + " ORDER BY hc.holiday_date, c.customer_name COLLATE NOCASE, l.name COLLATE NOCASE"
+            _HOLIDAY_SELECT + " ORDER BY hc.holiday_date, c.customer_name COLLATE NOCASE"
         ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
@@ -1906,9 +2009,9 @@ def create_holiday(item: HolidayCalendarIn):
     with db.get_db() as conn:
         _validate_holiday_refs(conn, item)
         cur = conn.execute(
-            """INSERT INTO holiday_calendar (customer_id, location_id, holiday_date, holiday_details, updated_at)
-               VALUES (?, ?, ?, ?, datetime('now'))""",
-            (item.customer_id, item.location_id, item.holiday_date, item.holiday_details),
+            """INSERT INTO holiday_calendar (customer_id, holiday_date, onsite, offshore, nearshore, holiday_details, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (item.customer_id, item.holiday_date, int(item.onsite), int(item.offshore), int(item.nearshore), item.holiday_details),
         )
         row = conn.execute(_HOLIDAY_SELECT + " WHERE hc.id = ?", (cur.lastrowid,)).fetchone()
         return _row_to_dict(row)
@@ -1922,9 +2025,9 @@ def update_holiday(item_id: int, item: HolidayCalendarIn):
             raise HTTPException(status_code=404, detail="Holiday not found")
         _validate_holiday_refs(conn, item)
         conn.execute(
-            """UPDATE holiday_calendar SET customer_id=?, location_id=?, holiday_date=?, holiday_details=?,
+            """UPDATE holiday_calendar SET customer_id=?, holiday_date=?, onsite=?, offshore=?, nearshore=?, holiday_details=?,
                updated_at=datetime('now') WHERE id=?""",
-            (item.customer_id, item.location_id, item.holiday_date, item.holiday_details, item_id),
+            (item.customer_id, item.holiday_date, int(item.onsite), int(item.offshore), int(item.nearshore), item.holiday_details, item_id),
         )
         row = conn.execute(_HOLIDAY_SELECT + " WHERE hc.id = ?", (item_id,)).fetchone()
         return _row_to_dict(row)

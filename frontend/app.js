@@ -146,7 +146,13 @@ function applyRevenueMenuPreset(item) {
   // loadRevenueTab() has (re)populated their options.
   revenueCustomerFilter = "";
   revenueBillingModelFilter = "";
+  revenueRevenueTypeFilter = "";
+  revenuePracticeFilter = "";
   tmCustomerFilter = "";
+  tmBillingModelFilter = "";
+  tmRevenueTypeFilter = "";
+  tmLocationFilter = "";
+  tmPracticeFilter = "";
   if (category === "Time and Material") setRevenueCategory("time-material");
   else if (category === "Managed Services") setRevenueCategory("managed-services");
 }
@@ -348,6 +354,7 @@ document.getElementById("themeToggleBtn").addEventListener("click", () => {
 document.getElementById("searchInput").addEventListener("input", debounce(loadSows, 250));
 document.getElementById("statusFilter").addEventListener("change", loadSows);
 document.getElementById("sowCustomerFilter").addEventListener("change", loadSows);
+document.getElementById("sowBillingModelFilter").addEventListener("change", loadSows);
 
 async function refreshStatusFilterOptions() {
   const statuses = await fetch(`${API}/statuses`).then((r) => r.json());
@@ -356,6 +363,17 @@ async function refreshStatusFilterOptions() {
   sel.innerHTML = '<option value="">All statuses</option>' +
     statuses.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(capitalize(s.name))}</option>`).join("");
   if (statuses.some((s) => s.name === prevVal)) sel.value = prevVal;
+}
+
+// Billing Model filter for the SOWs table - same refresh-on-demand pattern
+// as refreshStatusFilterOptions()/refreshSowCustomerFilterOptions() above.
+async function refreshSowBillingModelFilterOptions() {
+  const billingModels = await fetch(`${API}/billing-models`).then((r) => r.json());
+  const sel = document.getElementById("sowBillingModelFilter");
+  const prevVal = sel.value;
+  sel.innerHTML = '<option value="">All billing models</option>' +
+    billingModels.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("");
+  if (billingModels.some((b) => String(b.id) === prevVal)) sel.value = prevVal;
 }
 
 // Customer filter for the SOWs table - refreshed here (called at startup)
@@ -546,10 +564,12 @@ async function loadSows() {
   const q = document.getElementById("searchInput").value.trim();
   const status = document.getElementById("statusFilter").value;
   const customerId = document.getElementById("sowCustomerFilter").value;
+  const billingModelId = document.getElementById("sowBillingModelFilter").value;
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (status) params.set("status", status);
   if (customerId) params.set("customer_id", customerId);
+  if (billingModelId) params.set("billing_model_id", billingModelId);
   currentSows = await fetch(`${API}/sows?${params}`).then((r) => r.json());
   renderSowsTable(currentSows);
   // Tiles/banner reflect this same filtered list, so they stay in sync with
@@ -724,10 +744,12 @@ document.getElementById("exportSowsBtn").addEventListener("click", () => {
   const q = document.getElementById("searchInput").value.trim();
   const status = document.getElementById("statusFilter").value;
   const customerId = document.getElementById("sowCustomerFilter").value;
+  const billingModelId = document.getElementById("sowBillingModelFilter").value;
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (status) params.set("status", status);
   if (customerId) params.set("customer_id", customerId);
+  if (billingModelId) params.set("billing_model_id", billingModelId);
   const qs = params.toString();
   window.location.href = `${API}/sows/export${qs ? "?" + qs : ""}`;
 });
@@ -795,7 +817,31 @@ function updateAcvPreview() {
   document.getElementById("f_acv").value = acv ? Number(acv.toFixed(2)) : 0;
 }
 document.getElementById("f_value").addEventListener("input", updateAcvPreview);
-document.getElementById("f_duration_months").addEventListener("input", updateAcvPreview);
+
+// Statement of Work Duration (Months) is derived from Start Date/End Date
+// rather than typed in (the field is read-only - see index.html) - inclusive
+// day count between the two dates divided by the average length of a
+// calendar month (365.2425 / 12), rounded to one decimal, so a Jan 1-Dec 31
+// SOW comes out to a clean 12.0 rather than the 11 a raw calendar-month
+// subtraction would give. Recomputed whenever either date changes, and
+// always followed by updateAcvPreview() since ACV depends on Duration.
+// Left untouched if either date is missing (or End is before Start) so a
+// SOW that predates Start/End Date - or simply has neither set - keeps
+// showing whatever Duration is already on record instead of being blanked.
+function updateDurationFromDates() {
+  const startVal = document.getElementById("f_start").value;
+  const endVal = document.getElementById("f_end").value;
+  if (!startVal || !endVal) return;
+  const start = new Date(`${startVal}T00:00:00`);
+  const end = new Date(`${endVal}T00:00:00`);
+  if (isNaN(start) || isNaN(end) || end < start) return;
+  const inclusiveDays = Math.round((end - start) / 86400000) + 1;
+  const months = Math.round((inclusiveDays / 30.4368) * 10) / 10;
+  document.getElementById("f_duration_months").value = months;
+  updateAcvPreview();
+}
+document.getElementById("f_start").addEventListener("change", updateDurationFromDates);
+document.getElementById("f_end").addEventListener("change", updateDurationFromDates);
 
 // ---------- Inline milestone capture (shown when the Billing Model name contains "Fixed Price") ----------
 function isFixedPriceSelected() {
@@ -888,7 +934,12 @@ async function openSowModal(sowStub) {
   document.getElementById("f_start").value = sow?.start_date ?? "";
   document.getElementById("f_end").value = sow?.end_date ?? "";
   document.getElementById("f_value").value = sow?.total_value ?? 0;
+  // Duration (Months) is derived from Start Date/End Date (see
+  // updateDurationFromDates) - only fall back to whatever's on record when
+  // one of the dates is missing, so an older SOW without Start/End Date set
+  // doesn't have its stored Duration blanked out just by opening the form.
   document.getElementById("f_duration_months").value = sow?.duration_months ?? "";
+  updateDurationFromDates();
   document.getElementById("f_gm_percent").value = sow?.gm_percent ?? "";
   document.getElementById("f_status").value = sow?.status ?? "draft";
   document.getElementById("f_billing_model").value = sow?.billing_model_id ?? "";
@@ -1341,15 +1392,20 @@ document.getElementById("exportCustomersBtn").addEventListener("click", () => {
 // ---------- Customer Configuration: Billing Hours ----------
 // Inline-edit table, same toggle-in-place Edit/Save/Cancel pattern as
 // buildCustomerRow() and the generic Global Settings lists
-// (makeInlineListManager) - but each row picks a Customer and a Location
-// from dropdowns (both FKs) rather than typing a name, plus a numeric
-// "billing hours per day" field.
+// (makeInlineListManager) - but each row picks a Customer from a dropdown
+// (an FK) rather than typing a name, plus three numeric "billing hours per
+// day" fields, one per fixed Location (Onsite/Offshore/Nearshore - see
+// billing_hour_configs in db.py). No Location dropdown: Locations is now a
+// fixed three-value list, so each Customer gets exactly one row with all
+// three hours side by side instead of one row per Customer+Location.
 function selectOptionsHtml(items, valueKey, labelKey, placeholder) {
   return `<option value="">${placeholder}</option>` +
     items.map((i) => `<option value="${i[valueKey]}">${escapeHtml(i[labelKey])}</option>`).join("");
 }
 
-function buildBillingHoursRow(item, editing, customers, locations) {
+const BILLING_HOURS_LOCATION_FIELDS = ["onsite_hours", "offshore_hours", "nearshore_hours"];
+
+function buildBillingHoursRow(item, editing, customers) {
   const tr = document.createElement("tr");
   if (editing) tr.classList.add("inline-editing-row");
 
@@ -1381,41 +1437,28 @@ function buildBillingHoursRow(item, editing, customers, locations) {
   }
   tr.appendChild(customerTd);
 
-  const locationTd = document.createElement("td");
-  if (editing) {
-    const select = document.createElement("select");
-    select.className = "inline-cell";
-    select.dataset.field = "location_id";
-    select.required = true;
-    select.innerHTML = selectOptionsHtml(locations, "id", "name", "Select location…");
-    if (item.location_id) select.value = String(item.location_id);
-    locationTd.appendChild(select);
-  } else {
-    locationTd.textContent = item.location_name || "—";
-  }
-  tr.appendChild(locationTd);
-
-  const hoursTd = document.createElement("td");
-  if (editing) {
-    const input = document.createElement("input");
-    input.type = "number";
-    input.step = "0.5";
-    input.min = "0";
-    input.className = "inline-cell";
-    input.dataset.field = "billing_hours_per_day";
-    input.value = item.billing_hours_per_day ?? "";
-    input.required = true;
-    hoursTd.appendChild(input);
-  } else {
-    hoursTd.textContent = item.billing_hours_per_day ?? "—";
-  }
-  tr.appendChild(hoursTd);
+  BILLING_HOURS_LOCATION_FIELDS.forEach((field) => {
+    const hoursTd = document.createElement("td");
+    if (editing) {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.step = "0.5";
+      input.min = "0";
+      input.className = "inline-cell";
+      input.dataset.field = field;
+      input.value = item[field] ?? "";
+      hoursTd.appendChild(input);
+    } else {
+      hoursTd.textContent = item[field] ?? "—";
+    }
+    tr.appendChild(hoursTd);
+  });
 
   if (editing) {
-    actionsTd.querySelector(".bh-save-btn").addEventListener("click", () => saveBillingHoursRow(item, tr, customers, locations));
+    actionsTd.querySelector(".bh-save-btn").addEventListener("click", () => saveBillingHoursRow(item, tr, customers));
     actionsTd.querySelector(".bh-cancel-btn").addEventListener("click", () => {
       if (item.id) {
-        replaceBillingHoursRow(tr, buildBillingHoursRow(item, false, customers, locations));
+        replaceBillingHoursRow(tr, buildBillingHoursRow(item, false, customers));
       } else {
         loadBillingHours(); // discard the unsaved draft row and restore the normal listing
       }
@@ -1423,23 +1466,25 @@ function buildBillingHoursRow(item, editing, customers, locations) {
   } else {
     actionsTd.querySelector(".bh-copy-btn").addEventListener("click", () => {
       // Same id-less-draft-means-create convention as buildCustomerRow()'s
-      // copy handler above.
+      // copy handler above. Note: Customer is unique per row now (the
+      // backend rejects a second row for the same Customer), so a copied
+      // draft must have its Customer changed before it can be saved.
       const tbody = tr.parentElement;
       const existingDraft = tbody.querySelector('tr[data-draft="true"]');
       if (existingDraft) {
         existingDraft.querySelector(".inline-cell").focus();
         return;
       }
-      const draft = buildBillingHoursRow({ ...item, id: undefined }, true, customers, locations);
+      const draft = buildBillingHoursRow({ ...item, id: undefined }, true, customers);
       draft.dataset.draft = "true";
       tbody.prepend(draft);
       draft.querySelector(".inline-cell").focus();
     });
     actionsTd.querySelector(".bh-edit-btn").addEventListener("click", () => {
-      replaceBillingHoursRow(tr, buildBillingHoursRow(item, true, customers, locations));
+      replaceBillingHoursRow(tr, buildBillingHoursRow(item, true, customers));
     });
     actionsTd.querySelector(".bh-del-btn").addEventListener("click", async () => {
-      if (confirm(`Delete the billing hours configuration for "${item.customer_name}" / "${item.location_name}"?`)) {
+      if (confirm(`Delete the billing hours configuration for "${item.customer_name}"?`)) {
         const resp = await fetch(`${API}/billing-hours/${item.id}`, { method: "DELETE" });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
@@ -1462,21 +1507,19 @@ function replaceBillingHoursRow(oldTr, newTr) {
   if (slNo) newTr.querySelector(".bh-sl-no").textContent = slNo;
 }
 
-async function saveBillingHoursRow(item, tr, customers, locations) {
+async function saveBillingHoursRow(item, tr, customers) {
   const saveBtn = tr.querySelector(".bh-save-btn");
   const cancelBtn = tr.querySelector(".bh-cancel-btn");
   const customerId = tr.querySelector('.inline-cell[data-field="customer_id"]').value;
-  const locationId = tr.querySelector('.inline-cell[data-field="location_id"]').value;
-  const hoursVal = tr.querySelector('.inline-cell[data-field="billing_hours_per_day"]').value.trim();
-  if (!customerId || !locationId || !hoursVal) {
-    alert("Customer, Location and Billing Hours per day are all required.");
+  if (!customerId) {
+    alert("Customer is required.");
     return;
   }
-  const payload = {
-    customer_id: parseInt(customerId, 10),
-    location_id: parseInt(locationId, 10),
-    billing_hours_per_day: parseFloat(hoursVal),
-  };
+  const payload = { customer_id: parseInt(customerId, 10) };
+  BILLING_HOURS_LOCATION_FIELDS.forEach((field) => {
+    const val = tr.querySelector(`.inline-cell[data-field="${field}"]`).value.trim();
+    payload[field] = val === "" ? null : parseFloat(val);
+  });
   saveBtn.disabled = true;
   cancelBtn.disabled = true;
   try {
@@ -1496,19 +1539,18 @@ async function saveBillingHoursRow(item, tr, customers, locations) {
 }
 
 async function loadBillingHours() {
-  const [items, customers, locations] = await Promise.all([
+  const [items, customers] = await Promise.all([
     fetch(`${API}/billing-hours`).then((r) => r.json()),
     fetch(`${API}/customers`).then((r) => r.json()),
-    fetch(`${API}/locations`).then((r) => r.json()),
   ]);
   const tbody = document.getElementById("billingHoursTableBody");
   tbody.innerHTML = "";
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No billing hours configurations yet. Click "Add Billing Hours Configuration" to add one.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No billing hours configurations yet. Click "Add Billing Hours" to add one.</td></tr>';
     return;
   }
   items.forEach((item, idx) => {
-    const tr = buildBillingHoursRow(item, false, customers, locations);
+    const tr = buildBillingHoursRow(item, false, customers);
     tr.querySelector(".bh-sl-no").textContent = idx + 1;
     tbody.appendChild(tr);
   });
@@ -1521,22 +1563,64 @@ document.getElementById("newBillingHoursBtn").addEventListener("click", async ()
     existingDraft.querySelector(".inline-cell").focus();
     return;
   }
-  const [customers, locations] = await Promise.all([
-    fetch(`${API}/customers`).then((r) => r.json()),
-    fetch(`${API}/locations`).then((r) => r.json()),
-  ]);
+  const customers = await fetch(`${API}/customers`).then((r) => r.json());
   if (tbody.querySelector(".empty-state")) tbody.innerHTML = "";
-  const draft = buildBillingHoursRow({}, true, customers, locations);
+  const draft = buildBillingHoursRow({}, true, customers);
   draft.dataset.draft = "true";
   tbody.prepend(draft);
   draft.querySelector(".inline-cell").focus();
 });
 
 // ---------- Customer Configuration: Holiday Calendar ----------
-// Same shape as Billing Hours Configuration - Customer/Location dropdowns,
-// same toggle-in-place Edit/Save/Cancel pattern - but with a date field and
-// a multiline details textarea instead of a single numeric field.
-function buildHolidayRow(item, editing, customers, locations) {
+// One row per Customer + Holiday Date - fixed Onsite/Offshore/Nearshore
+// checkboxes mark which locations observe that date (same fixed-three-
+// locations reasoning as Billing Hours above), plus a multiline details
+// textarea for the holiday's name/notes.
+const HOLIDAY_LOCATION_FIELDS = ["onsite", "offshore", "nearshore"];
+
+// Account Name/Location filters - same id-based client-side filtering
+// approach used app-wide (see tmRowMatchesFilters() etc). Location filters
+// on the row's onsite/offshore/nearshore flag matching whichever of the
+// fixed three locations was picked (resolved from the location's name to
+// one of those flag names, same as billingHoursFor()/_location_slug()).
+let holidayCustomerFilter = "";
+let holidayLocationFilter = "";
+document.getElementById("holidayCustomerFilter").addEventListener("change", (e) => {
+  holidayCustomerFilter = e.target.value;
+  loadHolidays();
+});
+document.getElementById("holidayLocationFilter").addEventListener("change", (e) => {
+  holidayLocationFilter = e.target.value;
+  loadHolidays();
+});
+
+function populateHolidayCustomerFilter(customers) {
+  const select = document.getElementById("holidayCustomerFilter");
+  const current = holidayCustomerFilter;
+  select.innerHTML = '<option value="">All customers</option>' +
+    customers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
+  select.value = current;
+}
+
+function populateHolidayLocationFilter(locations) {
+  const select = document.getElementById("holidayLocationFilter");
+  const current = holidayLocationFilter;
+  select.innerHTML = '<option value="">All locations</option>' +
+    locations.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join("");
+  select.value = current;
+}
+
+function holidayRowMatchesFilters(item, locations) {
+  if (holidayCustomerFilter && String(item.customer_id) !== holidayCustomerFilter) return false;
+  if (holidayLocationFilter) {
+    const loc = locations.find((l) => String(l.id) === holidayLocationFilter);
+    const slug = (loc?.name || "").trim().toLowerCase();
+    if (!HOLIDAY_LOCATION_FIELDS.includes(slug) || !item[slug]) return false;
+  }
+  return true;
+}
+
+function buildHolidayRow(item, editing, customers) {
   const tr = document.createElement("tr");
   if (editing) tr.classList.add("inline-editing-row");
 
@@ -1568,20 +1652,6 @@ function buildHolidayRow(item, editing, customers, locations) {
   }
   tr.appendChild(customerTd);
 
-  const locationTd = document.createElement("td");
-  if (editing) {
-    const select = document.createElement("select");
-    select.className = "inline-cell";
-    select.dataset.field = "location_id";
-    select.required = true;
-    select.innerHTML = selectOptionsHtml(locations, "id", "name", "Select location…");
-    if (item.location_id) select.value = String(item.location_id);
-    locationTd.appendChild(select);
-  } else {
-    locationTd.textContent = item.location_name || "—";
-  }
-  tr.appendChild(locationTd);
-
   const dateTd = document.createElement("td");
   if (editing) {
     const input = document.createElement("input");
@@ -1595,6 +1665,22 @@ function buildHolidayRow(item, editing, customers, locations) {
     dateTd.textContent = fmtDate(item.holiday_date);
   }
   tr.appendChild(dateTd);
+
+  HOLIDAY_LOCATION_FIELDS.forEach((field) => {
+    const td = document.createElement("td");
+    td.className = "center-cell";
+    if (editing) {
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "inline-cell";
+      checkbox.dataset.field = field;
+      checkbox.checked = !!item[field];
+      td.appendChild(checkbox);
+    } else {
+      td.textContent = item[field] ? "✓" : "—";
+    }
+    tr.appendChild(td);
+  });
 
   const detailsTd = document.createElement("td");
   if (editing) {
@@ -1611,10 +1697,10 @@ function buildHolidayRow(item, editing, customers, locations) {
   tr.appendChild(detailsTd);
 
   if (editing) {
-    actionsTd.querySelector(".hol-save-btn").addEventListener("click", () => saveHolidayRow(item, tr, customers, locations));
+    actionsTd.querySelector(".hol-save-btn").addEventListener("click", () => saveHolidayRow(item, tr, customers));
     actionsTd.querySelector(".hol-cancel-btn").addEventListener("click", () => {
       if (item.id) {
-        replaceHolidayRow(tr, buildHolidayRow(item, false, customers, locations));
+        replaceHolidayRow(tr, buildHolidayRow(item, false, customers));
       } else {
         loadHolidays(); // discard the unsaved draft row and restore the normal listing
       }
@@ -1629,16 +1715,16 @@ function buildHolidayRow(item, editing, customers, locations) {
         existingDraft.querySelector(".inline-cell").focus();
         return;
       }
-      const draft = buildHolidayRow({ ...item, id: undefined }, true, customers, locations);
+      const draft = buildHolidayRow({ ...item, id: undefined }, true, customers);
       draft.dataset.draft = "true";
       tbody.prepend(draft);
       draft.querySelector(".inline-cell").focus();
     });
     actionsTd.querySelector(".hol-edit-btn").addEventListener("click", () => {
-      replaceHolidayRow(tr, buildHolidayRow(item, true, customers, locations));
+      replaceHolidayRow(tr, buildHolidayRow(item, true, customers));
     });
     actionsTd.querySelector(".hol-del-btn").addEventListener("click", async () => {
-      if (confirm(`Delete the holiday on ${fmtDate(item.holiday_date)} for "${item.customer_name}" / "${item.location_name}"?`)) {
+      if (confirm(`Delete the holiday on ${fmtDate(item.holiday_date)} for "${item.customer_name}"?`)) {
         const resp = await fetch(`${API}/holidays/${item.id}`, { method: "DELETE" });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
@@ -1661,23 +1747,24 @@ function replaceHolidayRow(oldTr, newTr) {
   if (slNo) newTr.querySelector(".hol-sl-no").textContent = slNo;
 }
 
-async function saveHolidayRow(item, tr, customers, locations) {
+async function saveHolidayRow(item, tr, customers) {
   const saveBtn = tr.querySelector(".hol-save-btn");
   const cancelBtn = tr.querySelector(".hol-cancel-btn");
   const customerId = tr.querySelector('.inline-cell[data-field="customer_id"]').value;
-  const locationId = tr.querySelector('.inline-cell[data-field="location_id"]').value;
   const holidayDate = tr.querySelector('.inline-cell[data-field="holiday_date"]').value;
   const holidayDetails = tr.querySelector('.inline-cell[data-field="holiday_details"]').value.trim();
-  if (!customerId || !locationId || !holidayDate) {
-    alert("Customer, Location and Holiday Date are all required.");
+  if (!customerId || !holidayDate) {
+    alert("Customer and Holiday Date are both required.");
     return;
   }
   const payload = {
     customer_id: parseInt(customerId, 10),
-    location_id: parseInt(locationId, 10),
     holiday_date: holidayDate,
     holiday_details: holidayDetails || null,
   };
+  HOLIDAY_LOCATION_FIELDS.forEach((field) => {
+    payload[field] = tr.querySelector(`.inline-cell[data-field="${field}"]`).checked;
+  });
   saveBtn.disabled = true;
   cancelBtn.disabled = true;
   try {
@@ -1702,14 +1789,19 @@ async function loadHolidays() {
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/locations`).then((r) => r.json()),
   ]);
+  populateHolidayCustomerFilter(customers);
+  populateHolidayLocationFilter(locations);
+  const filteredItems = items.filter((item) => holidayRowMatchesFilters(item, locations));
   const tbody = document.getElementById("holidayTableBody");
   tbody.innerHTML = "";
-  if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No holidays yet. Click "Add Holiday" to add one.</td></tr>';
+  if (!filteredItems.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">${
+      items.length ? "No holidays match the selected filters." : 'No holidays yet. Click "Add Holiday" to add one.'
+    }</td></tr>`;
     return;
   }
-  items.forEach((item, idx) => {
-    const tr = buildHolidayRow(item, false, customers, locations);
+  filteredItems.forEach((item, idx) => {
+    const tr = buildHolidayRow(item, false, customers);
     tr.querySelector(".hol-sl-no").textContent = idx + 1;
     tbody.appendChild(tr);
   });
@@ -1722,12 +1814,9 @@ document.getElementById("newHolidayBtn").addEventListener("click", async () => {
     existingDraft.querySelector(".inline-cell").focus();
     return;
   }
-  const [customers, locations] = await Promise.all([
-    fetch(`${API}/customers`).then((r) => r.json()),
-    fetch(`${API}/locations`).then((r) => r.json()),
-  ]);
+  const customers = await fetch(`${API}/customers`).then((r) => r.json());
   if (tbody.querySelector(".empty-state")) tbody.innerHTML = "";
-  const draft = buildHolidayRow({}, true, customers, locations);
+  const draft = buildHolidayRow({}, true, customers);
   draft.dataset.draft = "true";
   tbody.prepend(draft);
   draft.querySelector(".inline-cell").focus();
@@ -2260,8 +2349,8 @@ function populateDashboardCustomerFilter(customers) {
 const FY_MONTH_LABELS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
 
 const CHART_COLORS = {
-  indigo: "#0284c7", emerald: "#10b981", amber: "#f59e0b", red: "#ef4444",
-  orange: "#ea580c", cyan: "#0891b2", pink: "#db2777", slate: "#64748b",
+  indigo: "#0284c7", emerald: "#55e07e", amber: "#f59e0b", red: "#ef4444",
+  orange: "#ff9d50", cyan: "#1dced8", pink: "#db2777", slate: "#64748b",
 };
 
 // Chart.js instances, kept so loadHome() can destroy+recreate them each time
@@ -2561,12 +2650,22 @@ let revenueSowsCache = new Map();
 // built from the same fetched rows (see loadRevenueSows()).
 let revenueCustomerFilter = "";
 let revenueBillingModelFilter = "";
+let revenueRevenueTypeFilter = "";
+let revenuePracticeFilter = "";
 document.getElementById("revenueCustomerFilter").addEventListener("change", (e) => {
   revenueCustomerFilter = e.target.value;
   loadRevenueSows();
 });
 document.getElementById("revenueBillingModelFilter").addEventListener("change", (e) => {
   revenueBillingModelFilter = e.target.value;
+  loadRevenueSows();
+});
+document.getElementById("revenueRevenueTypeFilter").addEventListener("change", (e) => {
+  revenueRevenueTypeFilter = e.target.value;
+  loadRevenueSows();
+});
+document.getElementById("revenuePracticeFilter").addEventListener("change", (e) => {
+  revenuePracticeFilter = e.target.value;
   loadRevenueSows();
 });
 
@@ -2585,6 +2684,55 @@ document.getElementById("tmCustomerFilter").addEventListener("change", (e) => {
   tmCustomerFilter = e.target.value;
   loadTmAssignments();
 });
+
+// Billing Model/Revenue Type/Location/Employee Practice filters for the
+// Time and Material grid - same id-based client-side filtering approach as
+// tmCustomerFilter above, each independent of the others.
+let tmBillingModelFilter = "";
+let tmRevenueTypeFilter = "";
+let tmLocationFilter = "";
+let tmPracticeFilter = "";
+document.getElementById("tmBillingModelFilter").addEventListener("change", (e) => {
+  tmBillingModelFilter = e.target.value;
+  loadTmAssignments();
+});
+document.getElementById("tmRevenueTypeFilter").addEventListener("change", (e) => {
+  tmRevenueTypeFilter = e.target.value;
+  loadTmAssignments();
+});
+document.getElementById("tmLocationFilter").addEventListener("change", (e) => {
+  tmLocationFilter = e.target.value;
+  loadTmAssignments();
+});
+document.getElementById("tmPracticeFilter").addEventListener("change", (e) => {
+  tmPracticeFilter = e.target.value;
+  loadTmAssignments();
+});
+
+// Customer/Billing Model/Revenue Type/Practice filters for Managed
+// Services - same shared-predicate reasoning as tmRowMatchesFilters()
+// below, just for the SoW Level Detail grid instead of the TM grid.
+function revenueSowMatchesFilters(r) {
+  return (
+    (!revenueCustomerFilter || String(r.customer_id) === revenueCustomerFilter) &&
+    (!revenueBillingModelFilter || (r.billing_model_name || "") === revenueBillingModelFilter) &&
+    (!revenueRevenueTypeFilter || String(r.revenue_type_id) === revenueRevenueTypeFilter) &&
+    (!revenuePracticeFilter || String(r.practice_id) === revenuePracticeFilter)
+  );
+}
+
+// Matches loadTmAssignments()'s/the Add-Entry save handler's own inline
+// filter predicate - pulled into one shared function so the two call sites
+// (and any future one) can't drift apart.
+function tmRowMatchesFilters(r) {
+  return (
+    (!tmCustomerFilter || String(r.customer_id) === tmCustomerFilter) &&
+    (!tmBillingModelFilter || String(r.billing_model_id) === tmBillingModelFilter) &&
+    (!tmRevenueTypeFilter || String(r.revenue_type_id) === tmRevenueTypeFilter) &&
+    (!tmLocationFilter || String(r.location_id) === tmLocationFilter) &&
+    (!tmPracticeFilter || String(r.practice_id) === tmPracticeFilter)
+  );
+}
 
 function populateRevenueCustomerFilter(customers) {
   const select = document.getElementById("revenueCustomerFilter");
@@ -2622,6 +2770,60 @@ function populateTmCustomerFilter(customers) {
   select.value = current;
 }
 
+// Revenue Type/Practice filters for Managed Services - same "read from the
+// filter variable, not select.value" reasoning as populateRevenueBillingModelFilter()
+// above (a Best Estimates menu preset can set the variable before the
+// <select> has its options yet).
+function populateRevenueRevenueTypeFilter(revenueTypes) {
+  const select = document.getElementById("revenueRevenueTypeFilter");
+  const current = revenueRevenueTypeFilter;
+  select.innerHTML = '<option value="">All revenue types</option>' +
+    revenueTypes.map((rt) => `<option value="${rt.id}">${escapeHtml(rt.name)}</option>`).join("");
+  select.value = current;
+}
+
+function populateRevenuePracticeFilter(practices) {
+  const select = document.getElementById("revenuePracticeFilter");
+  const current = revenuePracticeFilter;
+  select.innerHTML = '<option value="">All practices</option>' +
+    practices.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+  select.value = current;
+}
+
+// Billing Model/Revenue Type/Location/Employee Practice filters for Time
+// and Material - same pattern as populateTmCustomerFilter() above.
+function populateTmBillingModelFilter(billingModels) {
+  const select = document.getElementById("tmBillingModelFilter");
+  const current = tmBillingModelFilter;
+  select.innerHTML = '<option value="">All billing models</option>' +
+    billingModels.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("");
+  select.value = current;
+}
+
+function populateTmRevenueTypeFilter(revenueTypes) {
+  const select = document.getElementById("tmRevenueTypeFilter");
+  const current = tmRevenueTypeFilter;
+  select.innerHTML = '<option value="">All revenue types</option>' +
+    revenueTypes.map((rt) => `<option value="${rt.id}">${escapeHtml(rt.name)}</option>`).join("");
+  select.value = current;
+}
+
+function populateTmLocationFilter(locations) {
+  const select = document.getElementById("tmLocationFilter");
+  const current = tmLocationFilter;
+  select.innerHTML = '<option value="">All locations</option>' +
+    locations.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join("");
+  select.value = current;
+}
+
+function populateTmPracticeFilter(practices) {
+  const select = document.getElementById("tmPracticeFilter");
+  const current = tmPracticeFilter;
+  select.innerHTML = '<option value="">All employee practices</option>' +
+    practices.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+  select.value = current;
+}
+
 let currentRevenueTypes = [];
 let currentPractices = [];
 let currentLocations = [];
@@ -2636,10 +2838,11 @@ let currentBillingHourConfigs = [];
 // main.py), this is only a preview.
 function billingHoursFor(customerId, locationId) {
   if (!customerId || !locationId) return null;
-  const match = currentBillingHourConfigs.find(
-    (b) => String(b.customer_id) === String(customerId) && String(b.location_id) === String(locationId)
-  );
-  return match ? match.billing_hours_per_day : null;
+  const location = currentLocations.find((l) => String(l.id) === String(locationId));
+  const slug = (location?.name || "").trim().toLowerCase();
+  if (!["onsite", "offshore", "nearshore"].includes(slug)) return null;
+  const match = currentBillingHourConfigs.find((b) => String(b.customer_id) === String(customerId));
+  return match ? match[`${slug}_hours`] : null;
 }
 
 async function loadRevenueTab() {
@@ -2655,7 +2858,13 @@ async function loadRevenueTab() {
   ]);
   populateRevenueCustomerFilter(customers);
   populateRevenueBillingModelFilter(billingModels);
+  populateRevenueRevenueTypeFilter(revenueTypes);
+  populateRevenuePracticeFilter(practices);
   populateTmCustomerFilter(customers);
+  populateTmBillingModelFilter(billingModels);
+  populateTmRevenueTypeFilter(revenueTypes);
+  populateTmLocationFilter(locations);
+  populateTmPracticeFilter(practices);
   currentRevenueTypes = revenueTypes;
   currentPractices = practices;
   currentLocations = locations;
@@ -2678,10 +2887,7 @@ async function loadRevenueSows() {
   revenueTrackedSowIds = new Set(data.rows.map((r) => r.sow_id));
   revenueSowsCache = new Map(data.rows.map((r) => [r.sow_id, r]));
 
-  const filteredRows = data.rows.filter((r) =>
-    (!revenueCustomerFilter || String(r.customer_id) === revenueCustomerFilter) &&
-    (!revenueBillingModelFilter || (r.billing_model_name || "") === revenueBillingModelFilter)
-  );
+  const filteredRows = data.rows.filter(revenueSowMatchesFilters);
 
   const tbody = document.getElementById("revenueSowsTableBody");
   tbody.innerHTML = "";
@@ -2726,14 +2932,31 @@ function renderRevenueTypeSummaryTable(filteredRows, tbodyId = "revenueTypeSumma
 
   tbody.innerHTML = "";
   if (!labels.length) {
-    tbody.innerHTML = `<tr class="revenue-type-empty-row"><td colspan="13" class="empty-state">No Revenue Types configured yet - add some under Global Settings.</td></tr>`;
+    tbody.innerHTML = `<tr class="revenue-type-empty-row"><td colspan="18" class="empty-state">No Revenue Types configured yet - add some under Global Settings.</td></tr>`;
     return;
   }
   labels.forEach((label) => {
     const key = label === "Unassigned" ? "" : label;
     const sums = sumsByType.get(key) || new Array(12).fill(0);
+    // sums is fiscal-month order (index 0 = Apr ... 11 = Mar), matching the
+    // header's Apr..Mar layout - quarters are fixed 3-month slices of that
+    // same order: Q1 = Apr-Jun (0-2), Q2 = Jul-Sep (3-5), Q3 = Oct-Dec (6-8),
+    // Q4 = Jan-Mar (9-11).
+    const total = sums.reduce((a, v) => a + v, 0);
+    const q1 = sums[0] + sums[1] + sums[2];
+    const q2 = sums[3] + sums[4] + sums[5];
+    const q3 = sums[6] + sums[7] + sums[8];
+    const q4 = sums[9] + sums[10] + sums[11];
+    // rts-highlight-col matches the same class on the Total/Q1-Q4 <th>s in
+    // index.html - gives these aggregate columns a distinct color from the
+    // plain monthly detail columns (per explicit instruction) so they're
+    // easy to pick out at a glance.
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${escapeHtml(label)}</td>` + sums.map((v) => `<td>${fmtPlain(v)}</td>`).join("");
+    tr.innerHTML = `<td>${escapeHtml(label)}</td><td class="rts-highlight-col">${fmtPlain(total)}</td>` +
+      `<td>${fmtPlain(sums[0])}</td><td>${fmtPlain(sums[1])}</td><td>${fmtPlain(sums[2])}</td><td class="rts-highlight-col">${fmtPlain(q1)}</td>` +
+      `<td>${fmtPlain(sums[3])}</td><td>${fmtPlain(sums[4])}</td><td>${fmtPlain(sums[5])}</td><td class="rts-highlight-col">${fmtPlain(q2)}</td>` +
+      `<td>${fmtPlain(sums[6])}</td><td>${fmtPlain(sums[7])}</td><td>${fmtPlain(sums[8])}</td><td class="rts-highlight-col">${fmtPlain(q3)}</td>` +
+      `<td>${fmtPlain(sums[9])}</td><td>${fmtPlain(sums[10])}</td><td>${fmtPlain(sums[11])}</td><td class="rts-highlight-col">${fmtPlain(q4)}</td>`;
     tbody.appendChild(tr);
   });
 }
@@ -2791,7 +3014,7 @@ function buildRevenueSowRow(r, editing) {
         <button type="button" class="ghost-btn btn-danger icon-btn rev-del-btn" title="Delete">${icon("trash")}</button>
       </td>`;
   cells += `<td class="rev-sl-no"></td>`;
-  cells += `<td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title)}</td><td class="rev-tcv-cell">${fmt(r.total_value)}</td><td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
+  cells += `<td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title)}</td><td class="rev-tcv-cell">${fmt(r.total_value)}</td><td class="rev-tcv-cell">${fmt(r.acv)}</td><td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
   // Revenue Type and Practice are the two Contract fields this grid lets you
   // change directly (everything else about the Contract still goes through
   // the full SOW form) - editable selects while editing, plain text
@@ -2955,6 +3178,7 @@ function wireExcelImport(buttonId, fileInputId, importPath) {
   });
 }
 wireExcelImport("importTmBtn", "tmImportFile", "/tm/assignments/import");
+wireExcelImport("importRevenueSowsBtn", "revenueSowsImportFile", "/revenue/sows/import");
 
 // Builds the 12 month <td>s (Projections only) for the "Add Entry" draft row
 // - read-only "—" placeholders before a SOW is picked, real number inputs
@@ -3024,9 +3248,10 @@ async function openRevenueEntryDraft(prefill = {}) {
       </select>
     </td>
     <td class="draft-tcv rev-tcv-cell">&mdash;</td>
+    <td class="draft-acv rev-tcv-cell">&mdash;</td>
     <td class="draft-billing-model">&mdash;</td>
-    <td class="draft-revenue-type">&mdash;</td>
-    <td class="draft-practice">&mdash;</td>
+    <td><select class="draft-revenue-type-select" disabled><option value="">Select revenue type&hellip;</option></select></td>
+    <td><select class="draft-practice-select" disabled><option value="">Select practice&hellip;</option></select></td>
     ${draftMonthCellsHtml(false)}
   `;
   tbody.insertBefore(tr, tbody.firstChild);
@@ -3034,14 +3259,23 @@ async function openRevenueEntryDraft(prefill = {}) {
   const accountSelect = tr.querySelector(".draft-account-select");
   const sowSelect = tr.querySelector(".draft-sow-select");
   const tcvCell = tr.querySelector(".draft-tcv");
+  const acvCell = tr.querySelector(".draft-acv");
   const billingModelCell = tr.querySelector(".draft-billing-model");
-  const revenueTypeCell = tr.querySelector(".draft-revenue-type");
-  const practiceCell = tr.querySelector(".draft-practice");
+  const revenueTypeSelect = tr.querySelector(".draft-revenue-type-select");
+  const practiceSelect = tr.querySelector(".draft-practice-select");
   const saveBtn = tr.querySelector(".draft-save-btn");
+
+  // Options don't depend on the chosen customer/SOW, so fill them in once
+  // up front - only the enabled state and the pre-selected value change as
+  // a SOW is picked (see the sowSelect/accountSelect handlers below).
+  revenueTypeSelect.innerHTML = `<option value="">Select revenue type&hellip;</option>` +
+    currentRevenueTypes.map((rt) => `<option value="${rt.id}">${escapeHtml(rt.name)}</option>`).join("");
+  practiceSelect.innerHTML = `<option value="">Select practice&hellip;</option>` +
+    currentPractices.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
 
   function setDraftMonthsEditable(editable) {
     tr.querySelectorAll(".draft-month-cell").forEach((td) => td.remove());
-    practiceCell.insertAdjacentHTML("afterend", draftMonthCellsHtml(editable));
+    practiceSelect.closest("td").insertAdjacentHTML("afterend", draftMonthCellsHtml(editable));
     // Copy's starting point: fill the freshly-(re)built inputs with the
     // source row's monthly figures instead of leaving them at 0, so
     // duplicating a row's numbers onto a different SOW doesn't mean
@@ -3059,9 +3293,12 @@ async function openRevenueEntryDraft(prefill = {}) {
     const val = accountSelect.value;
     saveBtn.disabled = true;
     tcvCell.textContent = "—";
+    acvCell.textContent = "—";
     billingModelCell.textContent = "—";
-    revenueTypeCell.textContent = "—";
-    practiceCell.textContent = "—";
+    revenueTypeSelect.value = "";
+    revenueTypeSelect.disabled = true;
+    practiceSelect.value = "";
+    practiceSelect.disabled = true;
     setDraftMonthsEditable(false);
     if (!val) {
       sowSelect.disabled = true;
@@ -3085,9 +3322,12 @@ async function openRevenueEntryDraft(prefill = {}) {
     saveBtn.disabled = !hasSow;
     const selectedSow = sows.find((s) => String(s.id) === sowSelect.value);
     tcvCell.textContent = selectedSow ? fmt(selectedSow.total_value) : "—";
+    acvCell.textContent = selectedSow ? fmt(selectedSow.acv) : "—";
     billingModelCell.textContent = (selectedSow && selectedSow.billing_model_name) || "—";
-    revenueTypeCell.textContent = (selectedSow && selectedSow.revenue_type_name) || "—";
-    practiceCell.textContent = (selectedSow && selectedSow.practice_name) || "—";
+    revenueTypeSelect.value = (selectedSow && selectedSow.revenue_type_id) ?? "";
+    revenueTypeSelect.disabled = !hasSow;
+    practiceSelect.value = (selectedSow && selectedSow.practice_id) ?? "";
+    practiceSelect.disabled = !hasSow;
     setDraftMonthsEditable(hasSow);
   });
 
@@ -3117,13 +3357,28 @@ async function openRevenueEntryDraft(prefill = {}) {
       };
     });
 
-    const responses = await Promise.all(months.map((m) =>
-      fetch(`${API}/revenue/sows`, {
+    // Revenue Type/Practice are editable right here too (see the template
+    // above), same fields and same narrow /classification endpoint as
+    // saveRevenueRow()'s edit mode - so a value changed while adding the
+    // entry is written back onto the Contract, not just this fiscal year's
+    // tracking row.
+    const revenueTypeId = revenueTypeSelect.value ? parseInt(revenueTypeSelect.value, 10) : null;
+    const practiceId = practiceSelect.value ? parseInt(practiceSelect.value, 10) : null;
+
+    const responses = await Promise.all([
+      ...months.map((m) =>
+        fetch(`${API}/revenue/sows`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sow_id: parseInt(sowId, 10), fiscal_year: currentFiscalYear, ...m }),
+        })
+      ),
+      fetch(`${API}/sows/${sowId}/classification`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sow_id: parseInt(sowId, 10), fiscal_year: currentFiscalYear, ...m }),
-      })
-    ));
+        body: JSON.stringify({ revenue_type_id: revenueTypeId, practice_id: practiceId }),
+      }),
+    ]);
     const failed = responses.find((resp) => !resp.ok);
     if (failed) {
       const err = await failed.json().catch(() => ({}));
@@ -3133,15 +3388,19 @@ async function openRevenueEntryDraft(prefill = {}) {
       return;
     }
 
+    const revenueTypeName = (currentRevenueTypes.find((rt) => rt.id === revenueTypeId) || {}).name || null;
+    const practiceName = (currentPractices.find((p) => p.id === practiceId) || {}).name || null;
     const newRow = {
       sow_id: selectedSow.id,
       sow_title: selectedSow.title,
       customer_id: selectedSow.customer_id,
       customer_name: selectedSow.customer_name || "Unassigned",
       total_value: selectedSow.total_value,
+      duration_months: selectedSow.duration_months,
+      acv: selectedSow.acv,
       billing_model_name: selectedSow.billing_model_name,
-      revenue_type_name: selectedSow.revenue_type_name,
-      practice_name: selectedSow.practice_name,
+      revenue_type_name: revenueTypeName,
+      practice_name: practiceName,
       months,
     };
     revenueTrackedSowIds.add(newRow.sow_id);
@@ -3153,10 +3412,7 @@ async function openRevenueEntryDraft(prefill = {}) {
     // to preserve the rest of the grid's state) - same Customer/Billing
     // Model filter predicate loadRevenueSows() itself uses, applied to the
     // now up-to-date revenueSowsCache.
-    const currentlyFiltered = Array.from(revenueSowsCache.values()).filter((r) =>
-      (!revenueCustomerFilter || String(r.customer_id) === revenueCustomerFilter) &&
-      (!revenueBillingModelFilter || (r.billing_model_name || "") === revenueBillingModelFilter)
-    );
+    const currentlyFiltered = Array.from(revenueSowsCache.values()).filter(revenueSowMatchesFilters);
     renderRevenueTypeSummaryTable(currentlyFiltered);
   });
 
@@ -3195,9 +3451,7 @@ function tmSowsForCustomer(customerId) {
 async function loadTmAssignments() {
   const data = await fetch(`${API}/tm/assignments?fiscal_year=${currentFiscalYear}`).then((r) => r.json());
   tmAssignmentsCache = new Map(data.rows.map((r) => [r.assignment_id, r]));
-  const filteredRows = data.rows.filter((r) =>
-    !tmCustomerFilter || String(r.customer_id) === tmCustomerFilter
-  );
+  const filteredRows = data.rows.filter(tmRowMatchesFilters);
   const tbody = document.getElementById("tmAssignmentsTableBody");
   tbody.innerHTML = "";
   if (!filteredRows.length) {
@@ -3669,9 +3923,7 @@ async function openTmEntryDraft(prefill = {}) {
     tr.replaceWith(buildTmAssignmentRow(created, false));
     renumberTmRows();
     highlightDuplicateTmEmployeeIds();
-    const currentlyFiltered = Array.from(tmAssignmentsCache.values()).filter((r) =>
-      !tmCustomerFilter || String(r.customer_id) === tmCustomerFilter
-    );
+    const currentlyFiltered = Array.from(tmAssignmentsCache.values()).filter(tmRowMatchesFilters);
     renderRevenueTypeSummaryTable(currentlyFiltered, "tmRevenueTypeSummaryBody");
   });
 
@@ -3702,7 +3954,7 @@ document.getElementById("newTmEntryBtn").addEventListener("click", () => openTmE
 // grid: an Edit icon swaps a row into text inputs with Save/Cancel, and the
 // "Add X" button prepends a blank row in that same editable state.
 function makeInlineListManager(opts) {
-  const { apiPath, tableBodyId, newBtnId, hasDetails, itemLabel, onChange } = opts;
+  const { apiPath, tableBodyId, newBtnId, hasDetails, itemLabel, onChange, lockNameOnEdit } = opts;
   const tbody = document.getElementById(tableBodyId);
   const colCount = hasDetails ? 4 : 3;
 
@@ -3726,14 +3978,27 @@ function makeInlineListManager(opts) {
     slTd.className = "sl-no-cell inline-sl-no";
     tr.appendChild(slTd);
 
+    // When lockNameOnEdit is set (Locations, Revenue Types - both now fixed
+    // master lists per explicit instruction), the name is only ever
+    // editable for a brand-new (id-less) draft row; editing an existing row
+    // shows the name as readonly text so only Details can change.
+    const nameLocked = editing && lockNameOnEdit && item.id;
     const nameTd = document.createElement("td");
-    if (editing) {
+    if (editing && !nameLocked) {
       const input = document.createElement("input");
       input.type = "text";
       input.className = "inline-cell";
       input.dataset.field = "name";
       input.value = item.name || "";
       input.required = true;
+      nameTd.appendChild(input);
+    } else if (nameLocked) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "inline-cell form-field-readonly";
+      input.dataset.field = "name";
+      input.value = item.name || "";
+      input.readOnly = true;
       nameTd.appendChild(input);
     } else {
       nameTd.textContent = item.name || "";
@@ -3836,18 +4101,24 @@ function makeInlineListManager(opts) {
     });
   }
 
-  document.getElementById(newBtnId).addEventListener("click", () => {
-    const existingDraft = tbody.querySelector('tr[data-draft="true"]');
-    if (existingDraft) {
-      existingDraft.querySelector(".inline-cell").focus();
-      return;
-    }
-    if (tbody.querySelector(".empty-state")) tbody.innerHTML = "";
-    const draft = buildRow({}, true);
-    draft.dataset.draft = "true";
-    tbody.prepend(draft);
-    draft.querySelector(".inline-cell").focus();
-  });
+  // Locations has no "Add Location" button in the DOM at all (per explicit
+  // instruction - it's a fixed three-value list), so this lookup is guarded
+  // rather than assumed to always find an element.
+  const newBtn = document.getElementById(newBtnId);
+  if (newBtn) {
+    newBtn.addEventListener("click", () => {
+      const existingDraft = tbody.querySelector('tr[data-draft="true"]');
+      if (existingDraft) {
+        existingDraft.querySelector(".inline-cell").focus();
+        return;
+      }
+      if (tbody.querySelector(".empty-state")) tbody.innerHTML = "";
+      const draft = buildRow({}, true);
+      draft.dataset.draft = "true";
+      tbody.prepend(draft);
+      draft.querySelector(".inline-cell").focus();
+    });
+  }
 
   return { load };
 }
@@ -3858,6 +4129,7 @@ const locationManager = makeInlineListManager({
   newBtnId: "newLocationBtn",
   hasDetails: true,
   itemLabel: "Location",
+  lockNameOnEdit: true,
 });
 
 const billingModelManager = makeInlineListManager({
@@ -3898,7 +4170,7 @@ const bandManager = makeInlineListManager({
   tableBodyId: "bandTableBody",
   newBtnId: "newBandBtn",
   hasDetails: true,
-  itemLabel: "Band",
+  itemLabel: "Employee Band",
 });
 
 // What kind of SOW record something is - a brand-new SOW vs. an extension/
@@ -3919,6 +4191,7 @@ const revenueTypeManager = makeInlineListManager({
   newBtnId: "newRevenueTypeBtn",
   hasDetails: true,
   itemLabel: "Revenue Type",
+  lockNameOnEdit: true,
 });
 
 // Another simple master list, managed under Settings exactly like Locations -
@@ -3952,3 +4225,4 @@ try {
 showTab("landing");
 refreshStatusFilterOptions();
 refreshSowCustomerFilterOptions();
+refreshSowBillingModelFilterOptions();
