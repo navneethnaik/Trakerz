@@ -250,7 +250,7 @@ document.getElementById("landingFooterCtaBtn").addEventListener("click", () => s
 // 5s, but any manual interaction (arrows, dots, or just hovering the frame)
 // pauses/resets the timer so it never fights someone actively browsing it.
 const LANDING_CAROUSEL_CAPTIONS = [
-  "Dashboard — KPIs, resource and status breakdowns at a glance",
+  "Reports — KPIs, resource and status breakdowns at a glance",
   "Statement of Work — every SOW, sortable and searchable",
   "Best Estimates | Managed Services — monthly revenue projections, SOW by SOW",
   "Best Estimates | Time and Material — employee assignments, projected automatically",
@@ -2787,8 +2787,14 @@ function populateRevenueBillingModelFilter(models) {
   // variable is always kept in sync with the select's own change handler
   // too, so it's the reliable source either way.
   const current = revenueBillingModelFilter;
+  // This grid is exclusively Managed Services, so "Time and Material" is
+  // excluded from its own Billing Model filter per explicit request - it
+  // stays selectable on the Statement of Work list and the Time and
+  // Material grid's own Billing Model filter, both of which cover more
+  // than one Billing Model.
+  const options = models.filter((m) => m.name !== "Time and Material");
   select.innerHTML = '<option value="">All billing models</option>' +
-    models.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join("");
+    options.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join("");
   select.value = current;
 }
 
@@ -3044,16 +3050,25 @@ function buildRevenueSowRow(r, editing) {
         <button type="button" class="ghost-btn btn-danger icon-btn rev-del-btn" title="Delete">${icon("trash")}</button>
       </td>`;
   cells += `<td class="rev-sl-no"></td>`;
-  cells += `<td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title)}</td><td class="rev-tcv-cell">${fmt(r.total_value)}</td><td class="rev-tcv-cell">${fmt(r.acv)}</td><td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
   // Revenue Type and Practice are the two Contract fields this grid lets you
   // change directly (everything else about the Contract still goes through
   // the full SOW form) - editable selects while editing, plain text
   // otherwise. Options are filled in and pre-selected after tr.innerHTML is
   // set below, same as the read-only cells further up render from r's
-  // *_name fields.
+  // *_name fields. Column order here (Revenue Type, Customer Name, SOW,
+  // Billing Model, Practice, TCV, ACV) matches the thead in index.html.
   cells += editing
-    ? `<td><select class="rev-revenue-type-select"></select></td><td><select class="rev-practice-select"></select></td>`
-    : `<td>${escapeHtml(r.revenue_type_name) || "—"}</td><td>${escapeHtml(r.practice_name) || "—"}</td>`;
+    ? `<td><select class="rev-revenue-type-select"></select></td>`
+    : `<td>${escapeHtml(r.revenue_type_name) || "—"}</td>`;
+  cells += `<td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title)}</td><td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
+  cells += editing
+    ? `<td><select class="rev-practice-select"></select></td>`
+    : `<td>${escapeHtml(r.practice_name) || "—"}</td>`;
+  // Onsite #/Offshore #/Nearshore # are always read-only in both modes -
+  // server-computed headcounts (see _tm_location_counts_by_sow in main.py),
+  // same non-editable treatment as TCV/ACV just after them.
+  cells += `<td class="rev-tcv-cell">${r.onsite_count ?? 0}</td><td class="rev-tcv-cell">${r.offshore_count ?? 0}</td><td class="rev-tcv-cell">${r.nearshore_count ?? 0}</td>`;
+  cells += `<td class="rev-tcv-cell">${fmt(r.total_value)}</td><td class="rev-tcv-cell">${fmt(r.acv)}</td>`;
   // Alternating background per month (rev-band-a/rev-band-b) so adjacent
   // months are visually grouped and easy to tell apart - matches the same
   // classes on the header cells.
@@ -3266,6 +3281,7 @@ async function openRevenueEntryDraft(prefill = {}) {
       <button type="button" class="ghost-btn icon-btn draft-cancel-btn" title="Cancel">${icon("x")}</button>
     </td>
     <td></td>
+    <td><select class="draft-revenue-type-select" disabled><option value="">Select revenue type&hellip;</option></select></td>
     <td>
       <select class="draft-account-select">
         <option value="">Select customer&hellip;</option>
@@ -3277,11 +3293,17 @@ async function openRevenueEntryDraft(prefill = {}) {
         <option value="">Select customer first&hellip;</option>
       </select>
     </td>
+    <td class="draft-billing-model">&mdash;</td>
+    <td><select class="draft-practice-select" disabled><option value="">Select practice&hellip;</option></select></td>
+    <!-- Onsite #/Offshore #/Nearshore # are computed from this SOW's Time
+         and Material assignments (see _tm_location_counts_by_sow) - nothing
+         to show yet for a draft row that hasn't been saved, so these stay
+         "—" until the grid reloads with the saved row's real counts. -->
+    <td class="rev-tcv-cell">&mdash;</td>
+    <td class="rev-tcv-cell">&mdash;</td>
+    <td class="rev-tcv-cell">&mdash;</td>
     <td class="draft-tcv rev-tcv-cell">&mdash;</td>
     <td class="draft-acv rev-tcv-cell">&mdash;</td>
-    <td class="draft-billing-model">&mdash;</td>
-    <td><select class="draft-revenue-type-select" disabled><option value="">Select revenue type&hellip;</option></select></td>
-    <td><select class="draft-practice-select" disabled><option value="">Select practice&hellip;</option></select></td>
     ${draftMonthCellsHtml(false)}
   `;
   tbody.insertBefore(tr, tbody.firstChild);
@@ -3582,7 +3604,7 @@ function buildTmAssignmentRow(r, editing) {
       <td>${escapeHtml(r.customer_name) || "—"}</td>
       <td>${escapeHtml(r.sow_title) || "—"}</td>
       <td class="tm-employee-id-cell">${escapeHtml(r.employee_id) || "—"}</td>
-      <td>${escapeHtml(r.employee_name) || "—"}</td>
+      <td>${escapeHtml(r.employee_name) || "—"}${r.leave_details_missing ? `<span class="info-icon-wrap" tabindex="0">${icon("info")}<span class="info-tooltip-text">Leave details are missing</span></span>` : ""}</td>
       <td>${escapeHtml(r.location_name) || "—"}</td>
       <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
       <td>${escapeHtml(r.practice_name) || "—"}</td>

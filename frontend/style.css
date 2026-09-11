@@ -72,12 +72,16 @@
   --shadow-sm: 0 1px 3px rgba(82, 70, 70, .10);
   --shadow-md: 0 6px 20px rgba(var(--primary-rgb), .18);
   --table-border: #bcb5c7;
-  /* Shared background for every table header (<th>) app-wide, and for the
-     topbar/landing-hero - a fixed dark warm-neutral gradient, independent of
-     the selected theme (same reasoning as --text above: white header text
-     needs a dark surface under it, and several themes' own palettes don't
-     supply one dark enough for that on their own). */
-  --table-header-bg: linear-gradient(90deg, #5c5350 0%, #443d3b 100%);
+  /* Shared background for every table header (<th>) app-wide. Built from
+     the active theme's own --primary-hover/--primary-2 tokens (same trick
+     as .topbar's gradient below) rather than a fixed value, so it changes
+     with the theme picker per explicit instruction - every
+     html[data-theme="..."] block already redefines these two tokens for
+     its own palette, so this cascades to every table header with no
+     further changes needed per theme. White header text stays legible
+     against every theme's --primary-hover/--primary-2 pair (verified
+     against all six palettes, same pair the topbar already uses). */
+  --table-header-bg: linear-gradient(90deg, var(--primary-hover) 0%, var(--primary-2) 100%);
 }
 
 /* ---------- Color themes ----------
@@ -770,22 +774,22 @@ a.stat-card { cursor: pointer; }
    just scrolls with the rest of the table like any plain cell - shared by
    every .rev-grid-table (Managed Services and Time and Material alike, both
    lead with Actions/Sl. No in that order - Sl. No is column 2). Customer
-   Name (3rd column on the Managed Services table specifically - Time and
-   Material's 3rd column is Revenue Type, not an identifying column worth
-   pinning) is the one that stays pinned while scrolling through the 12
-   month columns, so that sticky/left-align treatment is scoped to
-   .revenue-table rather than shared. The header's th versions are scoped to
-   thead's single row (one plain <th> per month, now that Invoiced has been
-   removed). */
+   Name (4th column on the Managed Services table specifically, after
+   Actions/Sl. No/Revenue Type - Time and Material's 3rd column is also
+   Revenue Type, not an identifying column worth pinning) is the one that
+   stays pinned while scrolling through the 12 month columns, so that
+   sticky/left-align treatment is scoped to .revenue-table rather than
+   shared. The header's th versions are scoped to thead's single row (one
+   plain <th> per month, now that Invoiced has been removed). */
 .rev-grid-table td:nth-child(2),
 .rev-grid-table thead th:nth-child(2) { color: var(--text-muted); width: 44px; }
-.revenue-table td:nth-child(3),
-.revenue-table thead th:nth-child(3) { text-align: left; padding: 7px 14px; }
-.revenue-table td:nth-child(3),
-.revenue-table thead th:nth-child(3) {
+.revenue-table td:nth-child(4),
+.revenue-table thead th:nth-child(4) { text-align: left; padding: 7px 14px; }
+.revenue-table td:nth-child(4),
+.revenue-table thead th:nth-child(4) {
   position: sticky; left: 0; z-index: 1; background: var(--surface);
 }
-.revenue-table thead th:nth-child(3) { z-index: 2; background: var(--table-header-bg); }
+.revenue-table thead th:nth-child(4) { z-index: 2; background: var(--table-header-bg); }
 .rev-grid-table input[type=number] {
   width: 90px; padding: 4px 6px; font-size: 12.5px; text-align: right;
   border: 1px solid var(--border); border-radius: 6px; font-family: inherit; color: var(--text); margin-top: 0;
@@ -1126,14 +1130,15 @@ a.stat-card { cursor: pointer; }
    Opened via the Trakerz logo (#logoHomeBtn in app.js), not part of the
    regular nav tabs. Purely informational - reuses the app's existing color
    tokens (--surface/--border/--text/--text-muted) throughout so it re-themes
-   for dark mode for free, the same way every other page does. Only the hero
-   band has its own fixed-dark colors (matching .topbar's gradient), since
-   that part is deliberately always-dark branding rather than theme-driven
-   surface. */
+   for dark mode for free, the same way every other page does. The hero
+   band's background is built from the active theme's own
+   --primary-hover/--primary-2 tokens too (same gradient .topbar and
+   --table-header-bg use), so it changes with the theme picker per explicit
+   instruction rather than staying a fixed dark color. */
 .landing-hero {
   display: flex; align-items: center; gap: 40px;
   margin: -14px -20px 32px; padding: 56px 40px;
-  background: linear-gradient(120deg, #3a3230 0%, #5c5350 60%, #241e1c 120%);
+  background: linear-gradient(120deg, var(--primary-hover) 0%, var(--primary-2) 60%, var(--primary-hover) 120%);
   color: #fff; overflow: hidden;
 }
 .landing-hero-copy { flex: 1 1 420px; min-width: 320px; }

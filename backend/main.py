@@ -535,6 +535,26 @@ def _lookup_sow_id(conn, customer_id: int, title: Optional[str]) -> Optional[int
     return rows[0]["id"]
 
 
+def _lookup_sow_id_by_customer_only(conn, customer_id: int, customer_name: str) -> int:
+    """Managed Services import-template fallback for a row with no Contract
+    Title column (see revenue_sows_import_template) - resolves to that
+    customer's one SOW. Errors, rather than guessing, the moment the
+    customer has zero or more than one SOW; the message tells the person
+    exactly how to unblock the row (add a Contract Title column) instead of
+    just saying "ambiguous". Counts every SOW for the customer regardless
+    of Billing Model, same as the "Add Entry" SOW dropdown on this grid
+    (which also isn't filtered to Billing Model = Managed Services)."""
+    rows = conn.execute("SELECT id FROM sows WHERE customer_id = ?", (customer_id,)).fetchall()
+    if not rows:
+        raise ValueError(f"No Statement of Work was found for customer '{customer_name}'")
+    if len(rows) > 1:
+        raise ValueError(
+            f"Customer '{customer_name}' has {len(rows)} Statements of Work - add a Contract Title "
+            f"column to this row to say which one, or add this entry directly from the grid instead"
+        )
+    return rows[0]["id"]
+
+
 def _validate_sow_refs(conn, sow: SowIn):
     if not conn.execute("SELECT 1 FROM customers WHERE id = ?", (sow.customer_id,)).fetchone():
         raise HTTPException(status_code=400, detail="Selected customer does not exist")
@@ -1073,6 +1093,29 @@ def _fiscal_months(entries: Dict[int, dict]) -> List[dict]:
     return months
 
 
+def _tm_location_counts_by_sow(conn, fiscal_year: int) -> Dict[int, Dict[str, int]]:
+    """Onsite #/Offshore #/Nearshore # columns on the Managed Services grid
+    (see list_revenue_sows) - how many Time and Material assignments
+    (tm_assignments, registered for this fiscal year via
+    tm_assignment_fiscal_years same as the T&M grid itself) are tied to each
+    SOW, broken down by Location. An assignment isn't restricted to SOWs
+    billed as Time and Material (nothing in the schema enforces that), so
+    this also picks up staffing recorded against a Managed Services SOW."""
+    rows = conn.execute(
+        """SELECT a.sow_id, l.name AS location_name, COUNT(*) AS cnt
+           FROM tm_assignments a
+           JOIN tm_assignment_fiscal_years fy ON fy.assignment_id = a.id
+           LEFT JOIN locations l ON l.id = a.location_id
+           WHERE fy.fiscal_year = ? AND a.sow_id IS NOT NULL
+           GROUP BY a.sow_id, l.name""",
+        (fiscal_year,),
+    ).fetchall()
+    by_sow: Dict[int, Dict[str, int]] = {}
+    for r in rows:
+        by_sow.setdefault(r["sow_id"], {})[r["location_name"] or ""] = r["cnt"]
+    return by_sow
+
+
 @app.get("/api/revenue/sows")
 def list_revenue_sows(fiscal_year: Optional[int] = None):
     """SoW Level grid: one row per SOW explicitly added to revenue tracking
@@ -1107,6 +1150,8 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
                 "projection": e["projection"],
             }
 
+        location_counts = _tm_location_counts_by_sow(conn, fy)
+
         rows = [
             {
                 "sow_id": s["sow_id"],
@@ -1121,6 +1166,9 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
                 "revenue_type_name": s["revenue_type_name"],
                 "practice_id": s["practice_id"],
                 "practice_name": s["practice_name"],
+                "onsite_count": location_counts.get(s["sow_id"], {}).get("Onsite", 0),
+                "offshore_count": location_counts.get(s["sow_id"], {}).get("Offshore", 0),
+                "nearshore_count": location_counts.get(s["sow_id"], {}).get("Nearshore", 0),
                 "months": _fiscal_months(by_sow.get(s["sow_id"], {})),
             }
             for s in tracked
@@ -1308,16 +1356,20 @@ def export_revenue_sows(fiscal_year: Optional[int] = None):
 
 @app.get("/api/revenue/sows/import-template")
 def revenue_sows_import_template():
-    """Blank counterpart to export_revenue_sows() above - same headers, no
-    data rows, downloaded via the "Download template" link next to Import
-    from Excel. Account Name + Contract Title identify which SOW a row
-    belongs to; TCV (USD)/Duration (Months)/ACV (USD)/Billing Model/Revenue
-    Type/Practice are read-only here (derived from the SOW/Contract itself)
-    and ignored on import - they're only included so a template filled from
-    a real Export round-trips without deleting columns first."""
-    headers = ["Account Name", "Contract Title", "TCV (USD)", "Duration (Months)", "ACV (USD)", "Billing Model", "Revenue Type", "Practice"]
+    """Deliberately narrower than export_revenue_sows() - per explicit
+    request, Sheet 1 carries only Revenue Type, Customer Name, Practice and
+    the 12 fiscal months (Apr-Mar); Contract Title is no longer one of
+    these columns, so a row is matched to a SOW by Customer Name alone (see
+    import_revenue_sows) - that only works while the customer has exactly
+    one SOW, otherwise the row is rejected asking to disambiguate. Revenue
+    Type and Practice are read-only here (derived from the SOW itself, same
+    as before) and ignored on import - they're shown for context, not
+    applied to the SOW. A "contract title" column is still honored if
+    present (older template/export round-tripped back in), which resolves
+    the SOW directly and skips the customer-only ambiguity check."""
+    headers = ["Revenue Type", "Customer Name", "Practice"]
     headers.extend(FISCAL_MONTH_LABELS)
-    widths = [24, 28, 14, 16, 14, 18, 18, 18] + [14] * (len(headers) - 8)
+    widths = [18, 22, 16] + [12] * (len(headers) - 3)
     wb = _build_workbook("Revenue SoW Level Template", headers, [], widths=widths)
     return _xlsx_response(wb, "trakerz_revenue_sow_level_template.xlsx")
 
@@ -1325,33 +1377,46 @@ def revenue_sows_import_template():
 @app.post("/api/revenue/sows/import")
 async def import_revenue_sows(fiscal_year: Optional[int] = None, file: UploadFile = File(...)):
     """Bulk version of "Add Entry" + typing in the months: each row picks an
-    existing SOW (by Account Name + Contract Title) and sets its 12 monthly
-    Projections for the fiscal year, registering it into tracking first if
-    it wasn't already (same INSERT OR IGNORE as add_revenue_sow/
-    upsert_revenue_cell). A row already tracked for this fiscal year is
-    simply overwritten with the sheet's numbers rather than rejected, so
-    re-importing an edited export is the expected workflow. Every row is
-    validated in full before anything is written for it, so one bad row
-    can't leave a half-written entry behind; other rows still import even if
-    this one fails."""
+    existing SOW and sets its 12 monthly Projections for the fiscal year,
+    registering it into tracking first if it wasn't already (same INSERT OR
+    IGNORE as add_revenue_sow/upsert_revenue_cell). A row already tracked
+    for this fiscal year is simply overwritten with the sheet's numbers
+    rather than rejected, so re-importing an edited export is the expected
+    workflow. The current template (see revenue_sows_import_template) has
+    no Contract Title column, so a row is resolved to a SOW by Customer
+    Name alone via _lookup_sow_id_by_customer_only - which requires that
+    customer to have exactly one SOW, erroring otherwise rather than
+    guessing. A "contract title" cell is still honored when present (an
+    older template/export filled back in), resolving the SOW directly via
+    _lookup_sow_id instead. Every row is validated in full before anything
+    is written for it, so one bad row can't leave a half-written entry
+    behind; other rows still import even if this one fails."""
     fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
     content = await file.read()
     try:
-        records = _read_import_rows(content, ["Account Name", "Contract Title"])
+        records = _read_import_rows(content, ["Customer Name"])
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        try:
+            # Backward compatible with the old template/export, which used
+            # "Account Name" for this same column instead of "Customer Name".
+            records = _read_import_rows(content, ["Account Name"])
+        except ValueError:
+            raise HTTPException(status_code=400, detail=str(e))
 
     imported = 0
     errors = []
     with db.get_db() as conn:
         for i, rec in enumerate(records, start=2):  # row 1 is the header
             try:
-                account_name = _cell_str(rec.get("account name"))
+                customer_name = _cell_str(rec.get("customer name")) or _cell_str(rec.get("account name"))
+                if not customer_name:
+                    raise ValueError("Customer Name is required")
+                customer_id = _lookup_customer_id_by_name(conn, customer_name)
                 title = _cell_str(rec.get("contract title"))
-                if not account_name or not title:
-                    raise ValueError("Account Name and Contract Title are both required")
-                customer_id = _lookup_customer_id_by_name(conn, account_name)
-                sow_id = _lookup_sow_id(conn, customer_id, title)
+                if title:
+                    sow_id = _lookup_sow_id(conn, customer_id, title)
+                else:
+                    sow_id = _lookup_sow_id_by_customer_only(conn, customer_id, customer_name)
 
                 months = []
                 for m_idx, label in enumerate(FISCAL_MONTH_LABELS, start=1):
@@ -1509,6 +1574,22 @@ def _count_weekdays(start: date, end: date) -> int:
     return count
 
 
+def _has_leave_record(conn, customer_id: Optional[int], employee_id: Optional[str]) -> bool:
+    """Whether a Leave Management row (Configuration > Resource and Leave)
+    exists for this assignment's Customer + Employee ID - drives the
+    "Leave details are missing" info icon next to the employee name on the
+    Time and Material grid, same cross-reference direction as the "not
+    tagged to any SOW" highlight on the Leave grid itself (see
+    _employee_ids_tagged_to_sow), just checked from the other table."""
+    if not customer_id or not (employee_id or "").strip():
+        return False
+    row = conn.execute(
+        "SELECT 1 FROM leave_management WHERE customer_id=? AND employee_id = ? COLLATE NOCASE",
+        (customer_id, employee_id.strip()),
+    ).fetchone()
+    return row is not None
+
+
 def _compute_tm_projections(conn, a, fiscal_year: int, billing_hours: Optional[float]) -> Dict[int, float]:
     """Time and Material's Projections are auto-calculated, never manually
     entered - for each fiscal month:
@@ -1600,6 +1681,7 @@ def _tm_row_dict(conn, a, fiscal_year: int) -> dict:
         "revenue_type_name": a["revenue_type_name"],
         "employee_id": a["employee_id"],
         "employee_name": a["employee_name"],
+        "leave_details_missing": not _has_leave_record(conn, a["customer_id"], a["employee_id"]),
         "location_id": a["location_id"],
         "location_name": a["location_name"],
         "practice_id": a["practice_id"],
@@ -1789,19 +1871,24 @@ def tm_assignments_import_template():
     """Deliberately narrower than export_tm_assignments() - Sheet 1 carries
     only the fields someone actually fills in by hand (Employee Name +
     Customer Name are the only two required, matching the "Add Entry" draft
-    row's own Save-enabling rule); Discount %, Final Rate Card, Billing
-    Hours per day and every month's Projections are all either derived from
-    other fields or server-computed (see _final_rate_card/
-    _billing_hours_per_day/_compute_tm_projections) and left out entirely so
-    the template doesn't imply they're editable input. Sheet 2 is a plain
-    reference list of the Revenue Types and Customers already configured, so
-    whoever is filling in Sheet 1 knows which exact spellings will match on
-    import (see _lookup_id_by_name/_lookup_customer_id_by_name - both are
-    case-insensitive but still need an exact name match)."""
-    headers = ["Revenue Type", "Employee ID", "Employee Name", "Location", "Practice",
-               "Customer Name", "Contract Title", "SoW Role", "WBS ID", "Rate Card", "Start Date", "End Date"]
+    row's own Save-enabling rule); Final Rate Card, Billing Hours per day
+    and every month's Projections are all server-computed (see
+    _final_rate_card/_billing_hours_per_day/_compute_tm_projections) and
+    left out entirely so the template doesn't imply they're editable input.
+    Discount (%) IS a plain input field though (see TmAssignmentIn) and is
+    included here, read back in import_tm_assignments(). Contract Title
+    (SOW) is intentionally not one of these columns per explicit request -
+    an imported assignment lands unlinked to any SOW (same as leaving it
+    blank always did) and can still be tied to one afterward from the grid.
+    Sheet 2 is a plain reference list of the Revenue Types and Customers
+    already configured, so whoever is filling in Sheet 1 knows which exact
+    spellings will match on import (see _lookup_id_by_name/
+    _lookup_customer_id_by_name - both are case-insensitive but still need
+    an exact name match)."""
+    headers = ["Revenue Type", "Customer Name", "Employee ID", "Employee Name", "Location", "Practice",
+               "SoW Role", "WBS ID", "Rate Card", "Discount (%)", "Start Date (dd-mmm-yyyy)", "End Date (dd-mmm-yyyy)"]
     date_cols = (11, 12)
-    widths = [16, 14, 20, 16, 16, 22, 26, 16, 14, 12, 13, 13]
+    widths = [16, 22, 14, 20, 16, 16, 16, 14, 12, 14, 24, 24]
     wb = _build_workbook("Time and Material Template", headers, [], date_cols=date_cols, widths=widths)
     with db.get_db() as conn:
         revenue_types = [r["name"] for r in conn.execute("SELECT name FROM revenue_types ORDER BY name COLLATE NOCASE").fetchall()]
@@ -1819,12 +1906,15 @@ async def import_tm_assignments(fiscal_year: Optional[int] = None, file: UploadF
     has no uniqueness rule (each Add Entry always creates a brand-new row,
     even a duplicate one), so every row here becomes a new tm_assignments
     row - there's no matching-existing-row/upsert case to handle. Contract
-    Title is optional (an assignment need not be tied to a SOW) but, when
-    given, is looked up scoped to the row's Customer Name. Only the columns
-    in tm_assignments_import_template()'s Sheet 1 are read here - Discount %
-    isn't one of them, so every imported row starts undiscounted (Final Rate
-    Card equal to Rate Card, same as a freshly-typed "Add Entry" row with
-    Discount % left blank) and can be set afterward in the grid. Final Rate
+    Title isn't a column in tm_assignments_import_template() at all (per
+    explicit request), so every imported row lands unlinked to any SOW -
+    same as leaving Contract Title blank always did - and can be tied to
+    one afterward from the grid; the sheet is still read leniently enough
+    that a "contract title" cell in an older template/file is honored if
+    present. Discount (%) IS one of the template's columns and is read and
+    applied here, same as Rate Card; leaving that cell blank imports the
+    row undiscounted (Final Rate Card equal to Rate Card), same as a
+    freshly-typed "Add Entry" row with Discount % left blank. Final Rate
     Card, Billing Hours per day and Projections are all likewise never read
     from the sheet - they're computed server-side on every read (see
     _final_rate_card/_billing_hours_per_day/_compute_tm_projections), so
@@ -1857,15 +1947,22 @@ async def import_tm_assignments(fiscal_year: Optional[int] = None, file: UploadF
                 wbs_id = _cell_str(rec.get("wbs id"))
                 sow_role = _cell_str(rec.get("sow role"))
                 rate_card = _cell_float_or_none(rec.get("rate card"))
-                start_date = _cell_date(rec.get("start date"))
-                end_date = _cell_date(rec.get("end date"))
+                discount_percent = _cell_float_or_none(rec.get("discount (%)"))
+                # Header text is "Start Date (dd-mmm-yyyy)"/"End Date
+                # (dd-mmm-yyyy)" on the current template (the format hint
+                # lives in the header since an empty template has no data
+                # row to show actual date formatting on) - the plain
+                # "start date"/"end date" key is also accepted so a file
+                # built off an older template still imports.
+                start_date = _cell_date(rec.get("start date (dd-mmm-yyyy)", rec.get("start date")))
+                end_date = _cell_date(rec.get("end date (dd-mmm-yyyy)", rec.get("end date")))
 
                 cur = conn.execute(
                     """INSERT INTO tm_assignments (customer_id, sow_id, revenue_type_id, employee_id, employee_name,
                        location_id, practice_id, wbs_id, sow_role, rate_card, discount_percent, start_date, end_date, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
                     (customer_id, sow_id, revenue_type_id, employee_id, employee_name,
-                     location_id, practice_id, wbs_id, sow_role, rate_card, None, start_date, end_date),
+                     location_id, practice_id, wbs_id, sow_role, rate_card, discount_percent, start_date, end_date),
                 )
                 assignment_id = cur.lastrowid
                 conn.execute(
