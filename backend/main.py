@@ -91,6 +91,8 @@ class CustomerIn(BaseModel):
     customer_name: str
     client_partner: Optional[str] = None
     delivery_director: Optional[str] = None
+    delivery_head: Optional[str] = None
+    sales_head: Optional[str] = None
     industry: Optional[str] = None
     headquarters: Optional[str] = None
     geo: Optional[str] = None
@@ -827,7 +829,13 @@ def delete_milestone(milestone_id: int):
 # ---------- Customer endpoints (Administration > Customer Management) ----------
 
 @app.get("/api/customers")
-def list_customers(q: Optional[str] = None):
+def list_customers(
+    q: Optional[str] = None,
+    delivery_director: Optional[str] = None,
+    delivery_head: Optional[str] = None,
+    client_partner: Optional[str] = None,
+    sales_head: Optional[str] = None,
+):
     with db.get_db() as conn:
         rows = conn.execute("SELECT * FROM customers ORDER BY customer_name COLLATE NOCASE").fetchall()
         customers = [_row_to_dict(r) for r in rows]
@@ -837,6 +845,18 @@ def list_customers(q: Optional[str] = None):
                 c for c in customers
                 if ql in (c["customer_code"] or "").lower() or ql in (c["customer_name"] or "").lower()
             ]
+        # Customer page's 4 "All X" toolbar dropdowns (Delivery director/head,
+        # Client partner, Sales head) - exact match against the free-text
+        # value, same fields populate their own options from (see
+        # populateCustomerFilterOptions in app.js).
+        for field, value in (
+            ("delivery_director", delivery_director),
+            ("delivery_head", delivery_head),
+            ("client_partner", client_partner),
+            ("sales_head", sales_head),
+        ):
+            if value:
+                customers = [c for c in customers if (c.get(field) or "") == value]
         return customers
 
 
@@ -846,10 +866,10 @@ def create_customer(c: CustomerIn):
         try:
             cur = conn.execute(
                 """INSERT INTO customers (customer_code, customer_name, client_partner, delivery_director,
-                   industry, headquarters, geo, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                   delivery_head, sales_head, industry, headquarters, geo, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
                 (c.customer_code, c.customer_name, c.client_partner, c.delivery_director,
-                 c.industry, c.headquarters, c.geo),
+                 c.delivery_head, c.sales_head, c.industry, c.headquarters, c.geo),
             )
         except sqlite3.IntegrityError:
             raise HTTPException(status_code=400, detail=f"Customer code '{c.customer_code}' already exists")
@@ -857,27 +877,39 @@ def create_customer(c: CustomerIn):
 
 
 @app.get("/api/customers/export")
-def export_customers(q: Optional[str] = None):
+def export_customers(
+    q: Optional[str] = None,
+    delivery_director: Optional[str] = None,
+    delivery_head: Optional[str] = None,
+    client_partner: Optional[str] = None,
+    sales_head: Optional[str] = None,
+):
     """Export the customer list to an .xlsx workbook, honoring the same
-    search filter as GET /api/customers. Registered before
+    search/filter parameters as GET /api/customers (so an export taken while
+    the grid is filtered matches what's on screen). Registered before
     /api/customers/{customer_id} for the same reason as /api/sows/export."""
-    customers = list_customers(q=q)
+    customers = list_customers(
+        q=q, delivery_director=delivery_director, delivery_head=delivery_head,
+        client_partner=client_partner, sales_head=sales_head,
+    )
 
-    headers = ["Customer code", "Customer name", "Client partner", "Delivery director",
-               "Industry", "Headquarters", "Geo"]
+    headers = ["Customer code", "Customer name", "Delivery director", "Delivery head",
+               "Client partner", "Sales head", "Industry", "Headquarters", "Geo"]
     rows = [
         [
             c.get("customer_code") or "",
             c.get("customer_name") or "",
-            c.get("client_partner") or "",
             c.get("delivery_director") or "",
+            c.get("delivery_head") or "",
+            c.get("client_partner") or "",
+            c.get("sales_head") or "",
             c.get("industry") or "",
             c.get("headquarters") or "",
             c.get("geo") or "",
         ]
         for c in customers
     ]
-    widths = [18, 28, 22, 22, 20, 22, 14]
+    widths = [18, 28, 22, 22, 22, 22, 20, 22, 14]
     wb = _build_workbook("Customers", headers, rows, widths=widths)
     return _xlsx_response(wb, f"trakerz_customers_{date.today().isoformat()}.xlsx")
 
@@ -895,10 +927,10 @@ def update_customer(customer_id: int, c: CustomerIn):
         try:
             conn.execute(
                 """UPDATE customers SET customer_code=?, customer_name=?, client_partner=?,
-                   delivery_director=?, industry=?, headquarters=?, geo=?,
+                   delivery_director=?, delivery_head=?, sales_head=?, industry=?, headquarters=?, geo=?,
                    updated_at=datetime('now') WHERE id=?""",
                 (c.customer_code, c.customer_name, c.client_partner, c.delivery_director,
-                 c.industry, c.headquarters, c.geo, customer_id),
+                 c.delivery_head, c.sales_head, c.industry, c.headquarters, c.geo, customer_id),
             )
         except sqlite3.IntegrityError:
             raise HTTPException(status_code=400, detail=f"Customer code '{c.customer_code}' already exists")
@@ -1574,9 +1606,6 @@ def _tm_row_dict(conn, a, fiscal_year: int) -> dict:
         "practice_name": a["practice_name"],
         "wbs_id": a["wbs_id"],
         "sow_role": a["sow_role"],
-        "opportunity_id": a["opportunity_id"],
-        "po_number": a["po_number"],
-        "contract_code": a["contract_code"],
         "rate_card": a["rate_card"],
         "discount_percent": a["discount_percent"],
         "final_rate_card": _final_rate_card(a["rate_card"], a["discount_percent"]),
@@ -1596,8 +1625,7 @@ _TM_ASSIGNMENT_SELECT = """
            a.location_id, l.name AS location_name,
            a.practice_id, p.name AS practice_name,
            a.wbs_id, a.sow_role, a.rate_card, a.discount_percent,
-           a.start_date, a.end_date,
-           s.opportunity_id, s.po_number, s.contract_code
+           a.start_date, a.end_date
     FROM tm_assignments a
     LEFT JOIN customers c ON c.id = a.customer_id
     LEFT JOIN sows s ON s.id = a.sow_id
@@ -1678,12 +1706,9 @@ def add_tm_assignment(payload: TmAssignmentCreateIn):
 @app.put("/api/tm/assignments/{assignment_id}")
 def update_tm_assignment(assignment_id: int, payload: TmAssignmentIn):
     """Edits an assignment's descriptive fields (Revenue Type, Employee
-    ID/Name, Location, Practice, Contract, WBS ID, SoW Role, Rate Card,
+    ID/Name, Location, Practice, Contract, SoW Role, WBS ID, Rate Card,
     Discount %, Start/End Date) - used by the grid's row-level Edit/Save,
-    paired with PUT /api/tm/entries for the 12 month cells. Opportunity ID,
-    Purchase Order # and Contract Code are read-only on this grid - they
-    live on the linked SOW (sows.opportunity_id/po_number/contract_code) and
-    change only by editing that SOW itself, not through this endpoint."""
+    paired with PUT /api/tm/entries for the 12 month cells."""
     with db.get_db() as conn:
         if not conn.execute("SELECT 1 FROM tm_assignments WHERE id = ?", (assignment_id,)).fetchone():
             raise HTTPException(status_code=404, detail="Assignment not found")
@@ -1725,25 +1750,20 @@ def export_tm_assignments(fiscal_year: Optional[int] = None):
     data = list_tm_assignments(fiscal_year=fy)
 
     # Column order mirrors the on-screen grid (see buildTmAssignmentRow in
-    # app.js), minus Actions/Sl. No which aren't data. Opportunity ID,
-    # Purchase Order # and Contract Code are read-only on the grid too -
-    # they're the linked SOW's own fields (sows.opportunity_id/po_number/
-    # contract_code), included here for a complete export.
-    headers = ["Revenue Type", "Customer Name", "Statement of Work", "WBS ID",
-               "Opportunity ID", "Purchase Order #", "Contract Code",
+    # app.js), minus Actions/Sl. No which aren't data.
+    headers = ["Revenue Type", "Customer Name", "Statement of Work",
                "Employee ID", "Employee Name", "Location", "Billing Hours per day",
-               "Practice", "SoW Role", "Rate Card", "Discount %", "Discounted Rate Card",
+               "Practice", "SoW Role", "WBS ID", "Rate Card", "Discount %", "Discounted Rate Card",
                "Start date", "End date"]
     headers.extend(FISCAL_MONTH_LABELS)
 
     rows = []
     for r in data["rows"]:
         row = [
-            r["revenue_type_name"] or "", r["customer_name"] or "", r["sow_title"] or "", r["wbs_id"] or "",
-            r["opportunity_id"] or "", r["po_number"] or "", r["contract_code"] or "",
+            r["revenue_type_name"] or "", r["customer_name"] or "", r["sow_title"] or "",
             r["employee_id"] or "", r["employee_name"] or "", r["location_name"] or "",
             r["billing_hours_per_day"] or 0,
-            r["practice_name"] or "", r["sow_role"] or "",
+            r["practice_name"] or "", r["sow_role"] or "", r["wbs_id"] or "",
             r["rate_card"] or 0, r["discount_percent"] or 0, r["final_rate_card"] or 0,
             _parse_iso_date(r.get("start_date")), _parse_iso_date(r.get("end_date")),
         ]
@@ -1751,10 +1771,10 @@ def export_tm_assignments(fiscal_year: Optional[int] = None):
             row.append(m["projection"])
         rows.append(row)
 
-    date_cols = (17, 18)
-    currency_cols = (14, 16) + tuple(range(19, len(headers) + 1))
-    percent_cols = (15,)
-    widths = [16, 22, 26, 14, 16, 16, 16, 14, 20, 16, 16, 18, 16, 12, 10, 14, 13, 13] + [14] * (len(headers) - 18)
+    date_cols = (14, 15)
+    currency_cols = (11, 13) + tuple(range(16, len(headers) + 1))
+    percent_cols = (12,)
+    widths = [16, 22, 26, 14, 20, 16, 16, 18, 16, 14, 12, 10, 14, 13, 13] + [14] * (len(headers) - 15)
     wb = _build_workbook("T&M Projections", headers, rows, date_cols=date_cols,
                           currency_cols=currency_cols, percent_cols=percent_cols, widths=widths)
     # Same Revenue Type Summary sheet as the Managed Services export (see
@@ -1779,9 +1799,9 @@ def tm_assignments_import_template():
     import (see _lookup_id_by_name/_lookup_customer_id_by_name - both are
     case-insensitive but still need an exact name match)."""
     headers = ["Revenue Type", "Employee ID", "Employee Name", "Location", "Practice",
-               "Customer Name", "Contract Title", "WBS ID", "SoW Role", "Rate Card", "Start Date", "End Date"]
+               "Customer Name", "Contract Title", "SoW Role", "WBS ID", "Rate Card", "Start Date", "End Date"]
     date_cols = (11, 12)
-    widths = [16, 14, 20, 16, 16, 22, 26, 14, 16, 12, 13, 13]
+    widths = [16, 14, 20, 16, 16, 22, 26, 16, 14, 12, 13, 13]
     wb = _build_workbook("Time and Material Template", headers, [], date_cols=date_cols, widths=widths)
     with db.get_db() as conn:
         revenue_types = [r["name"] for r in conn.execute("SELECT name FROM revenue_types ORDER BY name COLLATE NOCASE").fetchall()]
@@ -1809,13 +1829,9 @@ async def import_tm_assignments(fiscal_year: Optional[int] = None, file: UploadF
     from the sheet - they're computed server-side on every read (see
     _final_rate_card/_billing_hours_per_day/_compute_tm_projections), so
     nothing but the assignment's own descriptive fields below is written
-    here. Opportunity ID, Purchase Order # and Contract Code aren't
-    importable columns either - they're the linked SOW's own fields, so
-    linking a row to a Contract Title (when given) is what brings those
-    along, same as Statement of Work itself. Every row is validated in full
-    before anything is written for it, so one bad row can't leave a
-    half-written assignment behind; other rows still import even if this one
-    fails."""
+    here. Every row is validated in full before anything is written for it,
+    so one bad row can't leave a half-written assignment behind; other rows
+    still import even if this one fails."""
     fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
     content = await file.read()
     try:
@@ -2083,6 +2099,20 @@ _LEAVE_SELECT = """
 """
 
 
+def _employee_ids_tagged_to_sow(conn) -> set:
+    """Employee IDs (lowercased) that currently have at least one Time and
+    Material assignment against a real Statement of Work. Used to flag Leave
+    records for employees who aren't tied to any active SOW work - a leave
+    record itself no longer carries a SOW/WBS ID (see the tab-config-leaves
+    comment in index.html), so this is computed by cross-referencing the
+    T&M grid's own employee_id/sow_id instead."""
+    rows = conn.execute(
+        "SELECT DISTINCT employee_id FROM tm_assignments "
+        "WHERE sow_id IS NOT NULL AND employee_id IS NOT NULL AND TRIM(employee_id) <> ''"
+    ).fetchall()
+    return {(r["employee_id"] or "").strip().lower() for r in rows}
+
+
 def _validate_leave_refs(conn, item: LeaveManagementIn):
     if not conn.execute("SELECT 1 FROM customers WHERE id = ?", (item.customer_id,)).fetchone():
         raise HTTPException(status_code=400, detail="Selected customer does not exist")
@@ -2107,7 +2137,13 @@ def list_leaves():
             _LEAVE_SELECT + " ORDER BY c.customer_name COLLATE NOCASE, lm.employee_name COLLATE NOCASE"
         ).fetchall()
         locations, employee_types, bands = _load_resource_lookup_maps(conn)
-        return [_attach_resource_names(_row_to_dict(r), locations, employee_types, bands) for r in rows]
+        tagged_ids = _employee_ids_tagged_to_sow(conn)
+        result = []
+        for r in rows:
+            item = _attach_resource_names(_row_to_dict(r), locations, employee_types, bands)
+            item["tagged_to_sow"] = (item.get("employee_id") or "").strip().lower() in tagged_ids
+            result.append(item)
+        return result
 
 
 @app.post("/api/leaves", status_code=201)

@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS customers (
     customer_name TEXT NOT NULL,
     client_partner TEXT,
     delivery_director TEXT,
+    delivery_head TEXT,
+    sales_head TEXT,
     industry TEXT,
     headquarters TEXT,
     geo TEXT,
@@ -454,6 +456,13 @@ def _migrate(conn):
     # the same table (no configurable lookup list requested for it).
     if _table_exists(conn, "tm_assignments") and not _column_exists(conn, "tm_assignments", "sow_role"):
         conn.execute("ALTER TABLE tm_assignments ADD COLUMN sow_role TEXT")
+
+    # Additive: Delivery Head and Sales Head (free text) on Customers - new
+    # edit fields alongside the existing Client Partner/Delivery Director,
+    # same free-text convention (no configurable lookup list requested).
+    for _cust_col in ("delivery_head", "sales_head"):
+        if _table_exists(conn, "customers") and not _column_exists(conn, "customers", _cust_col):
+            conn.execute(f"ALTER TABLE customers ADD COLUMN {_cust_col} TEXT")
 
     # Account Name, Statement of Work Title and WBS ID (free text) all
     # removed from Leave Management per explicit instruction: Account Name

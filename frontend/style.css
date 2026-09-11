@@ -89,9 +89,12 @@
    theme's ("Blush Navy") own values so no data-theme attribute is needed for
    it. Each block here only redefines the small set of tokens that actually
    carry a theme's color; everything else (--text/--surface/--shadow-sm, the
-   dark topbar/table-header chrome, and the decorative multi-hue accents used
-   for chart slices, stat tiles and card-icon badges) is already read from
-   :root and re-themes for free by inheritance. */
+   dark table-header chrome, and the decorative multi-hue accents used for
+   chart slices, stat tiles and card-icon badges) is already read from :root
+   and re-themes for free by inheritance. The topbar (.topbar below) is the
+   one dark-chrome exception - it's built from --primary-2/--primary-hover
+   directly (not a fixed color) precisely so it changes with the theme too,
+   per explicit instruction. */
 html[data-theme="sky"] {
   /* https://colorhunt.co/palette/30afff92eeffd8ffc5c4f7ca */
   --bg: #d8ffc5;
@@ -180,7 +183,12 @@ body {
   align-items: center;
   gap: 24px;
   padding: 14px 28px;
-  background: linear-gradient(120deg, #3a3230 0%, #5c5350 60%, #241e1c 120%);
+  /* Built from the active theme's own --primary-hover/--primary-2 tokens
+     (darker-lighter-darker, same 3-stop diagonal shape the old fixed brown
+     gradient used) rather than a hardcoded color, so it changes with the
+     theme picker per explicit instruction - every html[data-theme="..."]
+     block above already redefines these two tokens for its own palette. */
+  background: linear-gradient(120deg, var(--primary-hover) 0%, var(--primary-2) 60%, var(--primary-hover) 120%);
   box-shadow: var(--shadow-md);
   position: sticky;
   top: 0;
@@ -250,6 +258,19 @@ body {
 .theme-swatch-item.active .theme-swatch-check { visibility: visible; }
 
 main { padding: 14px 20px; max-width: none; margin: 0; flex: 1 0 auto; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+/* Page header block - bold page title + a short description of what the
+   page is for, sitting directly under the topbar/nav (main's own top
+   padding provides the gap) as the first thing on every page. Deliberately
+   plain (no icon/colored badge) unlike the per-card .toolbar h3 headers
+   removed from Global Settings/Configuration/Best Estimates earlier - this
+   is one consistent banner pattern across the whole app instead. Dashboard
+   reuses its own existing .dash-title instead of a second title here (see
+   the .dash-header-row + .page-header-desc pairing in index.html) so its
+   title isn't duplicated. */
+.page-header { margin-bottom: 16px; }
+.page-header-title { margin: 0 0 4px; font-size: 20px; font-weight: 700; color: var(--text); }
+.page-header-desc { margin: 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-header-desc { margin-bottom: 16px; }
 .tab-panel { display: none; }
 .tab-panel.active { display: flex; flex-direction: column; flex: 1 0 auto; }
 
@@ -357,7 +378,7 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 .alert-banner {
   background: linear-gradient(90deg, #fff7ed, #fef2f2);
   border: 1px solid #fed7aa; color: #9a3412;
-  padding: 12px 16px; border-radius: var(--radius); margin-bottom: 20px; font-size: 14px;
+  padding: 12px 16px; border-radius: var(--radius); margin-top: 20px; font-size: 14px;
   font-weight: 400;
   display: flex; align-items: center; gap: 8px;
 }
@@ -372,6 +393,32 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
   transition: opacity .15s;
 }
 .alert-banner-close:hover { opacity: 1; }
+
+/* Leave grid: a saved record whose employee isn't tagged to any Statement of
+   Work (see isUntagged/row-untagged in buildLeaveRow, app.js) - same warm
+   amber warning tint/convention as .expiry-amber below, plus a small
+   hoverable info icon in the Employee ID cell explaining why. */
+.sow-table tbody tr.row-untagged { background: #fff7ed; }
+.sow-table tbody tr.row-untagged td { color: #9a3412; }
+.sow-table tbody tr.row-untagged:hover { background: #fed7aa; }
+.info-icon-wrap {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-left: 6px; vertical-align: middle;
+  color: #c2760a; cursor: help;
+}
+.info-icon-wrap .icon { width: 14px; height: 14px; }
+.info-icon-wrap .info-tooltip-text {
+  position: absolute; left: 50%; bottom: 130%; transform: translateX(-50%);
+  background: #2d2d2d; color: #fff; padding: 6px 10px; border-radius: 6px;
+  font-size: 12px; font-weight: 400; line-height: 1.4; text-align: left;
+  white-space: normal; width: max-content; max-width: 220px;
+  opacity: 0; visibility: hidden; transition: opacity .15s ease;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, .2); pointer-events: none; z-index: 30;
+}
+.info-icon-wrap:hover .info-tooltip-text,
+.info-icon-wrap:focus .info-tooltip-text,
+.info-icon-wrap:focus-visible .info-tooltip-text { opacity: 1; visibility: visible; }
 
 /* ---------- Stat cards ---------- */
 /* Circular tiles (matching the Dashboard's KPI circles) rather than rounded
@@ -597,6 +644,30 @@ a.stat-card { cursor: pointer; }
 
 /* ---------- Toolbar / buttons ---------- */
 .toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; }
+/* Global Settings, Configuration and the SOW list's own toolbars, all
+   right-aligned per explicit instruction - most lost the heading that used
+   to push their filters/buttons right via .toolbar h3's flex:1 (removed
+   from these per earlier explicit instruction); #tab-sows never had one,
+   its search box is just capped by #searchInput's max-width below instead
+   of filling the row, so flex-end is what pushes the leftover space (and
+   the whole search+filters+buttons cluster) to the right edge there.
+   Scoped by section id rather than a bare ".toolbar" override so toolbars
+   not covered by any of these requests are untouched. */
+#tab-config-locations .toolbar,
+#tab-config-billing-models .toolbar,
+#tab-config-operating-models .toolbar,
+#tab-config-statuses .toolbar,
+#tab-config-employee-types .toolbar,
+#tab-config-bands .toolbar,
+#tab-config-opportunity-types .toolbar,
+#tab-config-revenue-types .toolbar,
+#tab-config-practices .toolbar,
+#tab-config-billing-hours .toolbar,
+#tab-config-holidays .toolbar,
+#tab-config-leaves .toolbar,
+#tab-sows .toolbar {
+  justify-content: flex-end;
+}
 .toolbar input, .toolbar select {
   padding: 5px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px;
   background: var(--surface); transition: border-color .15s, box-shadow .15s;
@@ -620,7 +691,7 @@ a.stat-card { cursor: pointer; }
    .toolbar h4 is the same trick for the Revenue Management subsection
    toolbars (SoW Level Detail/Assignment Level Detail - see
    .subsection-toolbar below), whose heading is an h4, not an h3. */
-.toolbar h3, .toolbar h4 { flex: 1; margin: 0; }
+.toolbar h3, .toolbar h4 { flex: 1; margin: 0; display: flex; align-items: center; gap: 8px; }
 .toolbar-spacer { flex: 1; }
 /* "Download template" next to Import from Excel on those same toolbars - a
    plain link rather than a button, since it's a starting point for an
@@ -830,7 +901,12 @@ a.stat-card { cursor: pointer; }
    Excel/Add Entry) is wrapped in a .toolbar (see ".toolbar h4" above) rather
    than standing alone - .subsection-toolbar just adds a bit of top margin
    so that row doesn't look glued to the table above it. */
-.subsection-toolbar { margin-top: 12px; }
+/* Right-align Download template/Import/Add Entry - previously pushed there
+   by the "SoW Level Detail"/"Assignment Level Detail" h4's flex:1 (see
+   .toolbar h3, .toolbar h4 above), removed from both Revenue Management
+   subsection toolbars per explicit instruction. Same reasoning as the
+   Global Settings toolbar fix above. */
+.subsection-toolbar { margin-top: 12px; justify-content: flex-end; }
 .revenue-subsection-title {
   margin: 10px 0 6px; font-size: 12.5px; font-weight: 700; color: var(--text-muted);
   text-transform: uppercase; letter-spacing: .04em;

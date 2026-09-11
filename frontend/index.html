@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=82" />
+<link rel="stylesheet" href="style.css?v=90" />
 </head>
 <body>
 <header class="topbar">
@@ -78,7 +78,7 @@
         </button>
         <button class="dropdown-item" data-tab="config-leaves">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M3 10h18"></path><path d="M9 16l2 2 4-4"></path></svg>
-          Leave
+          Resource and Leave
         </button>
       </div>
     </div>
@@ -255,7 +255,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
             </button>
           </div>
-          <div class="landing-carousel-caption" id="landingCarouselCaption">Dashboard — KPIs, revenue trend and status breakdowns at a glance</div>
+          <div class="landing-carousel-caption" id="landingCarouselCaption">Dashboard — KPIs, resource and status breakdowns at a glance</div>
         </div>
         <div class="landing-carousel-dots" id="landingCarouselDots">
           <button type="button" class="landing-carousel-dot active" data-slide="0" aria-label="Show screenshot 1"></button>
@@ -271,11 +271,11 @@
       <h2 class="landing-section-title">What is Trakerz?</h2>
       <p class="landing-section-lead">
         Trakerz keeps everything a services or consulting team needs to track a book of client
-        work in one connected app: the Statements of Work themselves, the revenue projected
-        against each one month by month, and the people staffed to deliver the work.
-        Instead of juggling spreadsheets that fall out of sync, every number on the Dashboard is
-        computed live from the same records you manage in Statement of Work Management, Revenue Management
-        and Staffing — so the totals always agree.
+        work in one connected app: the Statements of Work themselves, the revenue and staffing
+        tracked against each one through Best Estimates, and the customer and master data
+        everything else is built on. Instead of juggling spreadsheets that fall out of sync,
+        every number on the Dashboard is computed live from the same records you manage in
+        Statement of Work, Best Estimates and Configuration — so the totals always agree.
       </p>
     </section>
 
@@ -294,18 +294,18 @@
         </div>
         <div class="landing-feature-card">
           <span class="card-icon icon-cyan landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span>
-          <h3>Revenue management</h3>
-          <p>Log monthly Projections per SOW across the fiscal year, for Managed Services and Time and Material alike.</p>
+          <h3>Best Estimates</h3>
+          <p>Log and review monthly revenue projections — by Statement of Work for Managed Services, or by employee assignment for Time and Material, with T&amp;M projections calculated automatically from billing hours, holidays and leave.</p>
         </div>
         <div class="landing-feature-card">
           <span class="card-icon icon-emerald landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg></span>
           <h3>Staffing &amp; resources</h3>
-          <p>Assign employees to SOWs with their band, employee type and location, and see who is staffed where at a glance.</p>
+          <p>Assign employees to a SOW with their band, employee type and location from Best Estimates &gt; Time and Material, and see the breakdown by location, band and type on the Dashboard.</p>
         </div>
         <div class="landing-feature-card">
           <span class="card-icon icon-orange landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg></span>
           <h3>Customer &amp; master data</h3>
-          <p>Maintain your own customers, billing hours and holiday calendar under Configuration, and locations, billing models, operating models, SOW statuses, employee types, employee bands, revenue types and practices under Global Settings.</p>
+          <p>Maintain your customers — including delivery and sales contacts — plus billing hours, holiday calendar and resource leave under Configuration, and locations, billing models, operating models, SOW statuses, employee types, employee bands, opportunity types, revenue types and practices under Global Settings.</p>
         </div>
         <div class="landing-feature-card">
           <span class="card-icon icon-red landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></span>
@@ -315,12 +315,12 @@
         <div class="landing-feature-card">
           <span class="card-icon icon-amber landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></span>
           <h3>Export to Excel</h3>
-          <p>One-click export from the Statement of Work Management, Revenue and Staffing tables whenever you need the numbers outside the app.</p>
+          <p>One-click export from the Statement of Work, Best Estimates and Customer tables whenever you need the numbers outside the app.</p>
         </div>
         <div class="landing-feature-card">
           <span class="card-icon icon-pink landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg></span>
           <h3>Selectable color themes</h3>
-          <p>Pick from six palettes in the topbar - your choice is remembered across sessions so the app always opens the way you left it.</p>
+          <p>Pick from six palettes in the topbar — including the navigation bar's own color — with your choice remembered across sessions so the app always opens the way you left it.</p>
         </div>
       </div>
     </section>
@@ -346,7 +346,7 @@
         </div>
         <div class="landing-tech-card">
           <div class="landing-tech-name">Chart.js</div>
-          <div class="landing-tech-desc">Powers the revenue trend line chart and the resource breakdown pie charts.</div>
+          <div class="landing-tech-desc">Powers the resource breakdown pie chart on the Dashboard.</div>
         </div>
         <div class="landing-tech-card">
           <div class="landing-tech-name">run.bat / run.sh</div>
@@ -373,15 +373,15 @@
         </li>
         <li>
           <h3>Add milestones and staff it</h3>
-          <p>Break the SOW into milestones, then assign employees to it from the <strong>Staffing</strong> page with their band, type and location.</p>
+          <p>Break the SOW into milestones from its detail page, then assign employees to it — with their band, type and location — from <strong>Best Estimates &rarr; Time and Material</strong>.</p>
         </li>
         <li>
           <h3>Track monthly revenue</h3>
-          <p>Log monthly Projections for each SOW, month by month, from <strong>Revenue Management</strong>.</p>
+          <p>For Managed Services SOWs, log monthly Projections from <strong>Best Estimates &rarr; Managed Services</strong>; Time and Material projections are calculated automatically from billing hours, holidays and leave.</p>
         </li>
         <li>
           <h3>Watch it on the Dashboard</h3>
-          <p>KPIs, revenue trends, expiring SOWs and resource allocation update automatically as you go — nothing to refresh or recalculate by hand.</p>
+          <p>KPIs, SOW status, expiring SOWs and resource allocation update automatically as you go — nothing to refresh or recalculate by hand.</p>
         </li>
       </ol>
     </section>
@@ -400,6 +400,7 @@
         <option value="">All</option>
       </select>
     </div>
+    <p class="page-header-desc dash-header-desc">A live snapshot of your SOW portfolio &ndash; customers, active SOWs, staffing, revenue and what's expiring soon, all in one place.</p>
 
     <div class="dash-circle-row">
       <div class="dash-circle-tile circle-indigo">
@@ -476,7 +477,10 @@
 
   <!-- SOWS LIST -->
   <section id="tab-sows" class="tab-panel">
-    <div id="alertBanner" class="alert-banner" hidden></div>
+    <div class="page-header">
+      <h2 class="page-header-title">Statement of Work</h2>
+      <p class="page-header-desc">Create and manage every SOW &ndash; track status, milestones, invoices and key documents, and see what's expiring soon.</p>
+    </div>
     <div class="stat-row" id="sowStatRow">
       <div class="stat-section">
         <div class="stat-section-label">SoW, TCV &amp; ACV</div>
@@ -542,21 +546,21 @@
             <th colspan="14" class="group-header">Statement of Work Details</th>
             <th colspan="4" class="group-header group-divider">BTP Information</th>
             <th colspan="3" class="group-header group-divider">Reference Documents</th>
-            <th colspan="1" class="group-header group-divider">Additional Information</th>
+            <th rowspan="2" class="group-divider">Additional Information</th>
           </tr>
           <tr>
             <th>Opportunity ID</th><th>Opportunity Type</th><th>Statement of Work</th>
             <th class="sortable-th" data-sort-key="customer_name">Customer Name<span class="sort-arrow"></span></th><th>Purchase Order #</th>
             <th class="sortable-th" data-sort-key="start_date">Start date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="end_date">End date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="total_value">TCV (USD)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="duration_months">Duration (Months)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="acv">ACV (USD)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="gm_percent">GM %<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="status">Status<span class="sort-arrow"></span></th>
             <th class="sortable-th" data-sort-key="billing_model_name">Billing model<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="operating_model_name">Operating model<span class="sort-arrow"></span></th>
-            <th class="group-divider">Customer Code</th><th>Project Title</th><th>Statement of Work Code</th><th>Project Code</th>
+            <th class="group-divider">Customer Code</th><th>Project Title</th><th>Contract Code</th><th>Project Code</th>
             <th class="group-divider">Statement of Work</th><th>Purchase Order</th><th>Deal Sheet</th>
-            <th class="group-divider">Additional information</th>
           </tr>
         </thead>
         <tbody id="sowTableBody"></tbody>
       </table>
     </div>
+    <div id="alertBanner" class="alert-banner" hidden></div>
   </section>
 
   <!-- SOW DETAIL -->
@@ -570,23 +574,40 @@
 
   <!-- CUSTOMER MANAGEMENT (Management) -->
   <section id="tab-customers" class="tab-panel">
+    <div class="page-header">
+      <h2 class="page-header-title">Customer</h2>
+      <p class="page-header-desc">Maintain your customer master list &ndash; codes, names, delivery and sales contacts, industry and headquarters &ndash; used across Statement of Work, Revenue Management and Staffing.</p>
+    </div>
     <div class="toolbar">
       <input id="customerSearchInput" type="search" placeholder="Search customer code or name..." />
+      <select id="custDeliveryDirectorFilter">
+        <option value="">All delivery directors</option>
+      </select>
+      <select id="custDeliveryHeadFilter">
+        <option value="">All delivery heads</option>
+      </select>
+      <select id="custClientPartnerFilter">
+        <option value="">All client partners</option>
+      </select>
+      <select id="custSalesHeadFilter">
+        <option value="">All sales heads</option>
+      </select>
       <button id="exportCustomersBtn" type="button" class="ghost-btn">
         <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         Export to Excel
       </button>
       <button id="newCustomerBtn" class="primary-btn">
         <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        New Customer
+        Add Customer
       </button>
     </div>
     <div class="table-scroll">
       <table class="sow-table">
         <thead>
           <tr>
-            <th>Actions</th><th>Sl. No</th><th>Customer code</th><th>Customer name</th><th>Client partner</th>
-            <th>Delivery director</th><th>Industry</th><th>Headquarters</th><th>Geo</th>
+            <th>Actions</th><th>Sl. No</th><th>Customer code</th><th>Customer name</th>
+            <th>Delivery director</th><th>Delivery head</th><th>Client partner</th><th>Sales head</th>
+            <th>Industry</th><th>Headquarters</th><th>Geo</th>
           </tr>
         </thead>
         <tbody id="customerTableBody"></tbody>
@@ -596,9 +617,12 @@
 
   <!-- CUSTOMER CONFIGURATION: Billing Hours -->
   <section id="tab-config-billing-hours" class="tab-panel">
+    <div class="page-header">
+      <h2 class="page-header-title">Billing Hours</h2>
+      <p class="page-header-desc">Set standard billing hours per day by customer and location (Onsite, Offshore, Nearshore), used to calculate Time and Material projections.</p>
+    </div>
     <div class="list-card config-card">
       <div class="toolbar">
-        <h3><span class="card-icon icon-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span>Billing Hours</h3>
         <button id="newBillingHoursBtn" class="primary-btn">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           Add Billing Hours
@@ -641,9 +665,12 @@
 
   <!-- CUSTOMER CONFIGURATION: Holiday Calendar -->
   <section id="tab-config-holidays" class="tab-panel">
+    <div class="page-header">
+      <h2 class="page-header-title">Holiday Calendar</h2>
+      <p class="page-header-desc">Maintain holiday dates by customer and location, used alongside Billing Hours to calculate accurate Time and Material projections.</p>
+    </div>
     <div class="list-card config-card">
       <div class="toolbar">
-        <h3><span class="card-icon icon-rose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg></span>Holiday Calendar</h3>
         <select id="holidayCustomerFilter">
           <option value="">All customers</option>
         </select>
@@ -669,9 +696,12 @@
 
   <!-- CONFIGURATION: Leave -->
   <section id="tab-config-leaves" class="tab-panel">
+    <div class="page-header">
+      <h2 class="page-header-title">Resource and Leave</h2>
+      <p class="page-header-desc">Record monthly leave days by customer and employee, used to adjust Time and Material projections for time off.</p>
+    </div>
     <div class="list-card config-card">
       <div class="toolbar">
-        <h3><span class="card-icon icon-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M3 10h18"></path><path d="M9 16l2 2 4-4"></path></svg></span>Leave</h3>
         <a id="leaveTemplateLink" class="template-link" href="/api/leaves/import-template">Download template</a>
         <button id="importLeaveBtn" type="button" class="ghost-btn">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
@@ -710,15 +740,18 @@
 
   <!-- CONFIGURATION: Locations -->
   <section id="tab-config-locations" class="tab-panel">
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <h3><span class="card-icon icon-pink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></span>Locations</h3>
-        <!-- No "Add Location" button - Locations is now a fixed three-value
-             list (Onsite/Offshore/Nearshore), seeded by DEFAULT_LOCATIONS in
-             db.py, per explicit instruction. Existing rows can still have
-             their Location details edited (see lockNameOnEdit in
-             makeInlineListManager in app.js). -->
-      </div>
+    <div class="page-header">
+      <h2 class="page-header-title">Locations</h2>
+      <p class="page-header-desc">The fixed list of delivery locations &ndash; Onsite, Offshore and Nearshore &ndash; used across Staffing, Billing Hours and Holiday Calendar.</p>
+    </div>
+    <div class="toolbar">
+      <!-- No "Add Location" button - Locations is now a fixed three-value
+           list (Onsite/Offshore/Nearshore), seeded by DEFAULT_LOCATIONS in
+           db.py, per explicit instruction. Existing rows can still have
+           their Location details edited (see lockNameOnEdit in
+           makeInlineListManager in app.js). -->
+    </div>
+    <div class="config-card">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Location</th><th>Location details</th></tr></thead>
         <tbody id="locationTableBody"></tbody>
@@ -728,14 +761,17 @@
 
   <!-- CONFIGURATION: Billing Models -->
   <section id="tab-config-billing-models" class="tab-panel">
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <h3><span class="card-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg></span>Billing Models</h3>
-        <button id="newBillingModelBtn" class="primary-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add Billing Model
-        </button>
-      </div>
+    <div class="page-header">
+      <h2 class="page-header-title">Billing Models</h2>
+      <p class="page-header-desc">Maintain the billing model options available when creating a Statement of Work.</p>
+    </div>
+    <div class="toolbar">
+      <button id="newBillingModelBtn" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Billing Model
+      </button>
+    </div>
+    <div class="config-card">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Billing model</th><th>Billing model description</th></tr></thead>
         <tbody id="billingModelTableBody"></tbody>
@@ -745,14 +781,17 @@
 
   <!-- CONFIGURATION: Operating Models -->
   <section id="tab-config-operating-models" class="tab-panel">
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <h3><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg></span>Operating Models</h3>
-        <button id="newOperatingModelBtn" class="primary-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add Operating Model
-        </button>
-      </div>
+    <div class="page-header">
+      <h2 class="page-header-title">Operating Models</h2>
+      <p class="page-header-desc">Maintain the operating model options available when creating a Statement of Work.</p>
+    </div>
+    <div class="toolbar">
+      <button id="newOperatingModelBtn" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Operating Model
+      </button>
+    </div>
+    <div class="config-card">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Operating model</th><th>Operating model details</th></tr></thead>
         <tbody id="operatingModelTableBody"></tbody>
@@ -762,14 +801,17 @@
 
   <!-- CONFIGURATION: SOW Status -->
   <section id="tab-config-statuses" class="tab-panel">
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <h3><span class="card-icon icon-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span>SOW Status</h3>
-        <button id="newStatusBtn" class="primary-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add Status
-        </button>
-      </div>
+    <div class="page-header">
+      <h2 class="page-header-title">SOW Status</h2>
+      <p class="page-header-desc">Maintain the status options available for a Statement of Work.</p>
+    </div>
+    <div class="toolbar">
+      <button id="newStatusBtn" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Status
+      </button>
+    </div>
+    <div class="config-card">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Status</th><th>SOW status details</th></tr></thead>
         <tbody id="statusTableBody"></tbody>
@@ -779,14 +821,17 @@
 
   <!-- CONFIGURATION: Employee Type -->
   <section id="tab-config-employee-types" class="tab-panel">
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>Employee Type</h3>
-        <button id="newEmployeeTypeBtn" class="primary-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add Employee Type
-        </button>
-      </div>
+    <div class="page-header">
+      <h2 class="page-header-title">Employee Type</h2>
+      <p class="page-header-desc">Maintain the employee type options used across Staffing, Resource and Leave, and Time and Material.</p>
+    </div>
+    <div class="toolbar">
+      <button id="newEmployeeTypeBtn" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Employee Type
+      </button>
+    </div>
+    <div class="config-card">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Employee type</th><th>Employee type details</th></tr></thead>
         <tbody id="employeeTypeTableBody"></tbody>
@@ -796,14 +841,17 @@
 
   <!-- CONFIGURATION: Employee Band -->
   <section id="tab-config-bands" class="tab-panel">
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <h3><span class="card-icon icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg></span>Employee Band</h3>
-        <button id="newBandBtn" class="primary-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add Employee Band
-        </button>
-      </div>
+    <div class="page-header">
+      <h2 class="page-header-title">Employee Band</h2>
+      <p class="page-header-desc">Maintain the employee band options used across Staffing and Resource and Leave.</p>
+    </div>
+    <div class="toolbar">
+      <button id="newBandBtn" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Employee Band
+      </button>
+    </div>
+    <div class="config-card">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Employee Band</th><th>Employee Band details</th></tr></thead>
         <tbody id="bandTableBody"></tbody>
@@ -813,14 +861,17 @@
 
   <!-- CONFIGURATION: Opportunity Type -->
   <section id="tab-config-opportunity-types" class="tab-panel">
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <h3><span class="card-icon icon-violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg></span>Opportunity Type</h3>
-        <button id="newOpportunityTypeBtn" class="primary-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add Opportunity Type
-        </button>
-      </div>
+    <div class="page-header">
+      <h2 class="page-header-title">Opportunity Type</h2>
+      <p class="page-header-desc">Maintain the opportunity type options available when creating a Statement of Work.</p>
+    </div>
+    <div class="toolbar">
+      <button id="newOpportunityTypeBtn" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Opportunity Type
+      </button>
+    </div>
+    <div class="config-card">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Opportunity Type</th><th>Description</th></tr></thead>
         <tbody id="opportunityTypeTableBody"></tbody>
@@ -830,17 +881,20 @@
 
   <!-- CONFIGURATION: Revenue Type -->
   <section id="tab-config-revenue-types" class="tab-panel">
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <h3><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span>Revenue Type</h3>
-        <!-- Disabled, not removed - Revenue Type is a fixed default list
-             (seeded by DEFAULT_REVENUE_TYPES in db.py) but unlike Locations
-             the button stays visible in the DOM, per explicit instruction. -->
-        <button id="newRevenueTypeBtn" class="primary-btn" disabled title="Revenue types are fixed and cannot be added">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add Revenue Type
-        </button>
-      </div>
+    <div class="page-header">
+      <h2 class="page-header-title">Revenue Type</h2>
+      <p class="page-header-desc">Maintain the revenue type options used across Statement of Work, Revenue Management and Time and Material.</p>
+    </div>
+    <div class="toolbar">
+      <!-- Disabled, not removed - Revenue Type is a fixed default list
+           (seeded by DEFAULT_REVENUE_TYPES in db.py) but unlike Locations
+           the button stays visible in the DOM, per explicit instruction. -->
+      <button id="newRevenueTypeBtn" class="primary-btn" disabled title="Revenue types are fixed and cannot be added">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Revenue Type
+      </button>
+    </div>
+    <div class="config-card">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Revenue type</th><th>Revenue type details</th></tr></thead>
         <tbody id="revenueTypeTableBody"></tbody>
@@ -850,14 +904,17 @@
 
   <!-- CONFIGURATION: Practice -->
   <section id="tab-config-practices" class="tab-panel">
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <h3><span class="card-icon icon-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg></span>Practice</h3>
-        <button id="newPracticeBtn" class="primary-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add Practice
-        </button>
-      </div>
+    <div class="page-header">
+      <h2 class="page-header-title">Practice</h2>
+      <p class="page-header-desc">Maintain the practice options used across Statement of Work, Revenue Management and Time and Material.</p>
+    </div>
+    <div class="toolbar">
+      <button id="newPracticeBtn" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Practice
+      </button>
+    </div>
+    <div class="config-card">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Practice</th><th>Practice details</th></tr></thead>
         <tbody id="practiceTableBody"></tbody>
@@ -872,9 +929,11 @@
        just plain <a> links straight to each import-template endpoint
        (same pattern as #tmTemplateLink above). -->
   <section id="tab-downloads" class="tab-panel">
+    <div class="page-header">
+      <h2 class="page-header-title">Download Center</h2>
+    </div>
     <div class="list-card config-card">
       <div class="toolbar">
-        <h3><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></span>Download Center</h3>
       </div>
       <p class="download-center-intro">Import templates for bulk-uploading data into Trakerz. Fill in Sheet 1 using the exact column headers (Sheet 2 lists the exact names already configured in your data), then use that screen's own "Import from Excel" to upload it back.</p>
       <div class="two-col-row download-center-grid">
@@ -895,8 +954,8 @@
           </a>
         </div>
         <div class="landing-tech-card download-center-card">
-          <div class="landing-tech-name">Configuration | Leave</div>
-          <div class="landing-tech-desc">Bulk-add employee leave records on the Configuration &gt; Leave grid.</div>
+          <div class="landing-tech-name">Configuration | Resource and Leave</div>
+          <div class="landing-tech-desc">Bulk-add employee leave records on the Configuration &gt; Resource and Leave grid.</div>
           <a class="primary-btn download-center-btn" href="/api/leaves/import-template">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             Download Template
@@ -947,12 +1006,10 @@
        month now that Invoiced - and the Projections/Invoiced view-mode
        toggle it required - has been removed, front end and back end). -->
   <section id="tab-revenue" class="tab-panel category-managed-services">
-    <h3 class="revenue-section-title">
-      <span class="card-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span>
-      <span id="revenueSectionHeading">Revenue Summary (SoW Level)</span>
-      <span class="section-subtitle" id="revenueSectionSubtitle">Add, edit or delete monthly projections per SOW</span>
-    </h3>
-
+    <div class="page-header">
+      <h2 class="page-header-title" id="revenuePageHeaderTitle">Managed Services</h2>
+      <p class="page-header-desc">Log and review monthly revenue projections &ndash; by Statement of Work for Managed Services, or by employee assignment for Time and Material.</p>
+    </div>
     <div class="rev-category-section ms-section">
       <div class="toolbar">
         <select id="revenueCustomerFilter">
@@ -979,7 +1036,6 @@
            Projections for that month across every row currently visible
            below, per the Customer/Billing Model filters above. Built by
            renderRevenueTypeSummaryTable() in app.js. -->
-      <h4 class="revenue-subsection-title">Revenue Type Summary</h4>
       <div class="table-scroll revenue-type-summary-scroll">
         <table class="sow-table revenue-type-summary-table">
           <thead>
@@ -1001,7 +1057,6 @@
            are back per explicit instruction (previously removed here, kept
            on Time and Material's own toolbar below the whole time). -->
       <div class="toolbar subsection-toolbar">
-        <h4 class="revenue-subsection-title">SoW Level Detail</h4>
         <a id="revenueSowsTemplateLink" class="template-link" href="/api/revenue/sows/import-template">Download template</a>
         <button id="importRevenueSowsBtn" type="button" class="ghost-btn">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
@@ -1047,11 +1102,8 @@
 
     <!-- Time and Material: one row per employee assignment to a Contract
          (not per SOW), with its own rate card/discount and the calculated
-         Discounted Rate Card column. Opportunity ID, Purchase Order (#) and
-         Contract Code are read-only always - they're the linked SOW's own
-         fields (see buildTmAssignmentRow's refreshSowDerivedFields in
-         app.js), not editable per assignment. Hidden/shown via .tm-section,
-         same as .ms-section above, by setRevenueCategory() in app.js. -->
+         Discounted Rate Card column. Hidden/shown via .tm-section, same as
+         .ms-section above, by setRevenueCategory() in app.js. -->
     <div class="rev-category-section tm-section" hidden>
       <div class="toolbar">
         <select id="tmCustomerFilter">
@@ -1076,7 +1128,6 @@
         </button>
       </div>
 
-      <h4 class="revenue-subsection-title">Revenue Type Summary</h4>
       <div class="table-scroll revenue-type-summary-scroll">
         <table class="sow-table revenue-type-summary-table">
           <thead>
@@ -1098,7 +1149,6 @@
            .toolbar h4 in style.css, mirroring the .toolbar h3 pattern the
            Customer Configuration pages use). -->
       <div class="toolbar subsection-toolbar">
-        <h4 class="revenue-subsection-title">Assignment Level Detail</h4>
         <a id="tmTemplateLink" class="template-link" href="/api/tm/assignments/import-template">Download template</a>
         <button id="importTmBtn" type="button" class="ghost-btn">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
@@ -1119,16 +1169,13 @@
               <th class="rev-leading-th">Revenue Type</th>
               <th class="rev-leading-th">Customer Name</th>
               <th class="rev-leading-th">Statement of Work</th>
-              <th class="rev-leading-th">WBS ID</th>
-              <th class="rev-leading-th">Opportunity ID</th>
-              <th class="rev-leading-th">Purchase Order (#)</th>
-              <th class="rev-leading-th">Contract Code</th>
               <th class="rev-leading-th">Employee ID</th>
               <th class="rev-leading-th">Employee Name</th>
               <th class="rev-leading-th">Location</th>
               <th class="rev-leading-th">Billing Hours per day</th>
               <th class="rev-leading-th">Practice</th>
               <th class="rev-leading-th">SoW Role</th>
+              <th class="rev-leading-th">WBS ID</th>
               <th class="rev-leading-th">Rate Card</th>
               <th class="rev-leading-th">Discount (%)</th>
               <th class="rev-leading-th">Discounted Rate Card</th>
@@ -1243,7 +1290,7 @@
         <label>Project Title<input id="f_project_title" /></label>
       </div>
       <div class="two-col">
-        <label>Statement of Work Code<input id="f_contract_code" /></label>
+        <label>Contract Code<input id="f_contract_code" /></label>
         <label>Project Code<input id="f_project_code" /></label>
       </div>
 
@@ -1378,6 +1425,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=97"></script>
+<script src="app.js?v=103"></script>
 </body>
 </html>
