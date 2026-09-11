@@ -1357,20 +1357,36 @@ def export_revenue_sows(fiscal_year: Optional[int] = None):
 @app.get("/api/revenue/sows/import-template")
 def revenue_sows_import_template():
     """Deliberately narrower than export_revenue_sows() - per explicit
-    request, Sheet 1 carries only Revenue Type, Customer Name, Practice and
-    the 12 fiscal months (Apr-Mar); Contract Title is no longer one of
-    these columns, so a row is matched to a SOW by Customer Name alone (see
-    import_revenue_sows) - that only works while the customer has exactly
-    one SOW, otherwise the row is rejected asking to disambiguate. Revenue
-    Type and Practice are read-only here (derived from the SOW itself, same
-    as before) and ignored on import - they're shown for context, not
-    applied to the SOW. A "contract title" column is still honored if
-    present (older template/export round-tripped back in), which resolves
-    the SOW directly and skips the customer-only ambiguity check."""
-    headers = ["Revenue Type", "Customer Name", "Practice"]
+    request, Sheet 1 carries only Revenue Type, Customer Name, Practice,
+    Onsite #/Offshore #/Nearshore # and the 12 fiscal months (Apr-Mar);
+    Contract Title is no longer one of these columns, so a row is matched
+    to a SOW by Customer Name alone (see import_revenue_sows) - that only
+    works while the customer has exactly one SOW, otherwise the row is
+    rejected asking to disambiguate. Revenue Type, Practice and the three
+    location-count columns are all read-only here (derived from the SOW/its
+    Time and Material assignments, same as the main grid's own read-only
+    columns - see _tm_location_counts_by_sow) and ignored on import - shown
+    for context, not applied to the SOW. A "contract title" column is still
+    honored if present (older template/export round-tripped back in), which
+    resolves the SOW directly and skips the customer-only ambiguity check.
+    Sheet 2 is a plain reference list of the Revenue Types, Customers and
+    Practices already configured, so whoever is filling in Sheet 1 knows
+    which exact spellings will match on import (see _lookup_id_by_name/
+    _lookup_customer_id_by_name - both are case-insensitive but still need
+    an exact name match)."""
+    headers = ["Revenue Type", "Customer Name", "Practice", "Onsite #", "Offshore #", "Nearshore #"]
     headers.extend(FISCAL_MONTH_LABELS)
-    widths = [18, 22, 16] + [12] * (len(headers) - 3)
+    widths = [18, 22, 16, 12, 12, 12] + [12] * (len(headers) - 6)
     wb = _build_workbook("Revenue SoW Level Template", headers, [], widths=widths)
+    with db.get_db() as conn:
+        revenue_types = [r["name"] for r in conn.execute("SELECT name FROM revenue_types ORDER BY name COLLATE NOCASE").fetchall()]
+        customer_names = [r["customer_name"] for r in conn.execute("SELECT customer_name FROM customers ORDER BY customer_name COLLATE NOCASE").fetchall()]
+        practice_names = [r["name"] for r in conn.execute("SELECT name FROM practices ORDER BY name COLLATE NOCASE").fetchall()]
+    _add_reference_sheet(wb, "Reference Lists", {
+        "Available Revenue Types": revenue_types,
+        "Available Customer Name": customer_names,
+        "Available Practice": practice_names,
+    })
     return _xlsx_response(wb, "trakerz_revenue_sow_level_template.xlsx")
 
 
@@ -1880,11 +1896,11 @@ def tm_assignments_import_template():
     (SOW) is intentionally not one of these columns per explicit request -
     an imported assignment lands unlinked to any SOW (same as leaving it
     blank always did) and can still be tied to one afterward from the grid.
-    Sheet 2 is a plain reference list of the Revenue Types and Customers
-    already configured, so whoever is filling in Sheet 1 knows which exact
-    spellings will match on import (see _lookup_id_by_name/
-    _lookup_customer_id_by_name - both are case-insensitive but still need
-    an exact name match)."""
+    Sheet 2 is a plain reference list of the Revenue Types, Customers,
+    Practices and Locations already configured, so whoever is filling in
+    Sheet 1 knows which exact spellings will match on import (see
+    _lookup_id_by_name/_lookup_customer_id_by_name - both are
+    case-insensitive but still need an exact name match)."""
     headers = ["Revenue Type", "Customer Name", "Employee ID", "Employee Name", "Location", "Practice",
                "SoW Role", "WBS ID", "Rate Card", "Discount (%)", "Start Date (dd-mmm-yyyy)", "End Date (dd-mmm-yyyy)"]
     date_cols = (11, 12)
@@ -1893,9 +1909,13 @@ def tm_assignments_import_template():
     with db.get_db() as conn:
         revenue_types = [r["name"] for r in conn.execute("SELECT name FROM revenue_types ORDER BY name COLLATE NOCASE").fetchall()]
         customer_names = [r["customer_name"] for r in conn.execute("SELECT customer_name FROM customers ORDER BY customer_name COLLATE NOCASE").fetchall()]
+        practice_names = [r["name"] for r in conn.execute("SELECT name FROM practices ORDER BY name COLLATE NOCASE").fetchall()]
+        location_names = [r["name"] for r in conn.execute("SELECT name FROM locations ORDER BY name COLLATE NOCASE").fetchall()]
     _add_reference_sheet(wb, "Reference Lists", {
         "Available Revenue Types": revenue_types,
         "Available Customer Name": customer_names,
+        "Available Practice": practice_names,
+        "Available Location": location_names,
     })
     return _xlsx_response(wb, "trakerz_time_material_template.xlsx")
 
