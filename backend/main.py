@@ -171,6 +171,16 @@ class RevenueSowIn(BaseModel):
     fiscal_year: int
 
 
+# Onsite #/Offshore #/Nearshore # on the Managed Services grid - directly
+# user-editable per (SOW, fiscal year), see upsert_revenue_sow_location_counts.
+class RevenueSowLocationCountsIn(BaseModel):
+    sow_id: int
+    fiscal_year: int
+    onsite_count: int = 0
+    offshore_count: int = 0
+    nearshore_count: int = 0
+
+
 # Time and Material tracking (Financial > Projections > Time and
 # Material) - one row per employee assignment to a Contract, not per SOW.
 # See tm_assignments/tm_assignment_fiscal_years in db.py.
@@ -1093,42 +1103,23 @@ def _fiscal_months(entries: Dict[int, dict]) -> List[dict]:
     return months
 
 
-def _tm_location_counts_by_sow(conn, fiscal_year: int) -> Dict[int, Dict[str, int]]:
-    """Onsite #/Offshore #/Nearshore # columns on the Managed Services grid
-    (see list_revenue_sows) - how many Time and Material assignments
-    (tm_assignments, registered for this fiscal year via
-    tm_assignment_fiscal_years same as the T&M grid itself) are tied to each
-    SOW, broken down by Location. An assignment isn't restricted to SOWs
-    billed as Time and Material (nothing in the schema enforces that), so
-    this also picks up staffing recorded against a Managed Services SOW."""
-    rows = conn.execute(
-        """SELECT a.sow_id, l.name AS location_name, COUNT(*) AS cnt
-           FROM tm_assignments a
-           JOIN tm_assignment_fiscal_years fy ON fy.assignment_id = a.id
-           LEFT JOIN locations l ON l.id = a.location_id
-           WHERE fy.fiscal_year = ? AND a.sow_id IS NOT NULL
-           GROUP BY a.sow_id, l.name""",
-        (fiscal_year,),
-    ).fetchall()
-    by_sow: Dict[int, Dict[str, int]] = {}
-    for r in rows:
-        by_sow.setdefault(r["sow_id"], {})[r["location_name"] or ""] = r["cnt"]
-    return by_sow
-
-
 @app.get("/api/revenue/sows")
 def list_revenue_sows(fiscal_year: Optional[int] = None):
     """SoW Level grid: one row per SOW explicitly added to revenue tracking
     for this fiscal year (see POST /api/revenue/sows), each with all 12
     fiscal months (Apr-Mar) - months with no entry yet default to 0 so the
-    grid is ready to type into immediately after a row is added."""
+    grid is ready to type into immediately after a row is added. Onsite #/
+    Offshore #/Nearshore # are read straight off the revenue_sow_accounts
+    row - directly user-editable (see upsert_revenue_sow_location_counts),
+    not derived from anything else."""
     fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
     with db.get_db() as conn:
         tracked = conn.execute(
             """SELECT s.id AS sow_id, s.title AS sow_title, s.customer_id, c.customer_name,
                       s.total_value, s.duration_months, bm.name AS billing_model_name,
                       s.revenue_type_id, rt.name AS revenue_type_name,
-                      s.practice_id, p.name AS practice_name
+                      s.practice_id, p.name AS practice_name,
+                      ra.onsite_count, ra.offshore_count, ra.nearshore_count
                FROM revenue_sow_accounts ra
                JOIN sows s ON s.id = ra.sow_id
                LEFT JOIN customers c ON c.id = s.customer_id
@@ -1150,8 +1141,6 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
                 "projection": e["projection"],
             }
 
-        location_counts = _tm_location_counts_by_sow(conn, fy)
-
         rows = [
             {
                 "sow_id": s["sow_id"],
@@ -1166,9 +1155,9 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
                 "revenue_type_name": s["revenue_type_name"],
                 "practice_id": s["practice_id"],
                 "practice_name": s["practice_name"],
-                "onsite_count": location_counts.get(s["sow_id"], {}).get("Onsite", 0),
-                "offshore_count": location_counts.get(s["sow_id"], {}).get("Offshore", 0),
-                "nearshore_count": location_counts.get(s["sow_id"], {}).get("Nearshore", 0),
+                "onsite_count": s["onsite_count"] or 0,
+                "offshore_count": s["offshore_count"] or 0,
+                "nearshore_count": s["nearshore_count"] or 0,
                 "months": _fiscal_months(by_sow.get(s["sow_id"], {})),
             }
             for s in tracked
@@ -1363,10 +1352,11 @@ def revenue_sows_import_template():
     to a SOW by Customer Name alone (see import_revenue_sows) - that only
     works while the customer has exactly one SOW, otherwise the row is
     rejected asking to disambiguate. Revenue Type, Practice and the three
-    location-count columns are all read-only here (derived from the SOW/its
-    Time and Material assignments, same as the main grid's own read-only
-    columns - see _tm_location_counts_by_sow) and ignored on import - shown
-    for context, not applied to the SOW. A "contract title" column is still
+    location-count columns are shown here for context only and still
+    ignored on import (the main grid's own values aren't touched by an
+    import even though Onsite #/Offshore #/Nearshore # are directly
+    user-editable there - see upsert_revenue_sow_location_counts). A
+    "contract title" column is still
     honored if present (older template/export round-tripped back in), which
     resolves the SOW directly and skips the customer-only ambiguity check.
     Sheet 2 is a plain reference list of the Revenue Types, Customers and
@@ -1512,6 +1502,36 @@ def upsert_revenue_cell(cell: RevenueCellIn):
             (cell.sow_id, cell.fiscal_year, cell.fiscal_month),
         ).fetchone()
         return _row_to_dict(row)
+
+
+@app.put("/api/revenue/sows/location-counts")
+def upsert_revenue_sow_location_counts(payload: RevenueSowLocationCountsIn):
+    """Upsert Onsite #/Offshore #/Nearshore # for one (SOW, fiscal year) row
+    on the Managed Services grid - directly user-editable per explicit
+    request (previously a read-only count of Time and Material assignments
+    tied to the SOW). Self-sufficient INSERT OR IGNORE first, same as
+    upsert_revenue_cell just above, so this can safely run concurrently with
+    (or before) the month-cell PUTs and classification PUT that a single
+    Save/Add Entry click fires together."""
+    with db.get_db() as conn:
+        if not conn.execute("SELECT 1 FROM sows WHERE id = ?", (payload.sow_id,)).fetchone():
+            raise HTTPException(status_code=400, detail="Selected SOW does not exist")
+        conn.execute(
+            "INSERT OR IGNORE INTO revenue_sow_accounts (sow_id, fiscal_year) VALUES (?, ?)",
+            (payload.sow_id, payload.fiscal_year),
+        )
+        conn.execute(
+            """UPDATE revenue_sow_accounts SET onsite_count=?, offshore_count=?, nearshore_count=?
+               WHERE sow_id=? AND fiscal_year=?""",
+            (payload.onsite_count, payload.offshore_count, payload.nearshore_count, payload.sow_id, payload.fiscal_year),
+        )
+        return {
+            "sow_id": payload.sow_id,
+            "fiscal_year": payload.fiscal_year,
+            "onsite_count": payload.onsite_count,
+            "offshore_count": payload.offshore_count,
+            "nearshore_count": payload.nearshore_count,
+        }
 
 
 # ---------- Time and Material tracking (Financial > Projections > Time and Material) ----------

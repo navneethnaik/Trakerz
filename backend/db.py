@@ -259,10 +259,15 @@ CREATE TABLE IF NOT EXISTS revenue_entries (
 -- Which (SOW, fiscal year) rows are explicitly tracked on the SOW-level
 -- Revenue Management grid - like SOWs/Resources, rows must be added on
 -- purpose and can be removed, rather than every SOW auto-appearing.
+-- Onsite #/Offshore #/Nearshore # are directly user-editable per (SOW,
+-- fiscal year) - see PUT /api/revenue/sows/location-counts in main.py.
 CREATE TABLE IF NOT EXISTS revenue_sow_accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sow_id INTEGER NOT NULL REFERENCES sows(id) ON DELETE CASCADE,
     fiscal_year INTEGER NOT NULL,
+    onsite_count INTEGER NOT NULL DEFAULT 0,
+    offshore_count INTEGER NOT NULL DEFAULT 0,
+    nearshore_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(sow_id, fiscal_year)
 );
@@ -594,6 +599,37 @@ def _migrate(conn):
                 (customer_id, holiday_date, entry["onsite"], entry["offshore"], entry["nearshore"],
                  "; ".join(entry["details"]) or None),
             )
+
+    # Onsite #/Offshore #/Nearshore # on the Managed Services grid (Best
+    # Estimates > Managed Services) moved from a read-only count of Time and
+    # Material assignments tied to the SOW to directly editable numbers per
+    # (SOW, fiscal year) - per explicit request. Backfill the new columns
+    # from whatever the old computed count was for each already-tracked row
+    # (the same join _tm_location_counts_by_sow in main.py used to do), so
+    # existing data doesn't silently reset to 0 the next time someone opens
+    # the grid.
+    if _table_exists(conn, "revenue_sow_accounts") and not _column_exists(conn, "revenue_sow_accounts", "onsite_count"):
+        conn.execute("ALTER TABLE revenue_sow_accounts ADD COLUMN onsite_count INTEGER NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE revenue_sow_accounts ADD COLUMN offshore_count INTEGER NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE revenue_sow_accounts ADD COLUMN nearshore_count INTEGER NOT NULL DEFAULT 0")
+        if _table_exists(conn, "tm_assignments") and _table_exists(conn, "tm_assignment_fiscal_years"):
+            old_counts = conn.execute(
+                """SELECT ra.id AS account_id, l.name AS location_name, COUNT(a.id) AS cnt
+                   FROM revenue_sow_accounts ra
+                   JOIN tm_assignments a ON a.sow_id = ra.sow_id
+                   JOIN tm_assignment_fiscal_years fy ON fy.assignment_id = a.id AND fy.fiscal_year = ra.fiscal_year
+                   LEFT JOIN locations l ON l.id = a.location_id
+                   GROUP BY ra.id, l.name"""
+            ).fetchall()
+            by_account: dict = {}
+            for r in old_counts:
+                slug = (r["location_name"] or "").strip().lower()
+                by_account.setdefault(r["account_id"], {})[slug] = r["cnt"]
+            for account_id, counts in by_account.items():
+                conn.execute(
+                    "UPDATE revenue_sow_accounts SET onsite_count=?, offshore_count=?, nearshore_count=? WHERE id=?",
+                    (counts.get("onsite", 0), counts.get("offshore", 0), counts.get("nearshore", 0), account_id),
+                )
 
 
 DEFAULT_STATUSES = ["draft", "active", "completed", "expired", "cancelled"]

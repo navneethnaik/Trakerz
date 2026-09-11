@@ -3290,23 +3290,51 @@ function buildRevenueSowRow(r, editing) {
   cells += editing
     ? `<td><select class="rev-practice-select"></select></td>`
     : `<td>${escapeHtml(r.practice_name) || "—"}</td>`;
-  // Onsite #/Offshore #/Nearshore # are always read-only in both modes -
-  // server-computed headcounts (see _tm_location_counts_by_sow in main.py),
-  // same non-editable treatment as TCV/ACV just after them.
-  cells += `<td class="rev-tcv-cell">${r.onsite_count ?? 0}</td><td class="rev-tcv-cell">${r.offshore_count ?? 0}</td><td class="rev-tcv-cell">${r.nearshore_count ?? 0}</td>`;
+  // Onsite #/Offshore #/Nearshore # are directly user-editable per explicit
+  // request (previously always read-only, server-computed headcounts of
+  // Time and Material assignments tied to the SOW - see
+  // upsert_revenue_sow_location_counts in main.py, which now persists
+  // whatever's typed here).
+  cells += editing
+    ? `<td><input type="number" step="1" min="0" class="rev-cell rev-onsite-input" value="${r.onsite_count ?? 0}" /></td>
+       <td><input type="number" step="1" min="0" class="rev-cell rev-offshore-input" value="${r.offshore_count ?? 0}" /></td>
+       <td><input type="number" step="1" min="0" class="rev-cell rev-nearshore-input" value="${r.nearshore_count ?? 0}" /></td>`
+    : `<td class="rev-tcv-cell">${r.onsite_count ?? 0}</td><td class="rev-tcv-cell">${r.offshore_count ?? 0}</td><td class="rev-tcv-cell">${r.nearshore_count ?? 0}</td>`;
   cells += `<td class="rev-tcv-cell">${fmt(r.total_value)}</td><td class="rev-tcv-cell">${fmt(r.acv)}</td>`;
+  // Monthly Revenue is the SOW's own monthly run rate (TCV / Contract
+  // Duration (Months)) - the same "monthly_value" _compute_acv in main.py
+  // derives ACV from - always read-only, never varies month to month.
+  const monthlyRevenue = r.duration_months ? (r.total_value || 0) / r.duration_months : 0;
+  cells += `<td class="rev-tcv-cell">${fmt(monthlyRevenue)}</td>`;
+  // Total is always read-only (sum of the 12 months' Projections, Apr
+  // through Mar) - in editing mode it recomputes live as the month inputs
+  // change (see the rev-cell "input" wiring below), unlike Monthly Revenue/
+  // TCV/ACV just above which don't depend on the months at all.
+  const totalProjection = r.months.reduce((sum, m) => sum + (m.projection || 0), 0);
+  cells += `<td class="rev-tcv-cell rev-total-cell">${fmtPlain(totalProjection)}</td>`;
   // Alternating background per month (rev-band-a/rev-band-b) so adjacent
   // months are visually grouped and easy to tell apart - matches the same
   // classes on the header cells.
   r.months.forEach((m, i) => {
     const band = i % 2 === 0 ? "rev-band-a" : "rev-band-b";
     cells += editing
-      ? `<td class="${band}"><input type="number" step="0.01" class="rev-cell" data-fiscal-month="${m.fiscal_month}" data-field="projection" value="${m.projection}" /></td>`
+      ? `<td class="${band}"><input type="number" step="0.01" class="rev-cell rev-month-input" data-fiscal-month="${m.fiscal_month}" data-field="projection" value="${m.projection}" /></td>`
       : `<td class="rev-readonly-cell ${band}">${fmtPlain(m.projection)}</td>`;
   });
   tr.innerHTML = cells;
 
   if (editing) {
+    // Keep the Total cell live as the 12 month inputs change, not just after
+    // Save reloads the grid - same reasoning as ACV's live preview elsewhere
+    // in the app (e.g. wireSowRowFormulas).
+    const totalCell = tr.querySelector(".rev-total-cell");
+    const monthInputs = tr.querySelectorAll(".rev-month-input");
+    function refreshTotal() {
+      const sum = Array.from(monthInputs).reduce((acc, input) => acc + (parseFloat(input.value) || 0), 0);
+      totalCell.textContent = fmtPlain(sum);
+    }
+    monthInputs.forEach((input) => input.addEventListener("input", refreshTotal));
+
     const revenueTypeSelect = tr.querySelector(".rev-revenue-type-select");
     revenueTypeSelect.innerHTML = `<option value="">Select revenue type&hellip;</option>` +
       currentRevenueTypes.map((rt) => `<option value="${rt.id}">${escapeHtml(rt.name)}</option>`).join("");
@@ -3378,12 +3406,24 @@ async function saveRevenueRow(sowId, tr) {
     revenue_type_id: revenueTypeVal ? parseInt(revenueTypeVal, 10) : null,
     practice_id: practiceVal ? parseInt(practiceVal, 10) : null,
   };
+  // Onsite #/Offshore #/Nearshore # are directly editable now too (see
+  // buildRevenueSowRow) - saved via their own narrow upsert endpoint,
+  // same "one endpoint per Contract-vs-tracking-row concern" split as
+  // classificationPayload above.
+  const locationCountsPayload = {
+    sow_id: sowId,
+    fiscal_year: currentFiscalYear,
+    onsite_count: parseInt(tr.querySelector(".rev-onsite-input").value, 10) || 0,
+    offshore_count: parseInt(tr.querySelector(".rev-offshore-input").value, 10) || 0,
+    nearshore_count: parseInt(tr.querySelector(".rev-nearshore-input").value, 10) || 0,
+  };
   try {
     const responses = await Promise.all([
       ...payloads.map((payload) =>
         fetch(`${API}/revenue/sows`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
       ),
       fetch(`${API}/sows/${sowId}/classification`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(classificationPayload) }),
+      fetch(`${API}/revenue/sows/location-counts`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(locationCountsPayload) }),
     ]);
     const failed = responses.find((resp) => !resp.ok);
     if (failed) {
@@ -3529,15 +3569,16 @@ async function openRevenueEntryDraft(prefill = {}) {
     </td>
     <td class="draft-billing-model">&mdash;</td>
     <td><select class="draft-practice-select" disabled><option value="">Select practice&hellip;</option></select></td>
-    <!-- Onsite #/Offshore #/Nearshore # are computed from this SOW's Time
-         and Material assignments (see _tm_location_counts_by_sow) - nothing
-         to show yet for a draft row that hasn't been saved, so these stay
-         "—" until the grid reloads with the saved row's real counts. -->
-    <td class="rev-tcv-cell">&mdash;</td>
-    <td class="rev-tcv-cell">&mdash;</td>
-    <td class="rev-tcv-cell">&mdash;</td>
+    <!-- Onsite #/Offshore #/Nearshore # are directly user-editable (see
+         buildRevenueSowRow's own comment) - enabled from the start, same as
+         the month inputs below, independent of a SOW being picked. -->
+    <td><input type="number" step="1" min="0" class="rev-cell draft-onsite-input" value="0" /></td>
+    <td><input type="number" step="1" min="0" class="rev-cell draft-offshore-input" value="0" /></td>
+    <td><input type="number" step="1" min="0" class="rev-cell draft-nearshore-input" value="0" /></td>
     <td class="draft-tcv rev-tcv-cell">&mdash;</td>
     <td class="draft-acv rev-tcv-cell">&mdash;</td>
+    <td class="draft-monthly-revenue rev-tcv-cell">&mdash;</td>
+    <td class="rev-tcv-cell draft-total-cell">0.00</td>
     ${draftMonthCellsHtml(true)}
   `;
   tbody.insertBefore(tr, tbody.firstChild);
@@ -3546,6 +3587,7 @@ async function openRevenueEntryDraft(prefill = {}) {
   const sowSelect = tr.querySelector(".draft-sow-select");
   const tcvCell = tr.querySelector(".draft-tcv");
   const acvCell = tr.querySelector(".draft-acv");
+  const monthlyRevenueCell = tr.querySelector(".draft-monthly-revenue");
   const billingModelCell = tr.querySelector(".draft-billing-model");
   const revenueTypeSelect = tr.querySelector(".draft-revenue-type-select");
   const practiceSelect = tr.querySelector(".draft-practice-select");
@@ -3577,7 +3619,19 @@ async function openRevenueEntryDraft(prefill = {}) {
       const projInput = tr.querySelector(`.draft-projection-input[data-fiscal-month="${m.fiscal_month}"]`);
       if (projInput) projInput.value = m.projection;
     });
+    refreshDraftTotal();
   }
+  // Total is always read-only (sum of the 12 months' Projections) and, like
+  // buildRevenueSowRow's own editing-mode Total, recomputes live as the
+  // month inputs change - here that's true from the moment the draft row
+  // appears, since the month inputs are editable from the start too.
+  const draftTotalCell = tr.querySelector(".draft-total-cell");
+  function refreshDraftTotal() {
+    const inputs = tr.querySelectorAll(".draft-projection-input");
+    const sum = Array.from(inputs).reduce((acc, input) => acc + (parseFloat(input.value) || 0), 0);
+    draftTotalCell.textContent = fmtPlain(sum);
+  }
+  tr.querySelectorAll(".draft-projection-input").forEach((input) => input.addEventListener("input", refreshDraftTotal));
   fillDraftMonthsFromPrefill();
 
   accountSelect.addEventListener("change", () => {
@@ -3585,6 +3639,7 @@ async function openRevenueEntryDraft(prefill = {}) {
     saveBtn.disabled = true;
     tcvCell.textContent = "—";
     acvCell.textContent = "—";
+    monthlyRevenueCell.textContent = "—";
     billingModelCell.textContent = "—";
     revenueTypeSelect.value = "";
     practiceSelect.value = "";
@@ -3618,10 +3673,15 @@ async function openRevenueEntryDraft(prefill = {}) {
     const hasSow = !!sowSelect.value;
     saveBtn.disabled = !hasSow;
     const selectedSow = sows.find((s) => String(s.id) === sowSelect.value);
-    // TCV/ACV are always the selected SOW's own figures, shown plain (never
-    // an <input>) - auto-populated here and read-only by construction.
+    // TCV/ACV/Monthly Revenue are always the selected SOW's own figures,
+    // shown plain (never an <input>) - auto-populated here and read-only by
+    // construction. Monthly Revenue mirrors the same TCV / Contract
+    // Duration (Months) formula buildRevenueSowRow uses.
     tcvCell.textContent = selectedSow ? fmt(selectedSow.total_value) : "—";
     acvCell.textContent = selectedSow ? fmt(selectedSow.acv) : "—";
+    monthlyRevenueCell.textContent = selectedSow && selectedSow.duration_months
+      ? fmt((selectedSow.total_value || 0) / selectedSow.duration_months)
+      : "—";
     billingModelCell.textContent = (selectedSow && selectedSow.billing_model_name) || "—";
     revenueTypeSelect.value = (selectedSow && selectedSow.revenue_type_id) ?? "";
     practiceSelect.value = (selectedSow && selectedSow.practice_id) ?? "";
@@ -3663,6 +3723,13 @@ async function openRevenueEntryDraft(prefill = {}) {
     const revenueTypeId = revenueTypeSelect.value ? parseInt(revenueTypeSelect.value, 10) : null;
     const practiceId = practiceSelect.value ? parseInt(practiceSelect.value, 10) : null;
 
+    // Onsite #/Offshore #/Nearshore # are editable right here too (see the
+    // template above) - saved via the same narrow location-counts endpoint
+    // saveRevenueRow() uses for an existing row's edit.
+    const onsiteCount = parseInt(tr.querySelector(".draft-onsite-input").value, 10) || 0;
+    const offshoreCount = parseInt(tr.querySelector(".draft-offshore-input").value, 10) || 0;
+    const nearshoreCount = parseInt(tr.querySelector(".draft-nearshore-input").value, 10) || 0;
+
     const responses = await Promise.all([
       ...months.map((m) =>
         fetch(`${API}/revenue/sows`, {
@@ -3675,6 +3742,14 @@ async function openRevenueEntryDraft(prefill = {}) {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ revenue_type_id: revenueTypeId, practice_id: practiceId }),
+      }),
+      fetch(`${API}/revenue/sows/location-counts`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sow_id: parseInt(sowId, 10), fiscal_year: currentFiscalYear,
+          onsite_count: onsiteCount, offshore_count: offshoreCount, nearshore_count: nearshoreCount,
+        }),
       }),
     ]);
     const failed = responses.find((resp) => !resp.ok);
@@ -3699,6 +3774,9 @@ async function openRevenueEntryDraft(prefill = {}) {
       billing_model_name: selectedSow.billing_model_name,
       revenue_type_name: revenueTypeName,
       practice_name: practiceName,
+      onsite_count: onsiteCount,
+      offshore_count: offshoreCount,
+      nearshore_count: nearshoreCount,
       months,
     };
     revenueTrackedSowIds.add(newRow.sow_id);
