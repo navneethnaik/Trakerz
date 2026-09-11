@@ -150,7 +150,6 @@ function applyRevenueMenuPreset(item) {
   revenueRevenueTypeFilter = "";
   revenuePracticeFilter = "";
   tmCustomerFilter = "";
-  tmBillingModelFilter = "";
   tmRevenueTypeFilter = "";
   tmLocationFilter = "";
   tmPracticeFilter = "";
@@ -608,96 +607,31 @@ function renderSowsTable(sowsIn) {
     tbody.innerHTML = '<tr><td colspan="24" class="empty-state">No SOWs yet. Click "New SOW" to add one.</td></tr>';
     return;
   }
-  sows.forEach((s, idx) => {
-    const isFixedPrice = (s.billing_model_name || "").toLowerCase().includes("fixed price");
-    const tr = document.createElement("tr");
-    // Highlight rows by how soon the SOW's end date is coming up: 0-15 days
-    // out in red, 16-50 days out in amber. Independent of status - it's a
-    // visual "check this date" cue, not a replacement for the Status badge.
-    if (s.days_to_end !== null && s.days_to_end !== undefined) {
-      if (s.days_to_end >= 0 && s.days_to_end <= 15) tr.classList.add("expiry-red");
-      else if (s.days_to_end >= 16 && s.days_to_end <= 50) tr.classList.add("expiry-amber");
-    }
-    tr.innerHTML = `
-      <td class="row-actions">
-        <button class="ghost-btn btn-edit icon-btn copy-btn" title="Copy">${icon("copy")}</button>
-        <button class="ghost-btn btn-edit icon-btn edit-btn" title="Edit">${icon("edit")}</button>
-        <button class="ghost-btn btn-danger icon-btn del-btn" data-id="${s.id}" title="Delete">${icon("trash")}</button>
-      </td>
-      <td class="sl-no-cell">${idx + 1}</td>
-      <td>${escapeHtml(s.opportunity_id) || "—"}</td>
-      <td>${escapeHtml(s.opportunity_type_name) || "—"}</td>
-      <td>${escapeHtml(s.title)}${isFixedPrice ? `<button type="button" class="expand-btn" title="Show milestones">${icon("chevron")}</button>` : ""}</td>
-      <td>${escapeHtml(s.customer_name)}</td>
-      <td>${escapeHtml(s.po_number) || "—"}</td>
-      <td>${fmtDate(s.start_date)}</td>
-      <td>${fmtDate(s.end_date)}</td>
-      <td>${fmt(s.total_value)}</td>
-      <td>${s.duration_months !== null && s.duration_months !== undefined ? s.duration_months : "—"}</td>
-      <td>${fmt(s.acv)}</td>
-      <td>${s.gm_percent !== null && s.gm_percent !== undefined ? Number(s.gm_percent.toFixed(2)) + "%" : "—"}</td>
-      <td><span class="badge badge-${slugify(s.status)}">${escapeHtml(s.status)}</span></td>
-      <td>${escapeHtml(s.billing_model_name) || "—"}</td>
-      <td>${escapeHtml(s.operating_model_name) || "—"}</td>
-      <td>${escapeHtml(s.customer_code) || "—"}</td>
-      <td>${escapeHtml(s.project_title) || "—"}</td>
-      <td>${escapeHtml(s.contract_code) || "—"}</td>
-      <td>${escapeHtml(s.project_code) || "—"}</td>
-      <td>${s.doc_link ? `<span class="truncate-cell">${renderDocLink(s.doc_link)}</span>` : "—"}</td>
-      <td>${s.po_doc_link ? `<span class="truncate-cell">${renderDocLink(s.po_doc_link)}</span>` : "—"}</td>
-      <td>${s.deal_sheet_link ? `<span class="truncate-cell">${renderDocLink(s.deal_sheet_link)}</span>` : "—"}</td>
-      <td>${s.notes ? `<span class="truncate-cell" title="${escapeHtml(s.notes)}">${escapeHtml(s.notes)}</span>` : "—"}</td>
-    `;
-    tr.addEventListener("click", (e) => {
-      if (e.target.closest(".del-btn") || e.target.closest(".edit-btn") || e.target.closest(".copy-btn") || e.target.closest(".expand-btn") || e.target.closest("a")) return;
-      openDetail(s.id);
-    });
-    if (isFixedPrice) {
-      tr.querySelector(".expand-btn").addEventListener("click", async (e) => {
-        e.stopPropagation();
-        await toggleMilestoneSubrow(tr, s);
-      });
-    }
-    tr.querySelector(".edit-btn").addEventListener("click", (e) => {
-      e.stopPropagation();
-      openSowModal(s);
-    });
-    // Opens the New/Edit SOW modal pre-filled with this SOW's values (title
-    // gets a "(Copy)" suffix) plus its milestones, but with no id anywhere -
-    // openSowModal() treats an id-less sow object as a fresh "New SOW", so
-    // Save creates a new record instead of overwriting the original, and the
-    // user can review/edit anything before it's actually saved.
-    tr.querySelector(".copy-btn").addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const full = await fetch(`${API}/sows/${s.id}`).then((r) => r.json());
-      openSowModal({
-        ...full,
-        id: null,
-        title: `${full.title} (Copy)`,
-        milestones: (full.milestones || []).map((m) => ({
-          id: null,
-          description: m.description,
-          amount: m.amount,
-          due_date: m.due_date,
-          status: "pending",
-          billed_date: null,
-        })),
-      });
-    });
-    tr.querySelector(".del-btn").addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (confirm(`Delete SOW "${s.title}" for ${s.customer_name}? This also deletes its milestones.`)) {
-        const resp = await fetch(`${API}/sows/${s.id}`, { method: "DELETE" });
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          alert(formatApiError(err, "Failed to delete this SOW."));
-          return;
-        }
-        loadSows();
-      }
-    });
-    tbody.appendChild(tr);
+  sows.forEach((s) => tbody.appendChild(buildSowRow(s, false)));
+  renumberSowRows();
+}
+
+// Fills in every row's "Sl. No" cell based on current DOM order, skipping any
+// in-progress "New SOW"/Copy draft row (see .sow-draft-row) - same pattern as
+// renumberRevenueRows()/renumberLeaveRows-equivalent elsewhere in this file.
+function renumberSowRows() {
+  const tbody = document.getElementById("sowTableBody");
+  let n = 0;
+  tbody.querySelectorAll("tr").forEach((tr) => {
+    if (tr.classList.contains("sow-draft-row") || tr.classList.contains("milestone-subrow")) return;
+    const cell = tr.querySelector(".sow-sl-no");
+    if (cell) { n += 1; cell.textContent = n; }
   });
+}
+
+// Swaps a row for a rebuilt version of itself (toggling between read-only and
+// editing) while preserving its already-assigned Sl. No - same pattern as
+// replaceRevenueRow()/replaceLeaveRow-equivalent elsewhere in this file.
+function replaceSowRow(oldTr, newTr) {
+  const oldCell = oldTr.querySelector(".sow-sl-no");
+  const newCell = newTr.querySelector(".sow-sl-no");
+  if (oldCell && newCell) newCell.textContent = oldCell.textContent;
+  oldTr.replaceWith(newTr);
 }
 
 const MILESTONE_BADGE_CLASS = { paid: "completed", invoiced: "active", pending: "draft" };
@@ -754,9 +688,54 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// ---------- SOW create/edit modal ----------
-const sowModal = document.getElementById("sowModal");
-document.getElementById("newSowBtn").addEventListener("click", () => openSowModal());
+// ---------- SOW inline edit (replaces the old New SOW/Edit/Copy popup) ----------
+// Every field the old modal captured is now edited directly in the grid -
+// Save/Cancel icons swap in for Copy/Edit/Delete on the row being edited,
+// exactly like Leave Management/Resource Management/Revenue Management
+// already work (see buildLeaveRow/buildRevenueSowRow). "New SOW" and "Copy"
+// both insert a draft row at the top of the table (see openSowEntryDraft())
+// instead of opening a form; "Edit" toggles the existing row in place
+// (buildSowRow(s, true)); Cancel toggles it back. The one thing this
+// deliberately leaves out is Revenue Type/Practice - those were on the old
+// modal but were never columns on THIS grid (they're set from Revenue
+// Outlook > Best Estimates instead, via the same /classification endpoint),
+// so they're carried through unchanged on every save (see the
+// revenue_type_id/practice_id lines in the Save handler below) rather than
+// exposed here or silently wiped. Milestones (Fixed Price SOWs only) are
+// also unaffected - they're still added/edited one at a time through their
+// own small popup on the SOW Detail page (see openMilestoneModal below),
+// since a milestone can't be attached to a SOW that doesn't exist in the
+// database yet.
+let sowFormLookups = { customers: [], billingModels: [], operatingModels: [], statuses: [], opportunityTypes: [] };
+
+async function loadSowFormLookups() {
+  const [customers, billingModels, operatingModels, statuses, opportunityTypes] = await Promise.all([
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(`${API}/billing-models`).then((r) => r.json()),
+    fetch(`${API}/operating-models`).then((r) => r.json()),
+    fetch(`${API}/statuses`).then((r) => r.json()),
+    fetch(`${API}/opportunity-types`).then((r) => r.json()),
+  ]);
+  sowFormLookups = { customers, billingModels, operatingModels, statuses, opportunityTypes };
+}
+
+function fillSelect(selectId, items, valueKey, labelKey, placeholder) {
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = `<option value="">${placeholder}</option>` +
+    items.map((i) => `<option value="${i[valueKey]}">${escapeHtml(i[labelKey])}</option>`).join("");
+}
+
+// <option> list for one of the per-row selects above, with whichever value
+// matches selectedValue pre-selected - same shape fillSelect() renders into a
+// fixed-id <select>, just returned as a string for use inside a template
+// literal instead of assigned to one element's innerHTML.
+function sowSelectOptionsHtml(items, valueKey, labelKey, placeholder, selectedValue) {
+  const selectedStr = selectedValue === null || selectedValue === undefined ? "" : String(selectedValue);
+  const opts = [`<option value="">${placeholder}</option>`].concat(
+    items.map((i) => `<option value="${i[valueKey]}"${String(i[valueKey]) === selectedStr ? " selected" : ""}>${escapeHtml(i[labelKey])}</option>`)
+  );
+  return opts.join("");
+}
 
 // Exports whatever the SOW table currently shows: the same search/status
 // filter used by loadSows() is appended so a filtered view downloads only
@@ -774,289 +753,85 @@ document.getElementById("exportSowsBtn").addEventListener("click", () => {
   const qs = params.toString();
   window.location.href = `${API}/sows/export${qs ? "?" + qs : ""}`;
 });
-wireModalCancel(sowModal, "cancelSowBtn", "cancelSowBtnTop");
 
-function fillSelect(selectId, items, valueKey, labelKey, placeholder) {
-  const sel = document.getElementById(selectId);
-  sel.innerHTML = `<option value="">${placeholder}</option>` +
-    items.map((i) => `<option value="${i[valueKey]}">${escapeHtml(i[labelKey])}</option>`).join("");
+// Statement of Work Duration (Months) is derived from Start Date/End Date
+// (read-only in both modes - see index.html's original f_duration_months
+// comment) - inclusive day count between the two dates divided by the
+// average length of a calendar month (365.2425 / 12), rounded to one
+// decimal, so a Jan 1-Dec 31 SOW comes out to a clean 12.0 rather than the
+// 11 a raw calendar-month subtraction would give. Returns fallback (whatever
+// Duration is already on record) if either date is missing/invalid, so a SOW
+// that predates Start/End Date - or simply has neither set - keeps showing
+// its stored Duration instead of being blanked just by entering edit mode.
+function computeSowDurationMonths(startVal, endVal, fallback) {
+  if (!startVal || !endVal) return fallback ?? "";
+  const start = new Date(`${startVal}T00:00:00`);
+  const end = new Date(`${endVal}T00:00:00`);
+  if (isNaN(start) || isNaN(end) || end < start) return fallback ?? "";
+  const inclusiveDays = Math.round((end - start) / 86400000) + 1;
+  return Math.round((inclusiveDays / 30.4368) * 10) / 10;
 }
-
-let currentBillingModels = [];
-let currentSowCustomers = [];
-let originalMilestoneIdsAtOpen = [];
-
-async function populateSowDropdowns() {
-  const [customers, billingModels, operatingModels, statuses, opportunityTypes, revenueTypes, practices] = await Promise.all([
-    fetch(`${API}/customers`).then((r) => r.json()),
-    fetch(`${API}/billing-models`).then((r) => r.json()),
-    fetch(`${API}/operating-models`).then((r) => r.json()),
-    fetch(`${API}/statuses`).then((r) => r.json()),
-    fetch(`${API}/opportunity-types`).then((r) => r.json()),
-    fetch(`${API}/revenue-types`).then((r) => r.json()),
-    fetch(`${API}/practices`).then((r) => r.json()),
-  ]);
-  currentBillingModels = billingModels;
-  currentSowCustomers = customers;
-  fillSelect("f_customer", customers, "id", "customer_name", "Select customer&hellip;");
-  fillSelect("f_billing_model", billingModels, "id", "name", "Select billing model&hellip;");
-  fillSelect("f_operating_model", operatingModels, "id", "name", "Select operating model&hellip;");
-  fillSelect("f_opportunity_type", opportunityTypes, "id", "name", "Select opportunity type&hellip;");
-  fillSelect("f_revenue_type", revenueTypes, "id", "name", "Select revenue type&hellip;");
-  fillSelect("f_practice", practices, "id", "name", "Select practice&hellip;");
-
-  const statusSel = document.getElementById("f_status");
-  statusSel.innerHTML = statuses.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(capitalize(s.name))}</option>`).join("");
-}
-
-// BTP Information's "Customer Code" field isn't its own input - it's a
-// read-only mirror of the selected customer's code, kept in sync whenever
-// the Customer Name dropdown changes (see the "change" listener below) and
-// set once up front when the modal opens for an existing SOW.
-function updateCustomerCodeField() {
-  const customerId = document.getElementById("f_customer").value;
-  const match = currentSowCustomers.find((c) => String(c.id) === String(customerId));
-  document.getElementById("f_customer_code").value = match ? match.customer_code : "";
-}
-document.getElementById("f_customer").addEventListener("change", updateCustomerCodeField);
 
 // ACV (USD) mirrors the server's own _enrich_sow() formula - monthly value
 // (TCV / Contract Duration (Months)) times however many of those months
-// count toward one fiscal year (capped at 12) - so the form shows the
-// number that will actually be saved/displayed without a round trip. It's
-// read-only and never itself sent to the backend (see the submit handler
-// below), just recomputed live whenever TCV or Duration changes.
-function updateAcvPreview() {
-  const tcv = parseFloat(document.getElementById("f_value").value) || 0;
-  const months = parseFloat(document.getElementById("f_duration_months").value) || 0;
-  let acv = 0;
-  if (months > 0) {
-    const monthlyValue = tcv / months;
-    const monthsInFiscalYear = Math.min(months, 12);
-    acv = monthlyValue * monthsInFiscalYear;
+// count toward one fiscal year (capped at 12) - so the row shows the number
+// that will actually be saved/displayed without a round trip. Read-only in
+// both modes, never itself sent to the backend, just recomputed live
+// whenever TCV or Duration changes (see wireSowRowFormulas() below).
+function computeSowAcv(tcv, months) {
+  if (!(months > 0)) return 0;
+  const monthlyValue = tcv / months;
+  const monthsInFiscalYear = Math.min(months, 12);
+  return Number((monthlyValue * monthsInFiscalYear).toFixed(2)) || 0;
+}
+
+// Wires up Duration/ACV/Customer Code's live recompute for one editing row -
+// same formulas as computeSowDurationMonths()/computeSowAcv() above, just
+// scoped to this row's own inputs instead of the old modal's fixed ids.
+function wireSowRowFormulas(tr) {
+  const startInput = tr.querySelector(".sow-f-start");
+  const endInput = tr.querySelector(".sow-f-end");
+  const durationInput = tr.querySelector(".sow-f-duration");
+  const tcvInput = tr.querySelector(".sow-f-value");
+  const acvInput = tr.querySelector(".sow-f-acv");
+  const customerSelect = tr.querySelector(".sow-f-customer");
+  const customerCodeInput = tr.querySelector(".sow-f-customer-code");
+
+  function refreshAcv() {
+    const tcv = parseFloat(tcvInput.value) || 0;
+    const months = parseFloat(durationInput.value) || 0;
+    acvInput.value = computeSowAcv(tcv, months);
   }
-  document.getElementById("f_acv").value = acv ? Number(acv.toFixed(2)) : 0;
-}
-document.getElementById("f_value").addEventListener("input", updateAcvPreview);
-
-// Statement of Work Duration (Months) is derived from Start Date/End Date
-// rather than typed in (the field is read-only - see index.html) - inclusive
-// day count between the two dates divided by the average length of a
-// calendar month (365.2425 / 12), rounded to one decimal, so a Jan 1-Dec 31
-// SOW comes out to a clean 12.0 rather than the 11 a raw calendar-month
-// subtraction would give. Recomputed whenever either date changes, and
-// always followed by updateAcvPreview() since ACV depends on Duration.
-// Left untouched if either date is missing (or End is before Start) so a
-// SOW that predates Start/End Date - or simply has neither set - keeps
-// showing whatever Duration is already on record instead of being blanked.
-function updateDurationFromDates() {
-  const startVal = document.getElementById("f_start").value;
-  const endVal = document.getElementById("f_end").value;
-  if (!startVal || !endVal) return;
-  const start = new Date(`${startVal}T00:00:00`);
-  const end = new Date(`${endVal}T00:00:00`);
-  if (isNaN(start) || isNaN(end) || end < start) return;
-  const inclusiveDays = Math.round((end - start) / 86400000) + 1;
-  const months = Math.round((inclusiveDays / 30.4368) * 10) / 10;
-  document.getElementById("f_duration_months").value = months;
-  updateAcvPreview();
-}
-document.getElementById("f_start").addEventListener("change", updateDurationFromDates);
-document.getElementById("f_end").addEventListener("change", updateDurationFromDates);
-
-// ---------- Inline milestone capture (shown when the Billing Model name contains "Fixed Price") ----------
-function isFixedPriceSelected() {
-  const selectedId = document.getElementById("f_billing_model").value;
-  const selected = currentBillingModels.find((b) => String(b.id) === selectedId);
-  return !!selected && selected.name.trim().toLowerCase().includes("fixed price");
-}
-
-function updateMilestonesVisibility() {
-  document.getElementById("milestonesSection").hidden = !isFixedPriceSelected();
-}
-
-function createMilestoneRowEl(row) {
-  const div = document.createElement("div");
-  div.className = "milestone-row";
-  div.dataset.milestoneId = row.id ?? "";
-  div.dataset.status = row.status ?? "pending";
-  div.dataset.billedDate = row.billed_date ?? "";
-  div.innerHTML = `
-    <input class="ms-title" placeholder="Milestone title" value="${escapeHtml(row.description ?? "")}" />
-    <input class="ms-date" type="date" value="${row.due_date ?? ""}" />
-    <input class="ms-amount" type="number" step="0.01" min="0" value="${row.amount ?? 0}" />
-    <button type="button" class="ghost-btn btn-danger remove-ms-row" title="Remove milestone">${icon("trash")}</button>
-  `;
-  div.querySelector(".remove-ms-row").addEventListener("click", () => div.remove());
-  return div;
-}
-
-function renderMilestoneRows(rows) {
-  const container = document.getElementById("milestoneRows");
-  container.innerHTML = "";
-  rows.forEach((row) => container.appendChild(createMilestoneRowEl(row)));
-}
-
-function collectMilestoneRows() {
-  return Array.from(document.querySelectorAll("#milestoneRows .milestone-row")).map((div) => ({
-    id: div.dataset.milestoneId ? parseInt(div.dataset.milestoneId, 10) : null,
-    description: div.querySelector(".ms-title").value.trim(),
-    amount: parseFloat(div.querySelector(".ms-amount").value) || 0,
-    due_date: div.querySelector(".ms-date").value || null,
-    status: div.dataset.status || "pending",
-    billed_date: div.dataset.billedDate || null,
-  }));
-}
-
-document.getElementById("addMilestoneRowBtn").addEventListener("click", () => {
-  document.getElementById("milestoneRows").appendChild(
-    createMilestoneRowEl({ id: null, description: "", amount: 0, due_date: null, status: "pending", billed_date: null })
-  );
-});
-
-document.getElementById("f_billing_model").addEventListener("change", updateMilestonesVisibility);
-
-async function syncMilestonesForSow(sowId) {
-  const rows = collectMilestoneRows().filter((r) => r.description);
-  const currentIds = rows.filter((r) => r.id).map((r) => r.id);
-  const toDelete = originalMilestoneIdsAtOpen.filter((mid) => !currentIds.includes(mid));
-
-  await Promise.all([
-    ...rows.map((r) => {
-      const payload = { description: r.description, amount: r.amount, due_date: r.due_date, status: r.status, billed_date: r.billed_date };
-      return r.id
-        ? fetch(`${API}/milestones/${r.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
-        : fetch(`${API}/sows/${sowId}/milestones`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    }),
-    ...toDelete.map((mid) => fetch(`${API}/milestones/${mid}`, { method: "DELETE" })),
-  ]);
-}
-
-async function openSowModal(sowStub) {
-  await populateSowDropdowns();
-  let sow = sowStub;
-  if (sowStub && sowStub.id) {
-    sow = await fetch(`${API}/sows/${sowStub.id}`).then((r) => r.json());
+  function refreshDuration() {
+    durationInput.value = computeSowDurationMonths(startInput.value, endInput.value, durationInput.value);
+    refreshAcv();
   }
-  // A "Copy" draft (see the SOW table's copy-btn handler) is a sow-shaped
-  // object with every field pre-filled but no id, so it must fall into the
-  // same "New SOW" / create-on-save path as a blank form - checking sow?.id
-  // rather than just sow's truthiness is what makes that distinction.
-  document.getElementById("sowModalTitle").textContent = sow?.id ? "Edit SOW" : "New SOW";
-  document.getElementById("sowId").value = sow?.id ?? "";
-  document.getElementById("f_customer").value = sow?.customer_id ?? "";
-  document.getElementById("f_title").value = sow?.title ?? "";
-  document.getElementById("f_project_title").value = sow?.project_title ?? "";
-  document.getElementById("f_project_code").value = sow?.project_code ?? "";
-  document.getElementById("f_contract_code").value = sow?.contract_code ?? "";
-  document.getElementById("f_opportunity").value = sow?.opportunity_id ?? "";
-  document.getElementById("f_opportunity_type").value = sow?.opportunity_type_id ?? "";
-  document.getElementById("f_po").value = sow?.po_number ?? "";
-  document.getElementById("f_start").value = sow?.start_date ?? "";
-  document.getElementById("f_end").value = sow?.end_date ?? "";
-  document.getElementById("f_value").value = sow?.total_value ?? 0;
-  // Duration (Months) is derived from Start Date/End Date (see
-  // updateDurationFromDates) - only fall back to whatever's on record when
-  // one of the dates is missing, so an older SOW without Start/End Date set
-  // doesn't have its stored Duration blanked out just by opening the form.
-  document.getElementById("f_duration_months").value = sow?.duration_months ?? "";
-  updateDurationFromDates();
-  document.getElementById("f_gm_percent").value = sow?.gm_percent ?? "";
-  document.getElementById("f_status").value = sow?.status ?? "draft";
-  document.getElementById("f_billing_model").value = sow?.billing_model_id ?? "";
-  document.getElementById("f_operating_model").value = sow?.operating_model_id ?? "";
-  document.getElementById("f_revenue_type").value = sow?.revenue_type_id ?? "";
-  document.getElementById("f_practice").value = sow?.practice_id ?? "";
-  document.getElementById("f_doclink").value = sow?.doc_link ?? "";
-  document.getElementById("f_po_doclink").value = sow?.po_doc_link ?? "";
-  document.getElementById("f_deal_sheet_link").value = sow?.deal_sheet_link ?? "";
-  document.getElementById("f_notes").value = sow?.notes ?? "";
-  updateCustomerCodeField();
-  updateAcvPreview();
-
-  // .filter(Boolean) matters for a "Copy" draft (see the copy-btn handler
-  // above): its milestones all carry id: null since none exist in the
-  // database yet, and without the filter those nulls would end up in
-  // syncMilestonesForSow()'s "delete anything missing" diff and fire
-  // DELETE requests against a nonsensical /api/milestones/null.
-  originalMilestoneIdsAtOpen = (sow?.milestones || []).map((m) => m.id).filter(Boolean);
-  renderMilestoneRows(sow?.milestones || []);
-  updateMilestonesVisibility();
-
-  sowModal.hidden = false;
-}
-
-document.getElementById("sowForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const id = document.getElementById("sowId").value;
-  const customerVal = document.getElementById("f_customer").value;
-  if (!customerVal) { alert("Please select a customer."); return; }
-  const billingVal = document.getElementById("f_billing_model").value;
-  const operatingVal = document.getElementById("f_operating_model").value;
-  const revenueTypeVal = document.getElementById("f_revenue_type").value;
-  const practiceVal = document.getElementById("f_practice").value;
-  const opportunityTypeVal = document.getElementById("f_opportunity_type").value;
-  const payload = {
-    customer_id: parseInt(customerVal, 10),
-    title: document.getElementById("f_title").value,
-    project_title: document.getElementById("f_project_title").value || null,
-    project_code: document.getElementById("f_project_code").value || null,
-    contract_code: document.getElementById("f_contract_code").value || null,
-    opportunity_id: document.getElementById("f_opportunity").value || null,
-    opportunity_type_id: opportunityTypeVal ? parseInt(opportunityTypeVal, 10) : null,
-    po_number: document.getElementById("f_po").value || null,
-    start_date: document.getElementById("f_start").value || null,
-    end_date: document.getElementById("f_end").value || null,
-    total_value: parseFloat(document.getElementById("f_value").value) || 0,
-    duration_months: document.getElementById("f_duration_months").value !== "" ? parseFloat(document.getElementById("f_duration_months").value) : null,
-    gm_percent: document.getElementById("f_gm_percent").value !== "" ? parseFloat(document.getElementById("f_gm_percent").value) : null,
-    billing_model_id: billingVal ? parseInt(billingVal, 10) : null,
-    operating_model_id: operatingVal ? parseInt(operatingVal, 10) : null,
-    revenue_type_id: revenueTypeVal ? parseInt(revenueTypeVal, 10) : null,
-    practice_id: practiceVal ? parseInt(practiceVal, 10) : null,
-    status: document.getElementById("f_status").value,
-    doc_link: document.getElementById("f_doclink").value || null,
-    po_doc_link: document.getElementById("f_po_doclink").value || null,
-    deal_sheet_link: document.getElementById("f_deal_sheet_link").value || null,
-    notes: document.getElementById("f_notes").value || null,
-  };
-  const url = id ? `${API}/sows/${id}` : `${API}/sows`;
-  const method = id ? "PUT" : "POST";
-  const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    alert(formatApiError(err, "Failed to save SOW."));
-    return;
-  }
-  const saved = await resp.json();
-
-  if (!document.getElementById("milestonesSection").hidden) {
-    await syncMilestonesForSow(saved.id);
-  }
-
-  sowModal.hidden = true;
-  if (document.getElementById("tab-detail").classList.contains("active") && id) {
-    openDetail(saved.id);
-  } else {
-    loadSows();
-  }
-});
-
-// ---------- SOW document upload ----------
-// Shared by all three Reference Documents fields (Contract/SoW, Purchase
-// Order, Deal Sheet) - each just passes its own trigger button, hidden file
-// input and destination link field.
-function wireSowDocUpload(btnId, fileInputId, linkInputId) {
-  document.getElementById(btnId).addEventListener("click", () => {
-    document.getElementById(fileInputId).click();
+  startInput.addEventListener("change", refreshDuration);
+  endInput.addEventListener("change", refreshDuration);
+  tcvInput.addEventListener("input", refreshAcv);
+  customerSelect.addEventListener("change", () => {
+    const match = sowFormLookups.customers.find((c) => String(c.id) === customerSelect.value);
+    customerCodeInput.value = match ? match.customer_code : "";
   });
-  document.getElementById(fileInputId).addEventListener("change", async (e) => {
+}
+
+// Reference Documents upload wiring for one editing row's Statement of
+// Work/Purchase Order/Deal Sheet field - same /api/uploads round trip the
+// old modal used (see the original wireSowDocUpload()), just scoped by
+// class name within this <tr> instead of fixed modal element ids, since
+// several rows worth of these elements can exist in the DOM shape at once
+// (only one is ever actually in edit mode, but ids would still collide).
+function wireSowDocUploadRow(tr, btnClass, fileClass, linkClass) {
+  const btn = tr.querySelector(`.${btnClass}`);
+  const fileInput = tr.querySelector(`.${fileClass}`);
+  const linkInput = tr.querySelector(`.${linkClass}`);
+  btn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const uploadBtn = document.getElementById(btnId);
-    const prevHtml = uploadBtn.innerHTML;
-    uploadBtn.disabled = true;
-    uploadBtn.innerHTML = "<span>Uploading&hellip;</span>";
+    const prevHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = "<span>Uploading&hellip;</span>";
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -1067,17 +842,281 @@ function wireSowDocUpload(btnId, fileInputId, linkInputId) {
         return;
       }
       const result = await resp.json();
-      document.getElementById(linkInputId).value = result.path;
+      linkInput.value = result.path;
     } finally {
-      uploadBtn.disabled = false;
-      uploadBtn.innerHTML = prevHtml;
+      btn.disabled = false;
+      btn.innerHTML = prevHtml;
       e.target.value = "";
     }
   });
 }
-wireSowDocUpload("uploadDocBtn", "f_doc_file", "f_doclink");
-wireSowDocUpload("uploadPoDocBtn", "f_po_doc_file", "f_po_doclink");
-wireSowDocUpload("uploadDealSheetBtn", "f_deal_sheet_file", "f_deal_sheet_link");
+
+// Same inline "Upload" button markup the old modal used for all three
+// Reference Documents fields (raw SVG, not the icon() helper - this one was
+// never added to ICON_PATHS).
+const SOW_UPLOAD_BTN_ICON = '<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>';
+
+// Builds one <tr> for the SOW grid. editing=false renders the normal
+// read-only row (unchanged from before - Copy/Edit/Delete actions, the
+// Fixed Price milestones expand-btn, doc links as clickable text). editing=
+// true renders every field as an input/select instead (Copy/Edit/Delete
+// swap for Save/Cancel), used for "Edit" on an existing row and, via a blank
+// or pre-filled stub object, for "New SOW"/"Copy" too - see
+// openSowEntryDraft() below, which is the only other caller that ever
+// passes editing=true.
+function buildSowRow(s, editing) {
+  const isFixedPrice = (s.billing_model_name || "").toLowerCase().includes("fixed price");
+  const tr = document.createElement("tr");
+  tr.dataset.sowId = s.id ?? "";
+  // Generic "row is open for inline editing" highlight + input/select
+  // styling, shared with Customers/Resources/etc. (see .inline-editing-row
+  // in style.css) rather than a SOW-specific class.
+  if (editing) tr.classList.add("inline-editing-row");
+  // Highlight rows by how soon the SOW's end date is coming up: 0-15 days
+  // out in red, 16-50 days out in amber. Independent of status - it's a
+  // visual "check this date" cue, not a replacement for the Status badge.
+  // Read-only rows only - an editing row already has its own highlight
+  // (.inline-editing-row above).
+  if (!editing && s.days_to_end !== null && s.days_to_end !== undefined) {
+    if (s.days_to_end >= 0 && s.days_to_end <= 15) tr.classList.add("expiry-red");
+    else if (s.days_to_end >= 16 && s.days_to_end <= 50) tr.classList.add("expiry-amber");
+  }
+
+  const actionsHtml = editing
+    ? `<td class="row-actions">
+        <button type="button" class="ghost-btn btn-edit icon-btn sow-save-btn" title="Save">${icon("check")}</button>
+        <button type="button" class="ghost-btn icon-btn sow-cancel-btn" title="Cancel">${icon("x")}</button>
+      </td>`
+    : `<td class="row-actions">
+        <button class="ghost-btn btn-edit icon-btn copy-btn" title="Copy">${icon("copy")}</button>
+        <button class="ghost-btn btn-edit icon-btn edit-btn" title="Edit">${icon("edit")}</button>
+        <button class="ghost-btn btn-danger icon-btn del-btn" title="Delete">${icon("trash")}</button>
+      </td>`;
+
+  const customerCodeVal = (sowFormLookups.customers.find((c) => c.id === s.customer_id) || {}).customer_code ?? s.customer_code ?? "";
+
+  const bodyHtml = editing ? `
+    <td class="sl-no-cell sow-sl-no"></td>
+    <td><input type="text" class="sow-cell sow-f-opportunity" value="${escapeHtml(s.opportunity_id ?? "")}" /></td>
+    <td><select class="sow-cell sow-f-opportunity-type">${sowSelectOptionsHtml(sowFormLookups.opportunityTypes, "id", "name", "Select opportunity type&hellip;", s.opportunity_type_id)}</select></td>
+    <td><input class="sow-cell sow-f-title" required value="${escapeHtml(s.title ?? "")}" /></td>
+    <td><select class="sow-cell sow-f-customer" required>${sowSelectOptionsHtml(sowFormLookups.customers, "id", "customer_name", "Select customer&hellip;", s.customer_id)}</select></td>
+    <td><input type="text" class="sow-cell sow-f-po" value="${escapeHtml(s.po_number ?? "")}" /></td>
+    <td><input type="date" class="sow-cell sow-f-start" value="${s.start_date ?? ""}" /></td>
+    <td><input type="date" class="sow-cell sow-f-end" value="${s.end_date ?? ""}" /></td>
+    <td><input type="number" step="0.01" min="0" class="sow-cell sow-f-value" value="${s.total_value ?? 0}" /></td>
+    <td><input type="number" step="0.1" class="sow-cell sow-f-duration form-field-readonly" readonly value="${s.duration_months ?? ""}" /></td>
+    <td><input type="number" step="0.01" class="sow-cell sow-f-acv form-field-readonly" readonly value="${s.acv ?? 0}" /></td>
+    <td><input type="number" step="0.01" min="0" max="100" class="sow-cell sow-f-gm" value="${s.gm_percent ?? ""}" /></td>
+    <td><select class="sow-cell sow-f-status">${sowFormLookups.statuses.map((st) => `<option value="${escapeHtml(st.name)}"${st.name === (s.status || "draft") ? " selected" : ""}>${escapeHtml(capitalize(st.name))}</option>`).join("")}</select></td>
+    <td><select class="sow-cell sow-f-billing">${sowSelectOptionsHtml(sowFormLookups.billingModels, "id", "name", "Select billing model&hellip;", s.billing_model_id)}</select></td>
+    <td><select class="sow-cell sow-f-operating">${sowSelectOptionsHtml(sowFormLookups.operatingModels, "id", "name", "Select operating model&hellip;", s.operating_model_id)}</select></td>
+    <td><input type="text" class="sow-cell sow-f-customer-code form-field-readonly" readonly value="${escapeHtml(customerCodeVal)}" /></td>
+    <td><input type="text" class="sow-cell sow-f-project-title" value="${escapeHtml(s.project_title ?? "")}" /></td>
+    <td><input type="text" class="sow-cell sow-f-contract-code" value="${escapeHtml(s.contract_code ?? "")}" /></td>
+    <td><input type="text" class="sow-cell sow-f-project-code" value="${escapeHtml(s.project_code ?? "")}" /></td>
+    <td>
+      <div class="doclink-row">
+        <input type="text" class="sow-cell sow-f-doclink" value="${escapeHtml(s.doc_link ?? "")}" />
+        <button type="button" class="ghost-btn sow-upload-doc-btn" title="Upload">${SOW_UPLOAD_BTN_ICON}<span>Upload</span></button>
+        <input type="file" class="sow-doc-file" hidden />
+      </div>
+    </td>
+    <td>
+      <div class="doclink-row">
+        <input type="text" class="sow-cell sow-f-po-doclink" value="${escapeHtml(s.po_doc_link ?? "")}" />
+        <button type="button" class="ghost-btn sow-upload-po-btn" title="Upload">${SOW_UPLOAD_BTN_ICON}<span>Upload</span></button>
+        <input type="file" class="sow-po-doc-file" hidden />
+      </div>
+    </td>
+    <td>
+      <div class="doclink-row">
+        <input type="text" class="sow-cell sow-f-deal-sheet-link" value="${escapeHtml(s.deal_sheet_link ?? "")}" />
+        <button type="button" class="ghost-btn sow-upload-deal-btn" title="Upload">${SOW_UPLOAD_BTN_ICON}<span>Upload</span></button>
+        <input type="file" class="sow-deal-file" hidden />
+      </div>
+    </td>
+    <td><input type="text" class="sow-cell sow-f-notes" value="${escapeHtml(s.notes ?? "")}" /></td>
+  ` : `
+    <td class="sl-no-cell sow-sl-no"></td>
+    <td>${escapeHtml(s.opportunity_id) || "—"}</td>
+    <td>${escapeHtml(s.opportunity_type_name) || "—"}</td>
+    <td>${escapeHtml(s.title)}${isFixedPrice ? `<button type="button" class="expand-btn" title="Show milestones">${icon("chevron")}</button>` : ""}</td>
+    <td>${escapeHtml(s.customer_name)}</td>
+    <td>${escapeHtml(s.po_number) || "—"}</td>
+    <td>${fmtDate(s.start_date)}</td>
+    <td>${fmtDate(s.end_date)}</td>
+    <td>${fmt(s.total_value)}</td>
+    <td>${s.duration_months !== null && s.duration_months !== undefined ? s.duration_months : "—"}</td>
+    <td>${fmt(s.acv)}</td>
+    <td>${s.gm_percent !== null && s.gm_percent !== undefined ? Number(s.gm_percent.toFixed(2)) + "%" : "—"}</td>
+    <td><span class="badge badge-${slugify(s.status)}">${escapeHtml(s.status)}</span></td>
+    <td>${escapeHtml(s.billing_model_name) || "—"}</td>
+    <td>${escapeHtml(s.operating_model_name) || "—"}</td>
+    <td>${escapeHtml(s.customer_code) || "—"}</td>
+    <td>${escapeHtml(s.project_title) || "—"}</td>
+    <td>${escapeHtml(s.contract_code) || "—"}</td>
+    <td>${escapeHtml(s.project_code) || "—"}</td>
+    <td>${s.doc_link ? `<span class="truncate-cell">${renderDocLink(s.doc_link)}</span>` : "—"}</td>
+    <td>${s.po_doc_link ? `<span class="truncate-cell">${renderDocLink(s.po_doc_link)}</span>` : "—"}</td>
+    <td>${s.deal_sheet_link ? `<span class="truncate-cell">${renderDocLink(s.deal_sheet_link)}</span>` : "—"}</td>
+    <td>${s.notes ? `<span class="truncate-cell" title="${escapeHtml(s.notes)}">${escapeHtml(s.notes)}</span>` : "—"}</td>
+  `;
+  tr.innerHTML = actionsHtml + bodyHtml;
+
+  if (editing) {
+    wireSowRowFormulas(tr);
+    wireSowDocUploadRow(tr, "sow-upload-doc-btn", "sow-doc-file", "sow-f-doclink");
+    wireSowDocUploadRow(tr, "sow-upload-po-btn", "sow-po-doc-file", "sow-f-po-doclink");
+    wireSowDocUploadRow(tr, "sow-upload-deal-btn", "sow-deal-file", "sow-f-deal-sheet-link");
+
+    tr.querySelector(".sow-cancel-btn").addEventListener("click", () => {
+      // s.id tells a real existing row (Cancel reverts to its read-only
+      // display) apart from a "New SOW"/Copy draft (Cancel just removes it -
+      // there's nothing on record yet to revert to).
+      if (s.id) {
+        replaceSowRow(tr, buildSowRow(s, false));
+      } else {
+        tr.remove();
+        if (!document.querySelector("#sowTableBody tr")) loadSows();
+      }
+    });
+
+    tr.querySelector(".sow-save-btn").addEventListener("click", async () => {
+      const customerVal = tr.querySelector(".sow-f-customer").value;
+      if (!customerVal) { alert("Please select a customer."); return; }
+      const titleVal = tr.querySelector(".sow-f-title").value.trim();
+      if (!titleVal) { alert("Please enter a Statement of Work title."); return; }
+      const saveBtn = tr.querySelector(".sow-save-btn");
+      const cancelBtn = tr.querySelector(".sow-cancel-btn");
+      saveBtn.disabled = true;
+      cancelBtn.disabled = true;
+      const opportunityTypeVal = tr.querySelector(".sow-f-opportunity-type").value;
+      const billingVal = tr.querySelector(".sow-f-billing").value;
+      const operatingVal = tr.querySelector(".sow-f-operating").value;
+      const durationVal = tr.querySelector(".sow-f-duration").value;
+      const gmVal = tr.querySelector(".sow-f-gm").value;
+      const payload = {
+        customer_id: parseInt(customerVal, 10),
+        title: titleVal,
+        project_title: tr.querySelector(".sow-f-project-title").value || null,
+        project_code: tr.querySelector(".sow-f-project-code").value || null,
+        contract_code: tr.querySelector(".sow-f-contract-code").value || null,
+        opportunity_id: tr.querySelector(".sow-f-opportunity").value || null,
+        opportunity_type_id: opportunityTypeVal ? parseInt(opportunityTypeVal, 10) : null,
+        po_number: tr.querySelector(".sow-f-po").value || null,
+        start_date: tr.querySelector(".sow-f-start").value || null,
+        end_date: tr.querySelector(".sow-f-end").value || null,
+        total_value: parseFloat(tr.querySelector(".sow-f-value").value) || 0,
+        duration_months: durationVal !== "" ? parseFloat(durationVal) : null,
+        gm_percent: gmVal !== "" ? parseFloat(gmVal) : null,
+        billing_model_id: billingVal ? parseInt(billingVal, 10) : null,
+        operating_model_id: operatingVal ? parseInt(operatingVal, 10) : null,
+        // Not editable on this grid (see the comment above buildSowRow) -
+        // carried through unchanged from whatever this SOW already had, so a
+        // save here never clobbers a classification set from Revenue
+        // Outlook. Both are simply null for a brand new SOW, same as before.
+        revenue_type_id: s.revenue_type_id ?? null,
+        practice_id: s.practice_id ?? null,
+        status: tr.querySelector(".sow-f-status").value,
+        doc_link: tr.querySelector(".sow-f-doclink").value || null,
+        po_doc_link: tr.querySelector(".sow-f-po-doclink").value || null,
+        deal_sheet_link: tr.querySelector(".sow-f-deal-sheet-link").value || null,
+        notes: tr.querySelector(".sow-f-notes").value || null,
+      };
+      const url = s.id ? `${API}/sows/${s.id}` : `${API}/sows`;
+      const method = s.id ? "PUT" : "POST";
+      const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert(formatApiError(err, "Failed to save SOW."));
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        return;
+      }
+      await loadSows();
+    });
+  } else {
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest(".del-btn") || e.target.closest(".edit-btn") || e.target.closest(".copy-btn") || e.target.closest(".expand-btn") || e.target.closest("a")) return;
+      openDetail(s.id);
+    });
+    if (isFixedPrice) {
+      tr.querySelector(".expand-btn").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await toggleMilestoneSubrow(tr, s);
+      });
+    }
+    tr.querySelector(".edit-btn").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await loadSowFormLookups();
+      replaceSowRow(tr, buildSowRow(s, true));
+    });
+    // Copy: opens a "New SOW"-style draft row at the top of the table,
+    // pre-filled with this row's own values (title gets a "(Copy)" suffix)
+    // and no id, so Save creates a new record instead of overwriting the
+    // original - same distinction the old modal's Copy made, just via a
+    // draft row instead of a form. Milestones are deliberately not copied
+    // (see the comment above buildSowRow) - add them on the new SOW's own
+    // Detail page once it exists.
+    tr.querySelector(".copy-btn").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await openSowEntryDraft({ ...s, id: null, title: `${s.title} (Copy)` });
+    });
+    tr.querySelector(".del-btn").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (confirm(`Delete SOW "${s.title}" for ${s.customer_name}? This also deletes its milestones.`)) {
+        const resp = await fetch(`${API}/sows/${s.id}`, { method: "DELETE" });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(formatApiError(err, "Failed to delete this SOW."));
+          return;
+        }
+        loadSows();
+      }
+    });
+  }
+
+  return tr;
+}
+
+// "New SOW"/Copy - inserts an editable draft row at the top of the table
+// instead of opening a form (see the comment above buildSowRow). prefill is
+// undefined for a plain "New SOW" click (blank stub, status defaults to
+// "draft" same as the old modal) or a sow-shaped object with no id for Copy.
+async function openSowEntryDraft(prefill) {
+  await loadSowFormLookups();
+  const existingDraft = document.querySelector(".sow-draft-row");
+  if (existingDraft) existingDraft.remove();
+  const tbody = document.getElementById("sowTableBody");
+  const emptyRow = tbody.querySelector(".empty-state");
+  if (emptyRow) emptyRow.closest("tr").remove();
+
+  const stub = prefill || {
+    id: null, opportunity_id: "", opportunity_type_id: "", title: "", customer_id: "",
+    po_number: "", start_date: "", end_date: "", total_value: 0, duration_months: "",
+    acv: 0, gm_percent: "", status: "draft", billing_model_id: "", operating_model_id: "",
+    revenue_type_id: null, practice_id: null, customer_code: "", project_title: "",
+    contract_code: "", project_code: "", doc_link: "", po_doc_link: "", deal_sheet_link: "", notes: "",
+  };
+  const tr = buildSowRow(stub, true);
+  tr.classList.add("sow-draft-row");
+  tbody.insertBefore(tr, tbody.firstChild);
+  tr.scrollIntoView({ block: "center" });
+  tr.querySelector(".sow-f-title")?.focus();
+}
+document.getElementById("newSowBtn").addEventListener("click", () => openSowEntryDraft());
+
+// Edit SOW from the Detail page (see renderDetail()'s editSowBtn below) -
+// there's no form to open any more, so this instead switches back to the SOW
+// list and puts that same row into inline edit, scrolled into view, exactly
+// as if the user had clicked its own Edit icon there.
+async function editSowFromDetail(sowId) {
+  showTab("sows");
+  await loadSows();
+  const tr = document.querySelector(`#sowTableBody tr[data-sow-id="${sowId}"]`);
+  if (tr) tr.querySelector(".edit-btn")?.click();
+}
 
 function renderDocLink(link) {
   if (!link) return "";
@@ -1100,9 +1139,9 @@ async function openDetail(id) {
 
 async function renderDetail() {
   const s = await fetch(`${API}/sows/${currentSowId}`).then((r) => r.json());
-  // Milestones/Invoices only make sense for Fixed Price SOWs (matches the
-  // same "Fixed Price" substring check used to show/hide the inline
-  // milestones capture in the SOW create/edit modal - see isFixedPriceSelected()).
+  // Milestones/Invoices only make sense for Fixed Price SOWs - same "Fixed
+  // Price" substring check used elsewhere (e.g. buildSowRow's own
+  // expand-btn) to decide whether a SOW has milestones at all.
   const isFixedPrice = (s.billing_model_name || "").toLowerCase().includes("fixed price");
   const container = document.getElementById("detailContent");
   container.innerHTML = `
@@ -1146,7 +1185,7 @@ async function renderDetail() {
     ` : ""}
   `;
 
-  document.getElementById("editSowBtn").addEventListener("click", () => openSowModal(s));
+  document.getElementById("editSowBtn").addEventListener("click", () => editSowFromDetail(s.id));
   if (!isFixedPrice) return;
 
   document.getElementById("newMilestoneBtn").addEventListener("click", () => openMilestoneModal());
@@ -1755,7 +1794,7 @@ function buildHolidayRow(item, editing, customers) {
       checkbox.checked = !!item[field];
       td.appendChild(checkbox);
     } else {
-      td.textContent = item[field] ? "✓" : "—";
+      td.innerHTML = item[field] ? '<span class="hol-tick">&check;</span>' : "—";
     }
     tr.appendChild(td);
   });
@@ -1911,6 +1950,75 @@ const LEAVE_MONTH_FIELDS = [
   "leave_apr", "leave_may", "leave_jun", "leave_jul", "leave_aug", "leave_sep",
   "leave_oct", "leave_nov", "leave_dec", "leave_jan", "leave_feb", "leave_mar",
 ];
+
+// Customer Name/Band/Location/Employee Type filters for the Resource and
+// Leave grid - same id-based client-side filtering approach as the Time and
+// Material grid's own filters (see tmRowMatchesFilters/populateTmCustomerFilter
+// above), each independent of the others and re-applied by loadLeaves()
+// whenever any of them changes.
+let leaveCustomerFilter = "";
+let leaveBandFilter = "";
+let leaveLocationFilter = "";
+let leaveEmployeeTypeFilter = "";
+document.getElementById("leaveCustomerFilter").addEventListener("change", (e) => {
+  leaveCustomerFilter = e.target.value;
+  loadLeaves();
+});
+document.getElementById("leaveBandFilter").addEventListener("change", (e) => {
+  leaveBandFilter = e.target.value;
+  loadLeaves();
+});
+document.getElementById("leaveLocationFilter").addEventListener("change", (e) => {
+  leaveLocationFilter = e.target.value;
+  loadLeaves();
+});
+document.getElementById("leaveEmployeeTypeFilter").addEventListener("change", (e) => {
+  leaveEmployeeTypeFilter = e.target.value;
+  loadLeaves();
+});
+
+// Shared predicate for the four filters above - matches the Time and
+// Material grid's own tmRowMatchesFilters() pattern.
+function leaveRowMatchesFilters(item) {
+  return (
+    (!leaveCustomerFilter || String(item.customer_id) === leaveCustomerFilter) &&
+    (!leaveBandFilter || String(item.band_id) === leaveBandFilter) &&
+    (!leaveLocationFilter || String(item.location_id) === leaveLocationFilter) &&
+    (!leaveEmployeeTypeFilter || String(item.employee_type_id) === leaveEmployeeTypeFilter)
+  );
+}
+
+function populateLeaveCustomerFilter(customers) {
+  const select = document.getElementById("leaveCustomerFilter");
+  const current = leaveCustomerFilter;
+  select.innerHTML = '<option value="">All customers</option>' +
+    customers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
+  select.value = current;
+}
+
+function populateLeaveBandFilter(bands) {
+  const select = document.getElementById("leaveBandFilter");
+  const current = leaveBandFilter;
+  select.innerHTML = '<option value="">All bands</option>' +
+    bands.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("");
+  select.value = current;
+}
+
+function populateLeaveLocationFilter(locations) {
+  const select = document.getElementById("leaveLocationFilter");
+  const current = leaveLocationFilter;
+  select.innerHTML = '<option value="">All locations</option>' +
+    locations.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join("");
+  select.value = current;
+}
+
+function populateLeaveEmployeeTypeFilter(employeeTypes) {
+  const select = document.getElementById("leaveEmployeeTypeFilter");
+  const current = leaveEmployeeTypeFilter;
+  select.innerHTML = '<option value="">All employee types</option>' +
+    employeeTypes.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("");
+  select.value = current;
+}
 
 function buildLeaveRow(item, editing, customers, locations, employeeTypes, bands) {
   const tr = document.createElement("tr");
@@ -2142,13 +2250,21 @@ async function loadLeaves() {
     fetch(`${API}/employee-types`).then((r) => r.json()),
     fetch(`${API}/bands`).then((r) => r.json()),
   ]);
+  populateLeaveCustomerFilter(customers);
+  populateLeaveBandFilter(bands);
+  populateLeaveLocationFilter(locations);
+  populateLeaveEmployeeTypeFilter(employeeTypes);
+
+  const filteredItems = items.filter(leaveRowMatchesFilters);
   const tbody = document.getElementById("leaveTableBody");
   tbody.innerHTML = "";
-  if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="20" class="empty-state">No leave records yet. Click "Add Leave Record" to add one.</td></tr>';
+  if (!filteredItems.length) {
+    tbody.innerHTML = `<tr><td colspan="20" class="empty-state">${
+      items.length ? "No leave records match the selected filter." : 'No leave records yet. Click "Add Leave Record" to add one.'
+    }</td></tr>`;
     return;
   }
-  items.forEach((item, idx) => {
+  filteredItems.forEach((item, idx) => {
     const tr = buildLeaveRow(item, false, customers, locations, employeeTypes, bands);
     tr.querySelector(".leave-sl-no").textContent = idx + 1;
     tbody.appendChild(tr);
@@ -2823,17 +2939,14 @@ document.getElementById("tmCustomerFilter").addEventListener("change", (e) => {
   loadTmAssignments();
 });
 
-// Billing Model/Revenue Type/Location/Employee Practice filters for the
-// Time and Material grid - same id-based client-side filtering approach as
-// tmCustomerFilter above, each independent of the others.
-let tmBillingModelFilter = "";
+// Revenue Type/Location/Employee Practice filters for the Time and Material
+// grid - same id-based client-side filtering approach as tmCustomerFilter
+// above, each independent of the others. (Billing Model filter removed per
+// explicit request - it never actually matched anything anyway, since
+// /api/tm/assignments rows don't carry a billing_model_id field.)
 let tmRevenueTypeFilter = "";
 let tmLocationFilter = "";
 let tmPracticeFilter = "";
-document.getElementById("tmBillingModelFilter").addEventListener("change", (e) => {
-  tmBillingModelFilter = e.target.value;
-  loadTmAssignments();
-});
 document.getElementById("tmRevenueTypeFilter").addEventListener("change", (e) => {
   tmRevenueTypeFilter = e.target.value;
   loadTmAssignments();
@@ -2865,7 +2978,6 @@ function revenueSowMatchesFilters(r) {
 function tmRowMatchesFilters(r) {
   return (
     (!tmCustomerFilter || String(r.customer_id) === tmCustomerFilter) &&
-    (!tmBillingModelFilter || String(r.billing_model_id) === tmBillingModelFilter) &&
     (!tmRevenueTypeFilter || String(r.revenue_type_id) === tmRevenueTypeFilter) &&
     (!tmLocationFilter || String(r.location_id) === tmLocationFilter) &&
     (!tmPracticeFilter || String(r.practice_id) === tmPracticeFilter)
@@ -2934,16 +3046,8 @@ function populateRevenuePracticeFilter(practices) {
   select.value = current;
 }
 
-// Billing Model/Revenue Type/Location/Employee Practice filters for Time
-// and Material - same pattern as populateTmCustomerFilter() above.
-function populateTmBillingModelFilter(billingModels) {
-  const select = document.getElementById("tmBillingModelFilter");
-  const current = tmBillingModelFilter;
-  select.innerHTML = '<option value="">All billing models</option>' +
-    billingModels.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("");
-  select.value = current;
-}
-
+// Revenue Type/Location/Employee Practice filters for Time and Material -
+// same pattern as populateTmCustomerFilter() above.
 function populateTmRevenueTypeFilter(revenueTypes) {
   const select = document.getElementById("tmRevenueTypeFilter");
   const current = tmRevenueTypeFilter;
@@ -3005,7 +3109,6 @@ async function loadRevenueTab() {
   populateRevenueRevenueTypeFilter(revenueTypes);
   populateRevenuePracticeFilter(practices);
   populateTmCustomerFilter(customers);
-  populateTmBillingModelFilter(billingModels);
   populateTmRevenueTypeFilter(revenueTypes);
   populateTmLocationFilter(locations);
   populateTmPracticeFilter(practices);
@@ -3058,6 +3161,11 @@ async function loadRevenueSows() {
 // (tbodyId="revenueTypeSummaryBody", the default) and Time and Material
 // (tbodyId="tmRevenueTypeSummaryBody") sections - both summarize rows by
 // revenue_type_name the same way.
+
+// Fixed display order for Time and Material's Revenue Type summary table,
+// per explicit request - see renderRevenueTypeSummaryTable() below.
+const TM_REVENUE_TYPE_ORDER = ["Contracted - Staffed", "Contracted - Not staffed", "Renewals", "Pipeline"];
+
 function renderRevenueTypeSummaryTable(filteredRows, tbodyId = "revenueTypeSummaryBody") {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
@@ -3071,7 +3179,17 @@ function renderRevenueTypeSummaryTable(filteredRows, tbodyId = "revenueTypeSumma
     r.months.forEach((m, i) => { sums[i] += m[field] || 0; });
   });
 
-  const labels = currentRevenueTypes.map((rt) => rt.name);
+  let labels = currentRevenueTypes.map((rt) => rt.name);
+  // Time and Material's own summary table shows rows in a fixed, explicitly
+  // requested sequence rather than /api/revenue-types' alphabetical order
+  // (Managed Services keeps the alphabetical order unchanged) - any revenue
+  // type not in this list (e.g. one added later) still shows, just appended
+  // after these four in whatever order currentRevenueTypes already has them.
+  if (tbodyId === "tmRevenueTypeSummaryBody") {
+    const known = TM_REVENUE_TYPE_ORDER.filter((name) => labels.includes(name));
+    const rest = labels.filter((name) => !TM_REVENUE_TYPE_ORDER.includes(name));
+    labels = [...known, ...rest];
+  }
   if (sumsByType.has("")) labels.push("Unassigned");
 
   tbody.innerHTML = "";
@@ -3333,11 +3451,15 @@ function wireExcelImport(buttonId, fileInputId, importPath) {
 wireExcelImport("importTmBtn", "tmImportFile", "/tm/assignments/import");
 wireExcelImport("importRevenueSowsBtn", "revenueSowsImportFile", "/revenue/sows/import");
 
-// Builds the 12 month <td>s (Projections only) for the "Add Entry" draft row
-// - read-only "—" placeholders before a SOW is picked, real number inputs
-// once one is (see setDraftMonthsEditable() below). Mirrors the same
-// fiscal-month/band pattern buildRevenueSowRow() uses for a tracked row, but
-// starting from blank/zero values since nothing has been saved yet.
+// Builds the 12 month <td>s (Projections only) for the "Add Entry" draft row.
+// Mirrors the same fiscal-month/band pattern buildRevenueSowRow() uses for a tracked row, but
+// starting from blank/zero values since nothing has been saved yet. Always
+// called with editable:true now (see openRevenueEntryDraft() - the 12 month
+// inputs are enabled from the moment the draft row appears, not gated behind
+// picking a SOW first) - the read-only "—" branch is kept only because
+// buildRevenueSowRow's own read-only rendering is a separate code path and
+// this helper has no other caller left to need it, not because anything
+// still passes false.
 function draftMonthCellsHtml(editable) {
   let html = "";
   for (let fm = 1; fm <= 12; fm++) {
@@ -3356,11 +3478,15 @@ function draftMonthCellsHtml(editable) {
 }
 
 // Add Entry - adds a new row directly in the datatable (no popup): a
-// Customer dropdown narrows a SOW dropdown to that customer's SOWs. The
-// month columns start out read-only ("—") and switch to editable inputs as
-// soon as a SOW is chosen, so Save commits everything typed in in one shot
-// instead of a separate "register, then edit, then save again" round trip.
-// Also the basis for "Copy" on an existing row (see buildRevenueSowRow's
+// Customer dropdown narrows a SOW dropdown to that customer's SOWs (Time and
+// Material SOWs are excluded - see the accountSelect change handler below -
+// since Time and Material projections are tracked on their own grid, not
+// here). Revenue Type and the 12 month inputs are all enabled from the
+// moment this row appears (per explicit request) rather than waiting for a
+// SOW to be picked, so a user can start typing before deciding which SOW
+// they're logging against; only Save itself stays gated on an actual SOW
+// being chosen (see saveBtn.disabled below), since that's what the entry is
+// keyed on. Also the basis for "Copy" on an existing row (see buildRevenueSowRow's
 // rev-copy-btn handler above): prefill.customerId pre-selects the Customer
 // dropdown (narrowing the SOW dropdown to that customer's other untracked
 // SOWs) and prefill.months carries over the source row's 12 figures as a
@@ -3389,7 +3515,7 @@ async function openRevenueEntryDraft(prefill = {}) {
       <button type="button" class="ghost-btn icon-btn draft-cancel-btn" title="Cancel">${icon("x")}</button>
     </td>
     <td></td>
-    <td><select class="draft-revenue-type-select" disabled><option value="">Select revenue type&hellip;</option></select></td>
+    <td><select class="draft-revenue-type-select"><option value="">Select revenue type&hellip;</option></select></td>
     <td>
       <select class="draft-account-select">
         <option value="">Select customer&hellip;</option>
@@ -3412,7 +3538,7 @@ async function openRevenueEntryDraft(prefill = {}) {
     <td class="rev-tcv-cell">&mdash;</td>
     <td class="draft-tcv rev-tcv-cell">&mdash;</td>
     <td class="draft-acv rev-tcv-cell">&mdash;</td>
-    ${draftMonthCellsHtml(false)}
+    ${draftMonthCellsHtml(true)}
   `;
   tbody.insertBefore(tr, tbody.firstChild);
 
@@ -3426,28 +3552,33 @@ async function openRevenueEntryDraft(prefill = {}) {
   const saveBtn = tr.querySelector(".draft-save-btn");
 
   // Options don't depend on the chosen customer/SOW, so fill them in once
-  // up front - only the enabled state and the pre-selected value change as
-  // a SOW is picked (see the sowSelect/accountSelect handlers below).
+  // up front. Revenue Type is enabled from the start (per explicit request -
+  // it no longer waits on a SOW being picked, unlike Practice just below,
+  // which still does); its pre-selected value still follows whichever SOW
+  // ends up chosen (see the sowSelect handler below), so picking a SOW that
+  // already has a Revenue Type on its Contract still auto-fills it, but the
+  // user is free to set/change it beforehand or override it after.
   revenueTypeSelect.innerHTML = `<option value="">Select revenue type&hellip;</option>` +
     currentRevenueTypes.map((rt) => `<option value="${rt.id}">${escapeHtml(rt.name)}</option>`).join("");
   practiceSelect.innerHTML = `<option value="">Select practice&hellip;</option>` +
     currentPractices.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
 
-  function setDraftMonthsEditable(editable) {
-    tr.querySelectorAll(".draft-month-cell").forEach((td) => td.remove());
-    practiceSelect.closest("td").insertAdjacentHTML("afterend", draftMonthCellsHtml(editable));
-    // Copy's starting point: fill the freshly-(re)built inputs with the
-    // source row's monthly figures instead of leaving them at 0, so
-    // duplicating a row's numbers onto a different SOW doesn't mean
-    // retyping all 24 of them. No-op for a plain "Add Entry" (no
-    // prefill.months) and while the placeholders are still read-only.
-    if (editable && prefill.months) {
-      prefill.months.forEach((m) => {
-        const projInput = tr.querySelector(`.draft-projection-input[data-fiscal-month="${m.fiscal_month}"]`);
-        if (projInput) projInput.value = m.projection;
-      });
-    }
+  // Copy's starting point: fill the (already-editable) inputs with the
+  // source row's monthly figures instead of leaving them at 0, so
+  // duplicating a row's numbers onto a different SOW doesn't mean retyping
+  // all 12 of them. No-op for a plain "Add Entry" (no prefill.months).
+  // Applied once up front (nothing here depends on a SOW being chosen first
+  // any more) and re-applied when a SOW is picked below, in case the row was
+  // rebuilt in between - harmless either way since it just re-sets the same
+  // values.
+  function fillDraftMonthsFromPrefill() {
+    if (!prefill.months) return;
+    prefill.months.forEach((m) => {
+      const projInput = tr.querySelector(`.draft-projection-input[data-fiscal-month="${m.fiscal_month}"]`);
+      if (projInput) projInput.value = m.projection;
+    });
   }
+  fillDraftMonthsFromPrefill();
 
   accountSelect.addEventListener("change", () => {
     const val = accountSelect.value;
@@ -3456,17 +3587,23 @@ async function openRevenueEntryDraft(prefill = {}) {
     acvCell.textContent = "—";
     billingModelCell.textContent = "—";
     revenueTypeSelect.value = "";
-    revenueTypeSelect.disabled = true;
     practiceSelect.value = "";
     practiceSelect.disabled = true;
-    setDraftMonthsEditable(false);
     if (!val) {
       sowSelect.disabled = true;
       sowSelect.innerHTML = '<option value="">Select customer first&hellip;</option>';
       return;
     }
+    // Time and Material SOWs are excluded here - this grid (Best Estimates >
+    // Managed Services) is for Non-Time and Material SOWs only, per explicit
+    // request; Time and Material SOWs are tracked on their own grid (Best
+    // Estimates > Time and Material) instead.
     const matching = sows.filter((s) => {
-      return s.customer_id === parseInt(val, 10) && !revenueTrackedSowIds.has(s.id);
+      return (
+        s.customer_id === parseInt(val, 10) &&
+        !revenueTrackedSowIds.has(s.id) &&
+        (s.billing_model_name || "") !== "Time and Material"
+      );
     });
     sowSelect.disabled = false;
     if (!matching.length) {
@@ -3481,14 +3618,15 @@ async function openRevenueEntryDraft(prefill = {}) {
     const hasSow = !!sowSelect.value;
     saveBtn.disabled = !hasSow;
     const selectedSow = sows.find((s) => String(s.id) === sowSelect.value);
+    // TCV/ACV are always the selected SOW's own figures, shown plain (never
+    // an <input>) - auto-populated here and read-only by construction.
     tcvCell.textContent = selectedSow ? fmt(selectedSow.total_value) : "—";
     acvCell.textContent = selectedSow ? fmt(selectedSow.acv) : "—";
     billingModelCell.textContent = (selectedSow && selectedSow.billing_model_name) || "—";
     revenueTypeSelect.value = (selectedSow && selectedSow.revenue_type_id) ?? "";
-    revenueTypeSelect.disabled = !hasSow;
     practiceSelect.value = (selectedSow && selectedSow.practice_id) ?? "";
     practiceSelect.disabled = !hasSow;
-    setDraftMonthsEditable(hasSow);
+    fillDraftMonthsFromPrefill();
   });
 
   tr.querySelector(".draft-cancel-btn").addEventListener("click", () => {
@@ -3580,9 +3718,10 @@ async function openRevenueEntryDraft(prefill = {}) {
   // its other untracked SOWs immediately, same as if the user had just
   // picked it themselves - accountSelect's own "change" handler above does
   // the rest (populating sowSelect; the month values are filled in by
-  // setDraftMonthsEditable() once a SOW is actually chosen). No-op for a
-  // plain "Add Entry" (no prefill.customerId) or if that customer has
-  // nothing left to copy onto (every one of its SOWs already tracked).
+  // fillDraftMonthsFromPrefill(), called once up front and again once a SOW
+  // is actually chosen). No-op for a plain "Add Entry" (no
+  // prefill.customerId) or if that customer has nothing left to copy onto
+  // (every one of its SOWs already tracked).
   if (prefill.customerId && Array.from(accountSelect.options).some((o) => o.value === String(prefill.customerId))) {
     accountSelect.value = String(prefill.customerId);
     accountSelect.dispatchEvent(new Event("change"));
@@ -3605,7 +3744,11 @@ function computeFinalRate(rateCard, discountPct) {
 
 function tmSowsForCustomer(customerId) {
   if (!customerId) return [];
-  return currentAllSows.filter((s) => String(s.customer_id) === String(customerId));
+  // Time and Material assignments only ever belong to a Time and Material
+  // Contract - narrowed here per explicit request, mirroring the opposite
+  // exclusion the Managed Services grid's own SOW matching already applies
+  // (see openRevenueEntryDraft's accountSelect handler).
+  return currentAllSows.filter((s) => String(s.customer_id) === String(customerId) && (s.billing_model_name || "") === "Time and Material");
 }
 
 async function loadTmAssignments() {
@@ -3725,6 +3868,12 @@ function buildTmAssignmentRow(r, editing) {
       <td>${fmtDate(r.end_date)}</td>
     `;
   }
+
+  // Total is always read-only (sum of the 12 months' Projections, Apr
+  // through Mar) in both read-only and editing mode - there's nothing to
+  // input, same reasoning as Projections itself just below.
+  const totalProjection = r.months.reduce((sum, m) => sum + (m.projection || 0), 0);
+  cells += `<td class="rev-tcv-cell tm-total-cell">${fmtPlain(totalProjection)}</td>`;
 
   // Projections is always auto-calculated (see _compute_tm_projections in
   // main.py - working days between Start/End Date minus Holiday Calendar
@@ -3965,6 +4114,7 @@ async function openTmEntryDraft(prefill = {}) {
     <td class="tm-draft-final-rate-cell tm-final-rate">&mdash;</td>
     <td><input type="date" class="tm-draft-start-date-input" value="${prefill.startDate || ""}" /></td>
     <td><input type="date" class="tm-draft-end-date-input" value="${prefill.endDate || ""}" /></td>
+    <td class="rev-tcv-cell tm-total-cell">&mdash;</td>
     ${tmDraftMonthCellsHtml()}
   `;
   tbody.insertBefore(tr, tbody.firstChild);

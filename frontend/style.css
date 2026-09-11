@@ -1075,6 +1075,13 @@ a.stat-card { cursor: pointer; }
 .row-actions button:last-child { margin-right: 0; }
 /* Holiday Calendar's Onsite/Offshore/Nearshore checkbox cells. */
 .center-cell { text-align: center; }
+/* Holiday Calendar: header labels and Onsite/Offshore/Nearshore data need to
+   win over the higher-specificity ".list-card table th/td" rule above, which
+   otherwise forces everything back to left-aligned on this page. */
+#tab-config-holidays .sow-table th { text-align: center; }
+#tab-config-holidays .sow-table td.center-cell { text-align: center; }
+/* Holiday Calendar's observed-date checkmark. */
+.hol-tick { color: #16a34a; font-weight: 800; font-size: 18px; }
 .empty-state { color: var(--text-muted); font-size: 13px; padding: 14px 0; text-align: center; }
 /* Modifiers for empty-state messages that sit inline in a table row instead
    of standing alone (left-aligned, tighter vertical padding) - replaces
