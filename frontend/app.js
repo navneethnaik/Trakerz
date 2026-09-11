@@ -2174,6 +2174,10 @@ document.getElementById("newLeaveBtn").addEventListener("click", async () => {
   draft.querySelector(".inline-cell").focus();
 });
 
+document.getElementById("exportLeaveBtn").addEventListener("click", () => {
+  window.location.href = `${API}/leaves/export`;
+});
+
 // "Import from Excel" for Leave Tracker - same {imported, errors} result
 // shape as the Time and Material grid's own import (see import_leaves() in
 // main.py), but with no fiscal year concept and its own reload afterward,

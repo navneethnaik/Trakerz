@@ -2263,6 +2263,35 @@ def list_leaves():
         return result
 
 
+@app.get("/api/leaves/export")
+def export_leaves():
+    """Export the Resource and Leave grid to an .xlsx workbook - same
+    column set/order as leaves_import_template() below (Customer Name,
+    Employee ID, Employee Name, Location, Band, Employee Type, then the 12
+    Apr-Mar leave-day columns) but filled with every row currently in the
+    table, so the export can be edited and re-imported unchanged. Registered
+    before /api/leaves/{item_id} for the same route-ordering reason as the
+    SOW/Customer/Resource export endpoints above (moot here since those
+    routes are PUT/DELETE only, but kept consistent)."""
+    items = list_leaves()
+    headers = ["Customer Name", "Employee ID", "Employee Name", "Location", "Band", "Employee Type", *FISCAL_MONTH_LABELS]
+    rows = [
+        [
+            item.get("customer_name") or "",
+            item.get("employee_id") or "",
+            item.get("employee_name") or "",
+            item.get("location_name") or "",
+            item.get("band_name") or "",
+            item.get("employee_type_name") or "",
+            *[item.get(col) for col in _LEAVE_MONTH_COLUMNS],
+        ]
+        for item in items
+    ]
+    widths = [22, 14, 20, 16, 14, 16] + [9] * 12
+    wb = _build_workbook("Resources and Leaves", headers, rows, widths=widths)
+    return _xlsx_response(wb, f"trakerz_leave_tracker_{date.today().isoformat()}.xlsx")
+
+
 @app.post("/api/leaves", status_code=201)
 def create_leave(item: LeaveManagementIn):
     with db.get_db() as conn:
