@@ -227,6 +227,7 @@ function showTab(name) {
   if (name === "config-opportunity-types") loadOpportunityTypes();
   if (name === "config-revenue-types") loadRevenueTypes();
   if (name === "config-practices") loadPractices();
+  if (name === "sow-report") loadSowReport();
 }
 
 document.getElementById("backToList").addEventListener("click", () => showTab("sows"));
@@ -2367,11 +2368,22 @@ document.getElementById("dashboardCustomerFilter").addEventListener("change", (e
   loadHome();
 });
 
-// Rebuilds the filter's <option> list from the current customers, keeping
-// whatever is currently selected (customers are re-fetched on every
-// loadHome(), so this runs each time rather than once at page load).
-function populateDashboardCustomerFilter(customers) {
-  const select = document.getElementById("dashboardCustomerFilter");
+// Reports > Statement of Work has its own, independent account filter -
+// separate state from the dashboard's dashboardCustomerFilter above, so
+// picking an account on one page never affects the other.
+let sowReportCustomerId = "";
+document.getElementById("sowReportCustomerFilter").addEventListener("change", (e) => {
+  sowReportCustomerId = e.target.value;
+  loadSowReport();
+});
+
+// Rebuilds a customer filter <select>'s option list from the current
+// customers, keeping whatever is currently selected - shared by the
+// Dashboard's own filter and Reports > Statement of Work's filter (each
+// page re-fetches customers and calls this on every load rather than once,
+// so a newly-added customer shows up without a full page refresh).
+function populateCustomerFilterSelect(customers, selectId) {
+  const select = document.getElementById(selectId);
   const current = select.value;
   select.innerHTML = '<option value="">All</option>' +
     customers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
@@ -2513,8 +2525,14 @@ function renderResourceTypeTable(resources, employeeTypes) {
 
 // Billing Models vs. count of currently Active SOWs using each - every
 // configured billing model is listed (even with 0 active SOWs), ascending.
-function renderBillingModelTable(sows, billingModels) {
-  const tbody = document.getElementById("homeBillingModelTableBody");
+// tbodyId/countId default to the main Reports/Dashboard page's own element
+// ids so every existing call site is unaffected; Reports > Statement of
+// Work (see loadSowReport) passes its own distinct ids to reuse this same
+// computation against a second, independent copy of the table, plus
+// includeTotal:true for a trailing Total row that page's tables get and the
+// Dashboard's own copy doesn't (unrequested there).
+function renderBillingModelTable(sows, billingModels, tbodyId, countId, includeTotal) {
+  const tbody = document.getElementById(tbodyId || "homeBillingModelTableBody");
   const activeCounts = {};
   let totalActive = 0;
   sows.forEach((s) => {
@@ -2523,7 +2541,7 @@ function renderBillingModelTable(sows, billingModels) {
     activeCounts[key] = (activeCounts[key] || 0) + 1;
     totalActive += 1;
   });
-  document.getElementById("homeBillingModelCount").textContent = totalActive;
+  document.getElementById(countId || "homeBillingModelCount").textContent = totalActive;
   const names = billingModels.map((b) => b.name);
   Object.keys(activeCounts).forEach((k) => { if (!names.includes(k)) names.push(k); });
   names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -2531,41 +2549,127 @@ function renderBillingModelTable(sows, billingModels) {
     tbody.innerHTML = '<tr><td colspan="3" class="empty-state">No billing models yet.</td></tr>';
     return;
   }
-  tbody.innerHTML = names.map((name) => {
+  let rowsHtml = names.map((name) => {
     const count = activeCounts[name] || 0;
     return `<tr><td>${escapeHtml(name)}</td><td>${count}</td><td>${pctOf(count, totalActive)}%</td></tr>`;
   }).join("");
+  if (includeTotal) {
+    rowsHtml += `<tr class="table-total-row"><td>Total</td><td>${totalActive}</td><td>${pctOf(totalActive, totalActive)}%</td></tr>`;
+  }
+  tbody.innerHTML = rowsHtml;
 }
 
 // SOW Status breakdown - one row per configured status (Configuration > SOW
 // Status), even ones with zero SOWs currently, grouped into a single table
 // alongside the Billing Models / Expiring cards rather than as separate
 // stat tiles. Matched against dashboard.status_counts case-insensitively
-// since SOW Status is free-text, user-editable master data.
-function renderSowStatusTable(statuses, statusCounts) {
-  const tbody = document.getElementById("homeSowStatusTableBody");
+// since SOW Status is free-text, user-editable master data. tbodyId/countId
+// default to the main Reports/Dashboard page's own ids, and includeTotal
+// adds a trailing Total row - see renderBillingModelTable above for why/how
+// a second page can reuse this with its own ids/total row.
+function renderSowStatusTable(statuses, statusCounts, tbodyId, countId, includeTotal) {
+  const tbody = document.getElementById(tbodyId || "homeSowStatusTableBody");
   const names = (statuses || []).map((s) => s.name);
   if (!names.length) {
-    document.getElementById("homeSowStatusCount").textContent = 0;
+    document.getElementById(countId || "homeSowStatusCount").textContent = 0;
     tbody.innerHTML = '<tr><td colspan="3" class="empty-state">No statuses yet.</td></tr>';
     return;
   }
   const counts = {};
   names.forEach((name) => { counts[name] = countStatusCI(statusCounts, name); });
   const total = Object.values(counts).reduce((sum, c) => sum + c, 0);
-  document.getElementById("homeSowStatusCount").textContent = total;
-  tbody.innerHTML = names.map((name) => {
+  document.getElementById(countId || "homeSowStatusCount").textContent = total;
+  let rowsHtml = names.map((name) => {
     const count = counts[name];
     return `<tr><td>${escapeHtml(name)}</td><td>${count}</td><td>${pctOf(count, total)}%</td></tr>`;
   }).join("");
+  if (includeTotal) {
+    rowsHtml += `<tr class="table-total-row"><td>Total</td><td>${total}</td><td>${pctOf(total, total)}%</td></tr>`;
+  }
+  tbody.innerHTML = rowsHtml;
+}
+
+// Reports > Statement of Work - a dedicated page for the SOW breakdown
+// tables and Expiring in 30 Days list also shown on the main Reports/
+// Dashboard page (see renderSowStatusTable/renderBillingModelTable/
+// renderExpiringTable above), scoped to this page's own account filter
+// (sowReportCustomerId) rather than sharing state with loadHome() (that
+// page's own customer filter shouldn't affect this one). The two breakdown
+// tables get a trailing Total row here (includeTotal:true) that the
+// Dashboard's own copies don't. This page previously also showed TCV/ACV
+// cards; removed per explicit request. The count next to each heading is a
+// button styled as a link (see .count-link in style.css) that opens the SOW
+// details popup (openSowDetailsModal below) listing the SOWs behind that
+// count - re-wired with .onclick (not addEventListener) each time this runs
+// so repeated loads (e.g. changing the account filter) don't stack up
+// duplicate handlers pointing at stale data.
+async function loadSowReport() {
+  // Same server-side customer_id scoping as loadHome() - sows.customer_id
+  // is a real column, so filtering happens in the query rather than
+  // client-side, and every widget below (the two breakdown tables,
+  // Expiring in 30 Days) is derived from this one already-scoped list.
+  const sowsUrl = sowReportCustomerId ? `${API}/sows?customer_id=${sowReportCustomerId}` : `${API}/sows`;
+  const [customers, sows, statuses, billingModels] = await Promise.all([
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(sowsUrl).then((r) => r.json()),
+    fetch(`${API}/statuses`).then((r) => r.json()),
+    fetch(`${API}/billing-models`).then((r) => r.json()),
+  ]);
+  populateCustomerFilterSelect(customers, "sowReportCustomerFilter");
+
+  const statusCounts = {};
+  sows.forEach((s) => { statusCounts[s.status] = (statusCounts[s.status] || 0) + 1; });
+  renderSowStatusTable(statuses, statusCounts, "sowReportStatusTableBody", "sowReportStatusCount", true);
+  renderBillingModelTable(sows, billingModels, "sowReportBillingModelTableBody", "sowReportBillingModelCount", true);
+  const activeSows = sows.filter((s) => (s.status || "").toLowerCase() === "active");
+  const expiringSows = sows.filter((s) => (s.alerts || []).includes("expiring_soon"));
+  renderExpiringTable(expiringSows, "sowReportExpiringTableBody", "sowReportExpiringCount");
+
+  document.getElementById("sowReportStatusCount").onclick = () =>
+    openSowDetailsModal("Statement of Work Details – All SOWs", sows);
+  document.getElementById("sowReportBillingModelCount").onclick = () =>
+    openSowDetailsModal("Statement of Work Details – Active SOWs", activeSows);
+  document.getElementById("sowReportExpiringCount").onclick = () =>
+    openSowDetailsModal("Statement of Work Details – Expiring in 30 Days", expiringSows);
+}
+
+// SOW details popup - shows the full list of SOWs behind whichever count on
+// Reports > Statement of Work was clicked, with the columns none of that
+// page's compact tables show on their own (Billing Model, Revenue Type, TCV,
+// ACV, Expiring In) alongside Account Name/SoW Name. Read-only, closed via
+// the Close button (see wireModalCancel call below).
+const sowDetailsModal = document.getElementById("sowDetailsModal");
+wireModalCancel(sowDetailsModal, "closeSowDetailsBtn");
+function openSowDetailsModal(title, sows) {
+  document.getElementById("sowDetailsModalTitle").textContent = title;
+  const tbody = document.getElementById("sowDetailsModalTableBody");
+  if (!sows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No SOWs to show.</td></tr>';
+  } else {
+    const sorted = [...sows].sort((a, b) => (a.customer_name || "").localeCompare(b.customer_name || ""));
+    tbody.innerHTML = sorted.map((s) => `
+      <tr>
+        <td>${escapeHtml(s.customer_name) || "—"}</td>
+        <td>${escapeHtml(s.title)}</td>
+        <td>${escapeHtml(s.billing_model_name) || "—"}</td>
+        <td>${escapeHtml(s.revenue_type_name) || "—"}</td>
+        <td>${fmt(s.total_value)}</td>
+        <td>${fmt(s.acv)}</td>
+        <td>${s.days_to_end === null || s.days_to_end === undefined ? "—" : `${s.days_to_end}d`}</td>
+      </tr>
+    `).join("");
+  }
+  sowDetailsModal.hidden = false;
 }
 
 // SOWs expiring within 30 days - Account Name / SOW Name / days remaining,
 // soonest first. Same underlying data as the SOWs page's "Expiring in 30
-// days" card (GET /api/dashboard), just shown as a table here.
-function renderExpiringTable(items) {
-  const tbody = document.getElementById("homeExpiringTableBody");
-  document.getElementById("homeExpiringCount").textContent = items.length;
+// days" card (GET /api/dashboard), just shown as a table here. tbodyId/
+// countId default to the main Reports/Dashboard page's own ids - see
+// renderBillingModelTable above for why/how a second page can reuse this.
+function renderExpiringTable(items, tbodyId, countId) {
+  const tbody = document.getElementById(tbodyId || "homeExpiringTableBody");
+  document.getElementById(countId || "homeExpiringCount").textContent = items.length;
   if (!items.length) {
     tbody.innerHTML = '<tr><td colspan="3" class="empty-state">Nothing expiring in the next 30 days.</td></tr>';
     return;
@@ -2601,7 +2705,7 @@ async function loadHome() {
     fetch(`${API}/employee-types`).then((r) => r.json()),
   ]);
 
-  populateDashboardCustomerFilter(customers);
+  populateCustomerFilterSelect(customers, "dashboardCustomerFilter");
 
   const selectedCustomer = dashboardCustomerFilter
     ? customers.find((c) => String(c.id) === dashboardCustomerFilter)

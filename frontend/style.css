@@ -219,7 +219,7 @@ body {
 .tabs { display: flex; gap: 4px; flex: 1; justify-content: flex-end; }
 .tab-btn {
   background: none; border: none; padding: 5px 12px; border-radius: 999px;
-  cursor: pointer; font-size: 14px; font-weight: 400; color: rgba(255,255,255,.85); line-height: 1.3;
+  cursor: pointer; font-size: 13px; font-weight: 400; color: rgba(255,255,255,.85); line-height: 1.3;
   display: inline-flex; align-items: center; transition: background .15s, color .15s;
 }
 .tab-btn:hover { background: rgba(255,255,255,.14); color: #fff; }
@@ -629,6 +629,27 @@ a.stat-card { cursor: pointer; }
 .dash-circle-tile.circle-pink { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f472b6, #db2777); }
 .dash-circle-tile .circle-value { font-size: 22px; font-weight: 800; color: var(--text); line-height: 1.1; }
 .dash-circle-tile .circle-label { font-size: 11px; font-weight: 700; color: var(--text-muted); margin-top: 4px; }
+/* Trailing "Total" row appended to a breakdown table (see the includeTotal
+   flag on renderSowStatusTable/renderBillingModelTable in app.js, used by
+   Reports > Statement of Work) - bold with a heavier top border so it reads
+   as a summary line rather than just another data row. The table's own
+   "last row has no border-bottom" rule (.list-card table tbody tr:last-child
+   td) still applies since this is the actual last row, which is what's
+   wanted here too. */
+.table-total-row td { font-weight: 700; border-top: 2px solid var(--border); }
+/* "Hyperlink" for the count shown beside a Reports > Statement of Work
+   heading (e.g. "SOW Status (12)") - a real <button> under the hood (kept
+   consistent with the rest of the app, which never uses <a> for in-page
+   actions) but styled to read as a link, since clicking it opens the SOW
+   details popup (see openSowDetailsModal() in app.js). */
+.count-link {
+  background: none; border: none; padding: 0; margin: 0; font: inherit; font-weight: inherit;
+  color: var(--primary); cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+.count-link:hover { color: var(--primary-2); }
+/* Wider modal variant for the SOW details popup's 7-column table - modal-wide
+   (720px) alone left it cramped, so this stacks on top of it. */
+.modal-box.modal-xwide { width: 960px; }
 /* Bigger, flat pastel-on-color icon badges (vs. the small gradient squares
    used elsewhere in the app), in an orange/gold-led accent palette matching
    the navy theme - each .icon-* class keeps its existing hue, just remapped
@@ -1072,7 +1093,7 @@ a.stat-card { cursor: pointer; }
 }
 .dropdown-item {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: none;
-  padding: 8px 12px; font-size: 14px; font-weight: 400; border-radius: 7px; cursor: pointer; color: var(--text);
+  padding: 8px 12px; font-size: 13px; font-weight: 400; border-radius: 7px; cursor: pointer; color: var(--text);
 }
 .dropdown-item .icon { color: var(--primary-2); }
 .dropdown-item:hover { background: var(--row-hover); }

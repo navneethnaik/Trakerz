@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=91" />
+<link rel="stylesheet" href="style.css?v=95" />
 </head>
 <body>
 <header class="topbar">
@@ -31,26 +31,60 @@
       <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
       <span class="icon-text">Statement of Work</span>
     </button>
+    <!-- Revenue Outlook: new top-level menu per explicit request, holding
+         Best Estimates and Realized Revenue as second-level flyout
+         submenus rather than flat leaves (each still opens its own two
+         Time and Material/Managed Services items). This is the first use
+         of the generic two-level [data-toggle-submenu]/.dropdown-submenu
+         infrastructure that was already wired up in app.js/style.css but
+         previously unused - see the .dropdown-item-group comment in
+         style.css. A .dropdown-item-group's trigger button (class
+         "dropdown-item" but deliberately no data-tab, so the generic
+         click-to-navigate handler leaves it alone) toggles its sibling
+         .dropdown-submenu open/closed; querySelectorAll's descendant match
+         still finds the leaf .dropdown-item[data-tab] buttons inside that
+         submenu regardless of nesting depth, so no app.js changes were
+         needed for navigation or for the toggle-stays-highlighted logic in
+         showTab() (dropdownItem.closest(".nav-dropdown") still resolves to
+         this outer Revenue Outlook dropdown from any nesting depth). -->
     <div class="nav-dropdown">
-      <button class="tab-btn dropdown-toggle" id="bestEstimatesMenuBtn">
-        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
-        <span class="icon-text">Best Estimates</span>
+      <button class="tab-btn dropdown-toggle" id="revenueOutlookMenuBtn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+        <span class="icon-text">Revenue Outlook</span>
         <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
       </button>
-      <!-- Was "Financial > Projections" (a two-level menu: a top-level
-           Financial dropdown containing a Projections submenu trigger,
-           itself opening the two billing-model leaves) - flattened to one
-           top-level "Best Estimates" dropdown with the same two leaves
-           directly in it, since Projections was the only thing left under
-           Financial once Actuals/Invoiced were removed. Every leaf item
-           still uses the plain .dropdown-item[data-tab] convention the
-           generic nav handler already understands, plus
-           data-revenue-billing-model so the click also pre-sets the grid's
-           billing-model filter (see applyRevenueMenuPreset() in app.js)
-           before navigating there. -->
-      <div class="dropdown-menu" id="bestEstimatesMenu" hidden>
-        <button class="dropdown-item" data-tab="revenue" data-revenue-billing-model="Time and Material">Time and Material</button>
-        <button class="dropdown-item" data-tab="revenue" data-revenue-billing-model="Managed Services">Managed Services</button>
+      <div class="dropdown-menu" id="revenueOutlookMenu" hidden>
+        <!-- Was its own top-level dropdown (see git history/earlier
+             comments) - moved under Revenue Outlook per explicit request.
+             Leaves unchanged from before: data-revenue-billing-model still
+             pre-sets the grid's billing-model filter (see
+             applyRevenueMenuPreset() in app.js) before navigating there. -->
+        <div class="dropdown-item-group">
+          <button class="dropdown-item" data-toggle-submenu="bestEstimatesSubmenu">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+            <span class="dropdown-item-label">Best Estimates</span>
+            <svg class="icon submenu-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <div class="dropdown-submenu" id="bestEstimatesSubmenu" hidden>
+            <button class="dropdown-item" data-tab="revenue" data-revenue-billing-model="Time and Material">Time and Material</button>
+            <button class="dropdown-item" data-tab="revenue" data-revenue-billing-model="Managed Services">Managed Services</button>
+          </div>
+        </div>
+        <!-- Was its own top-level dropdown beside Best Estimates - moved
+             under Revenue Outlook per explicit request. Both leaves are
+             still empty placeholder pages for now ("we will add the
+             functionality later, keep these blanks"). -->
+        <div class="dropdown-item-group">
+          <button class="dropdown-item" data-toggle-submenu="realizedRevenueSubmenu">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            <span class="dropdown-item-label">Realized Revenue</span>
+            <svg class="icon submenu-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <div class="dropdown-submenu" id="realizedRevenueSubmenu" hidden>
+            <button class="dropdown-item" data-tab="realized-tm">Time and Material</button>
+            <button class="dropdown-item" data-tab="realized-ms">Managed Services</button>
+          </div>
+        </div>
       </div>
     </div>
     <div class="nav-dropdown">
@@ -128,12 +162,17 @@
          earlier explicit request. Internal id (data-tab="home") is
          unchanged so every existing reference (showTab, the landing page's
          "Open Dashboard" CTA, etc.) keeps working without further edits.
-         Turned into a nav-dropdown (matching the Best Estimates/
-         Configuration/Global Settings pattern) per a later explicit
-         request to move Resource and Revenue under Reports - the dropdown
-         toggle no longer navigates anywhere itself, it just opens the menu,
-         so the dashboard view is reachable via its own "Reports" leaf item
-         below alongside the Resource/Revenue placeholder pages. -->
+         Turned into a nav-dropdown (matching the Configuration/Global
+         Settings pattern) per a later explicit request to move Resource
+         and Revenue under Reports; a redundant "Reports" leaf duplicating
+         the toggle's own label was then removed per a further explicit
+         request - the dashboard itself (data-tab="home") has no nav entry
+         any more and is reachable only via the landing page's "Open
+         Reports" CTA (showTab("home") in app.js). "Statement of Work" (a
+         SOW Status/Billing Model breakdown, see loadSowReport() in app.js)
+         and "GM Predictor" (an empty placeholder, moved here from its own
+         top-level spot "for now" per explicit request) were added
+         afterward, so this dropdown now holds four leaves. -->
     <div class="nav-dropdown">
       <button class="tab-btn dropdown-toggle" id="reportsMenuBtn">
         <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
@@ -141,9 +180,9 @@
         <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
       </button>
       <div class="dropdown-menu" id="reportsMenu" hidden>
-        <button class="dropdown-item" data-tab="home">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-          Reports
+        <button class="dropdown-item" data-tab="sow-report">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+          Statement of Work
         </button>
         <button class="dropdown-item" data-tab="resource-hub">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
@@ -152,6 +191,13 @@
         <button class="dropdown-item" data-tab="revenue-hub">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
           Revenue
+        </button>
+        <!-- Was its own top-level page beside Reports - moved under here
+             per explicit request ("for now"), same empty placeholder as
+             before. -->
+        <button class="dropdown-item" data-tab="gm-predictor">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+          GM Predictor
         </button>
       </div>
     </div>
@@ -1027,6 +1073,55 @@
     </div>
   </section>
 
+  <!-- Reports > Statement of Work: the same widgets shown on the main
+       Reports/Dashboard page - an account (Customer) filter and the SOW
+       Status/Billing Model - Active SOWs breakdown tables (each with its
+       own trailing Total row, see .table-total-row in style.css) plus the
+       Expiring in 30 Days list - all reused here as their own dedicated
+       page via loadSowReport() (see renderSowStatusTable/
+       renderBillingModelTable/renderExpiringTable/
+       populateCustomerFilterSelect in app.js, each generalized to take a
+       target element id so this page can reuse them independently of the
+       dashboard's own home* ids). This page's own filter
+       (sowReportCustomerFilter/sowReportCustomerId) is separate state from
+       the dashboard's dashboardCustomerFilter - selecting an account here
+       doesn't affect Reports' own dashboard page or vice versa. TCV/ACV
+       cards that used to sit alongside these tables were removed per
+       explicit request. -->
+  <section id="tab-sow-report" class="tab-panel">
+    <div class="dash-header-row">
+      <h2 class="page-header-title">Statement of Work</h2>
+      <select id="sowReportCustomerFilter" class="dash-customer-filter">
+        <option value="">All</option>
+      </select>
+    </div>
+    <p class="page-header-desc dash-header-desc">A live breakdown of every Statement of Work by status and, for Active SOWs, by Billing Model &ndash; optionally scoped to one account.</p>
+
+    <div class="dash-lists-row">
+      <div class="list-card list-card-compact">
+        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span><span>SOW Status (<button type="button" id="sowReportStatusCount" class="count-link">0</button>)</span></h3>
+        <table>
+          <thead><tr><th>Status</th><th>SOWs</th><th>%</th></tr></thead>
+          <tbody id="sowReportStatusTableBody"></tbody>
+        </table>
+      </div>
+      <div class="list-card list-card-compact">
+        <h3><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg></span><span>Billing Models &ndash; Active SOWs (<button type="button" id="sowReportBillingModelCount" class="count-link">0</button>)</span></h3>
+        <table>
+          <thead><tr><th>Billing Model</th><th>Active SOWs</th><th>%</th></tr></thead>
+          <tbody id="sowReportBillingModelTableBody"></tbody>
+        </table>
+      </div>
+      <div class="list-card list-card-compact">
+        <h3><span class="card-icon icon-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span><span>SOWs Expiring in 30 Days (<button type="button" id="sowReportExpiringCount" class="count-link">0</button>)</span></h3>
+        <table>
+          <thead><tr><th>Account Name</th><th>SOW Name</th><th>Expiring In</th></tr></thead>
+          <tbody id="sowReportExpiringTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <!-- Placeholder pages for the "Resource" and "Revenue" items under the
        Reports dropdown - see the nav comment above the Reports nav-dropdown
        for why they're empty for now. Not to be confused with the
@@ -1043,6 +1138,32 @@
   <section id="tab-revenue-hub" class="tab-panel">
     <div class="page-header">
       <h2 class="page-header-title">Revenue</h2>
+    </div>
+    <p class="empty-state">This page hasn't been designed yet - check back soon.</p>
+  </section>
+
+  <!-- Placeholder pages for the "Time and Material" and "Managed Services"
+       items under the new Realized Revenue menu - see the nav comment above
+       that nav-dropdown for why they're empty for now. -->
+  <section id="tab-realized-tm" class="tab-panel">
+    <div class="page-header">
+      <h2 class="page-header-title">Realized Revenue &ndash; Time and Material</h2>
+    </div>
+    <p class="empty-state">This page hasn't been designed yet - check back soon.</p>
+  </section>
+
+  <section id="tab-realized-ms" class="tab-panel">
+    <div class="page-header">
+      <h2 class="page-header-title">Realized Revenue &ndash; Managed Services</h2>
+    </div>
+    <p class="empty-state">This page hasn't been designed yet - check back soon.</p>
+  </section>
+
+  <!-- Placeholder page for the new top-level "GM Predictor" nav item - see
+       the nav comment above that .tab-btn for why it's empty for now. -->
+  <section id="tab-gm-predictor" class="tab-panel">
+    <div class="page-header">
+      <h2 class="page-header-title">GM Predictor</h2>
     </div>
     <p class="empty-state">This page hasn't been designed yet - check back soon.</p>
   </section>
@@ -1479,7 +1600,40 @@
   </div>
 </div>
 
+<!-- SOW details popup - opened by clicking the count next to a Reports >
+     Statement of Work heading (see .count-link buttons above and
+     openSowDetailsModal()/wireModalCancel in app.js). Read-only: just lists
+     the SOWs behind whichever count was clicked, with the columns the count
+     doesn't otherwise show (Billing Model, Revenue Type, TCV, ACV, Expiring
+     In) alongside Account Name/SoW Name. -->
+<div id="sowDetailsModal" class="modal" hidden>
+  <div class="modal-box modal-wide modal-xwide">
+    <div class="modal-header">
+      <h2><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span><span id="sowDetailsModalTitle">Statement of Work Details</span></h2>
+      <div class="modal-header-actions">
+        <button type="button" id="closeSowDetailsBtn" class="ghost-btn">Close</button>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Account Name</th>
+            <th>SoW Name</th>
+            <th>Billing Model</th>
+            <th>Revenue Type</th>
+            <th>TCV</th>
+            <th>ACV</th>
+            <th>Expiring In</th>
+          </tr>
+        </thead>
+        <tbody id="sowDetailsModalTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=105"></script>
+<script src="app.js?v=108"></script>
 </body>
 </html>
