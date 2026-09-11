@@ -3131,15 +3131,20 @@ async function loadRevenueTab() {
 // them and reverts the row back to read-only display.
 async function loadRevenueSows() {
   const data = await fetch(`${API}/revenue/sows?fiscal_year=${currentFiscalYear}`).then((r) => r.json());
-  revenueTrackedSowIds = new Set(data.rows.map((r) => r.sow_id));
-  revenueSowsCache = new Map(data.rows.map((r) => [r.sow_id, r]));
+  // sow_id is null for a row tracked against just a Customer with no SOW at
+  // all (see openRevenueEntryDraft) - excluded here so it can't wrongly mark
+  // a real SOW as already-tracked. account_id (the revenue_sow_accounts
+  // row's own id) is set on every row either way, so it - not sow_id - is
+  // what the cache below and Edit/Copy/Delete/Save key off of uniformly.
+  revenueTrackedSowIds = new Set(data.rows.filter((r) => r.sow_id != null).map((r) => r.sow_id));
+  revenueSowsCache = new Map(data.rows.map((r) => [r.account_id, r]));
 
   const filteredRows = data.rows.filter(revenueSowMatchesFilters);
 
   const tbody = document.getElementById("revenueSowsTableBody");
   tbody.innerHTML = "";
   if (!filteredRows.length) {
-    tbody.innerHTML = `<tr><td colspan="32" class="empty-state">${
+    tbody.innerHTML = `<tr><td colspan="33" class="empty-state">${
       data.rows.length ? "No entries match the selected filters." : 'No entries yet. Click "Add Entry" to start tracking revenue for a SOW.'
     }</td></tr>`;
   } else {
@@ -3286,7 +3291,7 @@ function buildRevenueSowRow(r, editing) {
   cells += editing
     ? `<td><select class="rev-revenue-type-select"></select></td>`
     : `<td>${escapeHtml(r.revenue_type_name) || "—"}</td>`;
-  cells += `<td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title)}</td><td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
+  cells += `<td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title) || "—"}</td><td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
   cells += editing
     ? `<td><select class="rev-practice-select"></select></td>`
     : `<td>${escapeHtml(r.practice_name) || "—"}</td>`;
@@ -3321,6 +3326,13 @@ function buildRevenueSowRow(r, editing) {
       ? `<td class="${band}"><input type="number" step="0.01" class="rev-cell rev-month-input" data-fiscal-month="${m.fiscal_month}" data-field="projection" value="${m.projection}" /></td>`
       : `<td class="rev-readonly-cell ${band}">${fmtPlain(m.projection)}</td>`;
   });
+  // Additional Information - last column, after Mar. Optional for a
+  // SOW-backed row, but mandatory when saving a row with no SOW at all (see
+  // saveRevenueRow()'s validation below, and openRevenueEntryDraft()'s for a
+  // brand-new row) - per explicit request.
+  cells += editing
+    ? `<td><input type="text" class="rev-cell rev-additional-info-input" value="${escapeHtml(r.additional_info)}" /></td>`
+    : `<td>${escapeHtml(r.additional_info) || "—"}</td>`;
   tr.innerHTML = cells;
 
   if (editing) {
@@ -3345,30 +3357,37 @@ function buildRevenueSowRow(r, editing) {
       currentPractices.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
     practiceSelect.value = r.practice_id ?? "";
 
-    tr.querySelector(".rev-save-btn").addEventListener("click", () => saveRevenueRow(r.sow_id, tr));
+    tr.querySelector(".rev-save-btn").addEventListener("click", () => saveRevenueRow(r, tr));
     tr.querySelector(".rev-cancel-btn").addEventListener("click", () => {
-      const cached = revenueSowsCache.get(r.sow_id) || r;
+      const cached = revenueSowsCache.get(r.account_id) || r;
       replaceRevenueRow(tr, buildRevenueSowRow(cached, false));
     });
   } else {
     tr.querySelector(".rev-copy-btn").addEventListener("click", () => {
-      // A SOW can only be tracked once per fiscal year, so "Copy" can't
-      // literally duplicate this row (same sow_id, same fiscal_year) - it
-      // opens the same Add Entry draft instead, pre-selecting this row's
-      // Customer (narrowing the SOW dropdown to that customer's other
-      // untracked SOWs) and carrying over the 12 months' figures as a
-      // starting point once a SOW is picked. See openRevenueEntryDraft().
+      // A SOW can only be tracked once per fiscal year, and a SOW-less row
+      // can be duplicated any number of times but still starts blank rather
+      // than literally cloning itself - either way "Copy" opens the same Add
+      // Entry draft instead, pre-selecting this row's Customer (narrowing the
+      // SOW dropdown to that customer's other untracked SOWs) and carrying
+      // over the 12 months' figures as a starting point. See
+      // openRevenueEntryDraft().
       openRevenueEntryDraft({ customerId: r.customer_id, months: r.months });
     });
     tr.querySelector(".rev-edit-btn").addEventListener("click", () => {
       replaceRevenueRow(tr, buildRevenueSowRow(r, true));
     });
     tr.querySelector(".rev-del-btn").addEventListener("click", async () => {
-      if (confirm(`Remove "${r.sow_title}" (${r.customer_name}) from Revenue Management for ${fyLabelText(currentFiscalYear)}? This deletes all of its months for this fiscal year.`)) {
-        const resp = await fetch(`${API}/revenue/sows/${r.sow_id}/${currentFiscalYear}`, { method: "DELETE" });
+      const label = r.sow_id ? `"${r.sow_title}" (${r.customer_name})` : `this row for "${r.customer_name}" (no SOW)`;
+      if (confirm(`Remove ${label} from Revenue Management for ${fyLabelText(currentFiscalYear)}? This deletes all of its months for this fiscal year.`)) {
+        // A SOW-less row has no (sow_id, fiscal_year) to delete by - it's
+        // removed by its own account_id instead. See create_revenue_account/
+        // delete_revenue_account in main.py.
+        const resp = r.sow_id
+          ? await fetch(`${API}/revenue/sows/${r.sow_id}/${currentFiscalYear}`, { method: "DELETE" })
+          : await fetch(`${API}/revenue/accounts/${r.account_id}`, { method: "DELETE" });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
-          alert(formatApiError(err, "Failed to remove this SOW from Revenue Management."));
+          alert(formatApiError(err, "Failed to remove this row from Revenue Management."));
           return;
         }
         loadRevenueTab();
@@ -3381,24 +3400,39 @@ function buildRevenueSowRow(r, editing) {
 
 // Collects the 12 months' input values plus the Revenue Type/Practice
 // selects from an editing row and saves both (months via the per-cell
-// upsert endpoint - there's no bulk-upsert - and Revenue Type/Practice via
-// the narrow /classification endpoint, since those two actually live on the
-// Contract, not on a revenue_entries row), then reloads the grid so the row
-// reverts to read-only display showing the saved values.
-async function saveRevenueRow(sowId, tr) {
+// upsert endpoint - there's no bulk-upsert), then reloads the grid so the
+// row reverts to read-only display showing the saved values. r is the row
+// being edited (its already-known sow_id/account_id say which set of
+// endpoints to use): a SOW-backed row (r.sow_id set) saves Revenue
+// Type/Practice via the narrow Contract /classification endpoint, since
+// those two actually live on the Contract, not on a revenue_entries row -
+// completely unchanged from before this row could ever be SOW-less. A
+// SOW-less row (r.sow_id null) has no Contract to hold them, so it uses the
+// parallel account-level endpoints instead, keyed by its own (already
+// existing) account_id.
+async function saveRevenueRow(r, tr) {
   const saveBtn = tr.querySelector(".rev-save-btn");
   const cancelBtn = tr.querySelector(".rev-cancel-btn");
   saveBtn.disabled = true;
   cancelBtn.disabled = true;
+  const sowId = r.sow_id;
+  const accountId = r.account_id;
+  const additionalInfo = tr.querySelector(".rev-additional-info-input").value;
+  // Additional Information is mandatory only for a row with no SOW (per
+  // explicit request) - checked before anything is sent, same as
+  // openRevenueEntryDraft()'s own check for a brand-new row.
+  if (!sowId && !additionalInfo.trim()) {
+    alert("Please fill in the Additional Information column before saving a row with no SOW.");
+    saveBtn.disabled = false;
+    cancelBtn.disabled = false;
+    return;
+  }
   const projectionInputs = tr.querySelectorAll('.rev-cell[data-field="projection"]');
-  const payloads = Array.from(projectionInputs).map((projectionInput) => {
+  const monthPayloads = Array.from(projectionInputs).map((projectionInput) => {
     const fiscalMonth = parseInt(projectionInput.dataset.fiscalMonth, 10);
-    return {
-      sow_id: sowId,
-      fiscal_year: currentFiscalYear,
-      fiscal_month: fiscalMonth,
-      projection: parseFloat(projectionInput.value) || 0,
-    };
+    return sowId
+      ? { sow_id: sowId, fiscal_year: currentFiscalYear, fiscal_month: fiscalMonth, projection: parseFloat(projectionInput.value) || 0 }
+      : { account_id: accountId, fiscal_month: fiscalMonth, projection: parseFloat(projectionInput.value) || 0 };
   });
   const revenueTypeVal = tr.querySelector(".rev-revenue-type-select").value;
   const practiceVal = tr.querySelector(".rev-practice-select").value;
@@ -3410,20 +3444,31 @@ async function saveRevenueRow(sowId, tr) {
   // buildRevenueSowRow) - saved via their own narrow upsert endpoint,
   // same "one endpoint per Contract-vs-tracking-row concern" split as
   // classificationPayload above.
-  const locationCountsPayload = {
-    sow_id: sowId,
-    fiscal_year: currentFiscalYear,
+  const locationCounts = {
     onsite_count: parseInt(tr.querySelector(".rev-onsite-input").value, 10) || 0,
     offshore_count: parseInt(tr.querySelector(".rev-offshore-input").value, 10) || 0,
     nearshore_count: parseInt(tr.querySelector(".rev-nearshore-input").value, 10) || 0,
   };
+  const cellUrl = sowId ? `${API}/revenue/sows` : `${API}/revenue/accounts/cell`;
+  const classificationUrl = sowId ? `${API}/sows/${sowId}/classification` : `${API}/revenue/accounts/${accountId}/classification`;
+  const locationCountsUrl = sowId ? `${API}/revenue/sows/location-counts` : `${API}/revenue/accounts/${accountId}/location-counts`;
+  const locationCountsPayload = sowId
+    ? { sow_id: sowId, fiscal_year: currentFiscalYear, ...locationCounts }
+    : locationCounts;
   try {
     const responses = await Promise.all([
-      ...payloads.map((payload) =>
-        fetch(`${API}/revenue/sows`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+      ...monthPayloads.map((payload) =>
+        fetch(cellUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
       ),
-      fetch(`${API}/sows/${sowId}/classification`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(classificationPayload) }),
-      fetch(`${API}/revenue/sows/location-counts`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(locationCountsPayload) }),
+      fetch(classificationUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(classificationPayload) }),
+      fetch(locationCountsUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(locationCountsPayload) }),
+      // account_id is always already known for an existing row (SOW-backed
+      // or not), so Additional Information can always be saved via its one
+      // universal endpoint here, unlike the classification/location-counts
+      // split above.
+      fetch(`${API}/revenue/accounts/${accountId}/additional-info`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ additional_info: additionalInfo }),
+      }),
     ]);
     const failed = responses.find((resp) => !resp.ok);
     if (failed) {
@@ -3521,12 +3566,13 @@ function draftMonthCellsHtml(editable) {
 // Customer dropdown narrows a SOW dropdown to that customer's SOWs (Time and
 // Material SOWs are excluded - see the accountSelect change handler below -
 // since Time and Material projections are tracked on their own grid, not
-// here). Revenue Type and the 12 month inputs are all enabled from the
-// moment this row appears (per explicit request) rather than waiting for a
-// SOW to be picked, so a user can start typing before deciding which SOW
-// they're logging against; only Save itself stays gated on an actual SOW
-// being chosen (see saveBtn.disabled below), since that's what the entry is
-// keyed on. Also the basis for "Copy" on an existing row (see buildRevenueSowRow's
+// here). Revenue Type, Practice and the 12 month inputs are all enabled from
+// the moment this row appears (per explicit request) rather than waiting
+// for a SOW to be picked, so a user can start typing before deciding which
+// SOW (if any) they're logging against - per explicit request, a row can be
+// saved with a Customer chosen and no SOW at all (see saveBtn's click
+// handler below), so Save is gated only on Customer being chosen (see
+// accountSelect's change handler), not on a SOW. Also the basis for "Copy" on an existing row (see buildRevenueSowRow's
 // rev-copy-btn handler above): prefill.customerId pre-selects the Customer
 // dropdown (narrowing the SOW dropdown to that customer's other untracked
 // SOWs) and prefill.months carries over the source row's 12 figures as a
@@ -3568,7 +3614,7 @@ async function openRevenueEntryDraft(prefill = {}) {
       </select>
     </td>
     <td class="draft-billing-model">&mdash;</td>
-    <td><select class="draft-practice-select" disabled><option value="">Select practice&hellip;</option></select></td>
+    <td><select class="draft-practice-select"><option value="">Select practice&hellip;</option></select></td>
     <!-- Onsite #/Offshore #/Nearshore # are directly user-editable (see
          buildRevenueSowRow's own comment) - enabled from the start, same as
          the month inputs below, independent of a SOW being picked. -->
@@ -3580,6 +3626,10 @@ async function openRevenueEntryDraft(prefill = {}) {
     <td class="draft-monthly-revenue rev-tcv-cell">&mdash;</td>
     <td class="rev-tcv-cell draft-total-cell">0.00</td>
     ${draftMonthCellsHtml(true)}
+    <!-- Additional Information - last column, after Mar. Mandatory only when
+         saving with no SOW picked (per explicit request) - see the
+         saveBtn click handler below. -->
+    <td><input type="text" class="rev-cell draft-additional-info-input" value="" /></td>
   `;
   tbody.insertBefore(tr, tbody.firstChild);
 
@@ -3636,14 +3686,16 @@ async function openRevenueEntryDraft(prefill = {}) {
 
   accountSelect.addEventListener("change", () => {
     const val = accountSelect.value;
-    saveBtn.disabled = true;
+    // Save needs a Customer, but - per explicit request - not a SOW: once a
+    // Customer is chosen the row can be saved as-is (SOW-less), so Save is
+    // gated on Customer alone, not re-gated by the SOW dropdown below.
+    saveBtn.disabled = !val;
     tcvCell.textContent = "—";
     acvCell.textContent = "—";
     monthlyRevenueCell.textContent = "—";
     billingModelCell.textContent = "—";
     revenueTypeSelect.value = "";
     practiceSelect.value = "";
-    practiceSelect.disabled = true;
     if (!val) {
       sowSelect.disabled = true;
       sowSelect.innerHTML = '<option value="">Select customer first&hellip;</option>';
@@ -3670,8 +3722,9 @@ async function openRevenueEntryDraft(prefill = {}) {
   });
 
   sowSelect.addEventListener("change", () => {
-    const hasSow = !!sowSelect.value;
-    saveBtn.disabled = !hasSow;
+    // Save itself no longer depends on a SOW being picked (see
+    // accountSelect's change handler above) - picking or clearing a SOW here
+    // only affects which figures/classification get auto-filled below.
     const selectedSow = sows.find((s) => String(s.id) === sowSelect.value);
     // TCV/ACV/Monthly Revenue are always the selected SOW's own figures,
     // shown plain (never an <input>) - auto-populated here and read-only by
@@ -3685,7 +3738,6 @@ async function openRevenueEntryDraft(prefill = {}) {
     billingModelCell.textContent = (selectedSow && selectedSow.billing_model_name) || "—";
     revenueTypeSelect.value = (selectedSow && selectedSow.revenue_type_id) ?? "";
     practiceSelect.value = (selectedSow && selectedSow.practice_id) ?? "";
-    practiceSelect.disabled = !hasSow;
     fillDraftMonthsFromPrefill();
   });
 
@@ -3695,17 +3747,27 @@ async function openRevenueEntryDraft(prefill = {}) {
   });
 
   saveBtn.addEventListener("click", async () => {
+    // Save needs a Customer (accountSelect's change handler gates the button
+    // on that alone - see its comment), but per explicit request a SOW is
+    // optional: sowId empty means this saves as a SOW-less row against just
+    // the chosen Customer instead.
+    const customerId = accountSelect.value;
+    if (!customerId) return;
     const sowId = sowSelect.value;
-    if (!sowId) return;
     const selectedSow = sows.find((s) => String(s.id) === sowId);
+    const additionalInfo = tr.querySelector(".draft-additional-info-input").value;
+    // Additional Information is mandatory only for a row with no SOW (per
+    // explicit request) - checked before anything is sent, same as
+    // saveRevenueRow()'s own check for an existing row's edit.
+    if (!sowId && !additionalInfo.trim()) {
+      alert("Please fill in the Additional Information column before saving a row with no SOW.");
+      return;
+    }
     const cancelBtn = tr.querySelector(".draft-cancel-btn");
     saveBtn.disabled = true;
     cancelBtn.disabled = true;
 
-    // Collect whatever was typed into the (now-editable) month inputs and
-    // persist all 12 months in one go - the PUT endpoint registers the SOW
-    // into revenue tracking for this fiscal year as a side effect, so no
-    // separate "create" call is needed first.
+    // Collect whatever was typed into the (now-editable) month inputs.
     const projectionInputs = tr.querySelectorAll(".draft-projection-input");
     const months = Array.from(projectionInputs).map((projectionInput) => {
       const fiscalMonth = parseInt(projectionInput.dataset.fiscalMonth, 10);
@@ -3716,40 +3778,69 @@ async function openRevenueEntryDraft(prefill = {}) {
     });
 
     // Revenue Type/Practice are editable right here too (see the template
-    // above), same fields and same narrow /classification endpoint as
-    // saveRevenueRow()'s edit mode - so a value changed while adding the
-    // entry is written back onto the Contract, not just this fiscal year's
-    // tracking row.
+    // above) - for a SOW-backed row these are written back onto the
+    // Contract via the same narrow /classification endpoint saveRevenueRow()
+    // uses for an existing row's edit; for a SOW-less row there's no
+    // Contract to hold them, so they're written onto the tracking row itself
+    // instead (see create_revenue_account/update_revenue_account_classification
+    // in main.py).
     const revenueTypeId = revenueTypeSelect.value ? parseInt(revenueTypeSelect.value, 10) : null;
     const practiceId = practiceSelect.value ? parseInt(practiceSelect.value, 10) : null;
 
     // Onsite #/Offshore #/Nearshore # are editable right here too (see the
-    // template above) - saved via the same narrow location-counts endpoint
-    // saveRevenueRow() uses for an existing row's edit.
+    // template above).
     const onsiteCount = parseInt(tr.querySelector(".draft-onsite-input").value, 10) || 0;
     const offshoreCount = parseInt(tr.querySelector(".draft-offshore-input").value, 10) || 0;
     const nearshoreCount = parseInt(tr.querySelector(".draft-nearshore-input").value, 10) || 0;
 
+    let accountId = null;
+    if (!sowId) {
+      // A SOW-less row has no (sow_id, fiscal_year) style natural key to
+      // implicitly create itself via the month/classification/location-count
+      // PUTs below the way a SOW-backed row does - unlimited SOW-less rows
+      // per Customer are explicitly allowed, so there's nothing to
+      // INSERT OR IGNORE against. It has to be created explicitly first to
+      // get back a real account_id, then every other write below is keyed on
+      // that - unlike the SOW-backed path, these can't all fire concurrently.
+      const createResp = await fetch(`${API}/revenue/accounts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: parseInt(customerId, 10), fiscal_year: currentFiscalYear, additional_info: additionalInfo }),
+      });
+      if (!createResp.ok) {
+        const err = await createResp.json().catch(() => ({}));
+        alert(formatApiError(err, "Failed to save this entry."));
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        return;
+      }
+      accountId = (await createResp.json()).account_id;
+    }
+
+    const cellUrl = sowId ? `${API}/revenue/sows` : `${API}/revenue/accounts/cell`;
+    const classificationUrl = sowId ? `${API}/sows/${sowId}/classification` : `${API}/revenue/accounts/${accountId}/classification`;
+    const locationCountsUrl = sowId ? `${API}/revenue/sows/location-counts` : `${API}/revenue/accounts/${accountId}/location-counts`;
+    const locationCountsPayload = sowId
+      ? { sow_id: parseInt(sowId, 10), fiscal_year: currentFiscalYear, onsite_count: onsiteCount, offshore_count: offshoreCount, nearshore_count: nearshoreCount }
+      : { onsite_count: onsiteCount, offshore_count: offshoreCount, nearshore_count: nearshoreCount };
+
     const responses = await Promise.all([
       ...months.map((m) =>
-        fetch(`${API}/revenue/sows`, {
+        fetch(cellUrl, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sow_id: parseInt(sowId, 10), fiscal_year: currentFiscalYear, ...m }),
+          body: JSON.stringify(sowId ? { sow_id: parseInt(sowId, 10), fiscal_year: currentFiscalYear, ...m } : { account_id: accountId, ...m }),
         })
       ),
-      fetch(`${API}/sows/${sowId}/classification`, {
+      fetch(classificationUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ revenue_type_id: revenueTypeId, practice_id: practiceId }),
       }),
-      fetch(`${API}/revenue/sows/location-counts`, {
+      fetch(locationCountsUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sow_id: parseInt(sowId, 10), fiscal_year: currentFiscalYear,
-          onsite_count: onsiteCount, offshore_count: offshoreCount, nearshore_count: nearshoreCount,
-        }),
+        body: JSON.stringify(locationCountsPayload),
       }),
     ]);
     const failed = responses.find((resp) => !resp.ok);
@@ -3761,26 +3852,85 @@ async function openRevenueEntryDraft(prefill = {}) {
       return;
     }
 
+    // Additional Information for a brand-new SOW-backed row (optional here,
+    // unlike the no-SOW path just above where it was already sent with the
+    // create call): its account_id isn't known client-side yet (created
+    // implicitly server-side by the PUTs above, same as always) - reload to
+    // learn it, then save Additional Information via its own endpoint. Only
+    // done when the field was actually filled in - left blank (the common
+    // case) falls through to the same no-reload splice as before.
+    if (sowId && additionalInfo.trim()) {
+      revenueTrackedSowIds.add(selectedSow.id);
+      await loadRevenueSows();
+      const savedRow = Array.from(revenueSowsCache.values()).find((row) => row.sow_id === selectedSow.id);
+      if (savedRow) {
+        const infoResp = await fetch(`${API}/revenue/accounts/${savedRow.account_id}/additional-info`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ additional_info: additionalInfo }),
+        });
+        if (infoResp.ok) {
+          await loadRevenueSows();
+        } else {
+          const err = await infoResp.json().catch(() => ({}));
+          alert(formatApiError(err, "Entry saved, but Additional Information could not be saved."));
+        }
+      }
+      return;
+    }
+
     const revenueTypeName = (currentRevenueTypes.find((rt) => rt.id === revenueTypeId) || {}).name || null;
     const practiceName = (currentPractices.find((p) => p.id === practiceId) || {}).name || null;
-    const newRow = {
-      sow_id: selectedSow.id,
-      sow_title: selectedSow.title,
-      customer_id: selectedSow.customer_id,
-      customer_name: selectedSow.customer_name || "Unassigned",
-      total_value: selectedSow.total_value,
-      duration_months: selectedSow.duration_months,
-      acv: selectedSow.acv,
-      billing_model_name: selectedSow.billing_model_name,
-      revenue_type_name: revenueTypeName,
-      practice_name: practiceName,
-      onsite_count: onsiteCount,
-      offshore_count: offshoreCount,
-      nearshore_count: nearshoreCount,
-      months,
-    };
-    revenueTrackedSowIds.add(newRow.sow_id);
-    revenueSowsCache.set(newRow.sow_id, newRow);
+    const selectedCustomer = customers.find((c) => String(c.id) === customerId);
+    const newRow = selectedSow
+      ? {
+          account_id: accountId, // unused when a SOW backs this row - resolved on next full reload
+          sow_id: selectedSow.id,
+          sow_title: selectedSow.title,
+          customer_id: selectedSow.customer_id,
+          customer_name: selectedSow.customer_name || "Unassigned",
+          total_value: selectedSow.total_value,
+          duration_months: selectedSow.duration_months,
+          acv: selectedSow.acv,
+          billing_model_name: selectedSow.billing_model_name,
+          revenue_type_name: revenueTypeName,
+          practice_name: practiceName,
+          onsite_count: onsiteCount,
+          offshore_count: offshoreCount,
+          nearshore_count: nearshoreCount,
+          additional_info: null, // only reached here when left blank - see the reload-then-set branch above
+          months,
+        }
+      : {
+          account_id: accountId,
+          sow_id: null,
+          sow_title: null,
+          customer_id: parseInt(customerId, 10),
+          customer_name: (selectedCustomer && selectedCustomer.customer_name) || "Unassigned",
+          total_value: null,
+          duration_months: null,
+          acv: 0,
+          billing_model_name: null,
+          revenue_type_id: revenueTypeId,
+          revenue_type_name: revenueTypeName,
+          practice_id: practiceId,
+          practice_name: practiceName,
+          onsite_count: onsiteCount,
+          offshore_count: offshoreCount,
+          nearshore_count: nearshoreCount,
+          additional_info: additionalInfo,
+          months,
+        };
+    if (sowId) revenueTrackedSowIds.add(newRow.sow_id);
+    // newRow.account_id is only really known here for a SOW-less row (just
+    // handed back by the explicit create call above) - a SOW-backed row's
+    // account_id was created implicitly server-side by the PUTs above the
+    // same way it always has been, so it's left unset here and only becomes
+    // known on the next real reload (loadRevenueSows()). That's harmless:
+    // the only place this cache is read back before then is Cancel (see
+    // buildRevenueSowRow), which already falls back to the row itself on a
+    // cache miss.
+    revenueSowsCache.set(newRow.account_id, newRow);
     tr.replaceWith(buildRevenueSowRow(newRow, false));
     renumberRevenueRows();
     // Keep the Revenue Type summary table above in sync too, without a full

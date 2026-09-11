@@ -1284,6 +1284,10 @@
               <th class="rev-band-b rev-month-hdr">Jan</th>
               <th class="rev-band-a rev-month-hdr">Feb</th>
               <th class="rev-band-b rev-month-hdr">Mar</th>
+              <!-- Mandatory when saving a row with no SOW (per explicit
+                   request) - optional/free text otherwise. See
+                   buildRevenueSowRow()/openRevenueEntryDraft() in app.js. -->
+              <th class="rev-leading-th">Additional Information</th>
             </tr>
           </thead>
           <tbody id="revenueSowsTableBody"></tbody>
@@ -1514,6 +1518,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=114"></script>
+<script src="app.js?v=116"></script>
 </body>
 </html>

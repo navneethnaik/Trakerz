@@ -245,9 +245,16 @@ CREATE TABLE IF NOT EXISTS resources (
 -- 12=Mar. One row per SOW per fiscal month. (An Invoiced column used to live
 -- here too - removed, front end and back end, to be rebuilt later as its own
 -- feature; see _migrate()'s DROP COLUMN below.)
+-- sow_id is nullable: a row can be tracked against a real Contract (the
+-- original/common case, sow_id set) or, per explicit request, against just
+-- a Customer with no SOW picked at all (sow_id NULL, account_id set instead
+-- - see revenue_sow_accounts below). Exactly one of the two is set on any
+-- given row; account_id-based rows have no natural (customer, fiscal year)
+-- uniqueness limit - a Customer can have any number of them.
 CREATE TABLE IF NOT EXISTS revenue_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sow_id INTEGER NOT NULL REFERENCES sows(id) ON DELETE CASCADE,
+    sow_id INTEGER REFERENCES sows(id) ON DELETE CASCADE,
+    account_id INTEGER REFERENCES revenue_sow_accounts(id) ON DELETE CASCADE,
     fiscal_year INTEGER NOT NULL,
     fiscal_month INTEGER NOT NULL,
     projection REAL NOT NULL DEFAULT 0,
@@ -255,19 +262,41 @@ CREATE TABLE IF NOT EXISTS revenue_entries (
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(sow_id, fiscal_year, fiscal_month)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_revenue_entries_account_month ON revenue_entries(account_id, fiscal_month);
 
--- Which (SOW, fiscal year) rows are explicitly tracked on the SOW-level
--- Revenue Management grid - like SOWs/Resources, rows must be added on
--- purpose and can be removed, rather than every SOW auto-appearing.
--- Onsite #/Offshore #/Nearshore # are directly user-editable per (SOW,
--- fiscal year) - see PUT /api/revenue/sows/location-counts in main.py.
+-- Which (SOW, fiscal year) rows - or, per explicit request, which bare
+-- (Customer, fiscal year) rows with no SOW picked at all - are explicitly
+-- tracked on the SOW-level Revenue Management grid - like SOWs/Resources,
+-- rows must be added on purpose and can be removed, rather than every SOW
+-- auto-appearing. sow_id is nullable (see revenue_entries above); when
+-- it's set, customer_id is redundant with sows.customer_id but kept here
+-- too so every row - SOW-backed or not - can be listed/grouped by Customer
+-- the same way. revenue_type_id/practice_id are used ONLY when sow_id is
+-- NULL - a SOW-backed row's classification still lives on the Contract
+-- itself (sows.revenue_type_id/practice_id, edited via PUT
+-- /api/sows/{id}/classification) so every other view of that Contract
+-- stays in sync; a SOW-less row has no Contract to hold those, so it gets
+-- its own copy here instead (see PUT /api/revenue/sows/{account_id}/
+-- account-classification in main.py). Onsite #/Offshore #/Nearshore # are
+-- directly user-editable per row either way - see PUT
+-- /api/revenue/sows/{account_id}/location-counts in main.py.
+-- additional_info is free text, shown as the Managed Services grid's last
+-- column ("Additional Information", after Mar) - optional for a SOW-backed
+-- row, but mandatory when saving a row with no SOW at all (per explicit
+-- request - enforced in main.py's create_revenue_account/
+-- update_revenue_account_additional_info, not at the SQL level, since a
+-- SOW-backed row must stay allowed to leave it blank).
 CREATE TABLE IF NOT EXISTS revenue_sow_accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sow_id INTEGER NOT NULL REFERENCES sows(id) ON DELETE CASCADE,
+    sow_id INTEGER REFERENCES sows(id) ON DELETE CASCADE,
+    customer_id INTEGER REFERENCES customers(id),
     fiscal_year INTEGER NOT NULL,
     onsite_count INTEGER NOT NULL DEFAULT 0,
     offshore_count INTEGER NOT NULL DEFAULT 0,
     nearshore_count INTEGER NOT NULL DEFAULT 0,
+    revenue_type_id INTEGER REFERENCES revenue_types(id),
+    practice_id INTEGER REFERENCES practices(id),
+    additional_info TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(sow_id, fiscal_year)
 );
@@ -631,6 +660,85 @@ def _migrate(conn):
                     (counts.get("onsite", 0), counts.get("offshore", 0), counts.get("nearshore", 0), account_id),
                 )
 
+    # Managed Services rows used to require a SOW (sow_id NOT NULL). Per
+    # explicit request, a row can now be tracked against just a Customer with
+    # no SOW picked at all - see the schema comments above revenue_entries/
+    # revenue_sow_accounts. SQLite can't drop a NOT NULL constraint or add a
+    # column with a REFERENCES clause via ALTER TABLE, so both tables are
+    # rebuilt (rename -> create new shape -> copy rows, preserving id values
+    # so nothing that already points at these rows by id breaks -> drop the
+    # renamed-away old table). revenue_sow_accounts must be rebuilt first:
+    # revenue_entries' backfill of account_id below depends on the (already
+    # preserved) revenue_sow_accounts.id values.
+    if _table_exists(conn, "revenue_sow_accounts") and not _column_exists(conn, "revenue_sow_accounts", "customer_id"):
+        conn.execute("ALTER TABLE revenue_sow_accounts RENAME TO revenue_sow_accounts_old")
+        conn.execute(
+            """CREATE TABLE revenue_sow_accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sow_id INTEGER REFERENCES sows(id) ON DELETE CASCADE,
+                customer_id INTEGER REFERENCES customers(id),
+                fiscal_year INTEGER NOT NULL,
+                onsite_count INTEGER NOT NULL DEFAULT 0,
+                offshore_count INTEGER NOT NULL DEFAULT 0,
+                nearshore_count INTEGER NOT NULL DEFAULT 0,
+                revenue_type_id INTEGER REFERENCES revenue_types(id),
+                practice_id INTEGER REFERENCES practices(id),
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(sow_id, fiscal_year)
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO revenue_sow_accounts
+                   (id, sow_id, customer_id, fiscal_year, onsite_count, offshore_count, nearshore_count, created_at)
+               SELECT old.id, old.sow_id, (SELECT s.customer_id FROM sows s WHERE s.id = old.sow_id),
+                      old.fiscal_year, old.onsite_count, old.offshore_count, old.nearshore_count, old.created_at
+               FROM revenue_sow_accounts_old old"""
+        )
+        conn.execute("DROP TABLE revenue_sow_accounts_old")
+
+    if _table_exists(conn, "revenue_entries") and not _column_exists(conn, "revenue_entries", "account_id"):
+        conn.execute("ALTER TABLE revenue_entries RENAME TO revenue_entries_old")
+        conn.execute(
+            """CREATE TABLE revenue_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sow_id INTEGER REFERENCES sows(id) ON DELETE CASCADE,
+                account_id INTEGER REFERENCES revenue_sow_accounts(id) ON DELETE CASCADE,
+                fiscal_year INTEGER NOT NULL,
+                fiscal_month INTEGER NOT NULL,
+                projection REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(sow_id, fiscal_year, fiscal_month)
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO revenue_entries (id, sow_id, fiscal_year, fiscal_month, projection, created_at, updated_at)
+               SELECT id, sow_id, fiscal_year, fiscal_month, projection, created_at, updated_at
+               FROM revenue_entries_old"""
+        )
+        conn.execute("DROP TABLE revenue_entries_old")
+        # Backfill account_id for existing SOW-backed rows so they still
+        # match up with their revenue_sow_accounts row under the new
+        # account_id-based lookup, exactly as they did under sow_id before.
+        conn.execute(
+            """UPDATE revenue_entries
+               SET account_id = (
+                   SELECT ra.id FROM revenue_sow_accounts ra
+                   WHERE ra.sow_id = revenue_entries.sow_id AND ra.fiscal_year = revenue_entries.fiscal_year
+               )
+               WHERE account_id IS NULL AND sow_id IS NOT NULL"""
+        )
+
+    # Additional Information - the Managed Services grid's last column, after
+    # Mar (see PUT /api/revenue/accounts/{account_id}/additional-info in
+    # main.py). A plain additive column (no NOT NULL, no rebuild needed) -
+    # unlike the columns just above, it always allows NULL/blank at the SQL
+    # level even though it's mandatory for a SOW-less row, since that rule is
+    # enforced at the API layer (a SOW-backed row must stay allowed to leave
+    # it blank).
+    if _table_exists(conn, "revenue_sow_accounts") and not _column_exists(conn, "revenue_sow_accounts", "additional_info"):
+        conn.execute("ALTER TABLE revenue_sow_accounts ADD COLUMN additional_info TEXT")
+
 
 DEFAULT_STATUSES = ["draft", "active", "completed", "expired", "cancelled"]
 DEFAULT_EMPLOYEE_TYPES = ["FTE", "Contractor"]
@@ -694,10 +802,16 @@ def _seed_defaults(conn):
 def _backfill_revenue_accounts(conn):
     """Make sure every (SOW, fiscal year) pair that already has month entries
     also has a revenue_sow_accounts row, so data entered before the
-    add/delete-row feature existed doesn't silently disappear from the grid."""
+    add/delete-row feature existed doesn't silently disappear from the grid.
+    Only applies to SOW-backed rows (sow_id NOT NULL) - an account_id-based
+    (no-SOW) entry can only exist because its revenue_sow_accounts row was
+    already created explicitly first, so there's nothing to backfill there."""
     conn.execute(
-        """INSERT OR IGNORE INTO revenue_sow_accounts (sow_id, fiscal_year)
-           SELECT DISTINCT sow_id, fiscal_year FROM revenue_entries"""
+        """INSERT OR IGNORE INTO revenue_sow_accounts (sow_id, customer_id, fiscal_year)
+           SELECT DISTINCT re.sow_id, s.customer_id, re.fiscal_year
+           FROM revenue_entries re
+           JOIN sows s ON s.id = re.sow_id
+           WHERE re.sow_id IS NOT NULL"""
     )
 
 

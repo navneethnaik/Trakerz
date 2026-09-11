@@ -181,6 +181,59 @@ class RevenueSowLocationCountsIn(BaseModel):
     nearshore_count: int = 0
 
 
+# A row on the Managed Services grid can now be tracked against just a
+# Customer with no SOW picked at all, per explicit request (unlimited such
+# rows per Customer per fiscal year - see revenue_sow_accounts in db.py).
+# Unlike the SOW-backed flow above (which relies on INSERT OR IGNORE keyed
+# on (sow_id, fiscal_year) to create its tracking row as a side effect of the
+# first month-cell PUT), a SOW-less row has no such natural key - duplicates
+# are explicitly allowed - so it has to be created explicitly first (see
+# create_revenue_account) to get back a real account_id, which every other
+# write below is then keyed on. The existing SOW-backed endpoints above are
+# untouched by this - these are new, parallel endpoints for the SOW-less
+# case only.
+class RevenueAccountCreateIn(BaseModel):
+    customer_id: int
+    fiscal_year: int
+    # Additional Information (the grid's last column, after Mar) - mandatory
+    # per explicit request for a row with no SOW, which is exactly what this
+    # endpoint always creates - see create_revenue_account, which rejects a
+    # blank value with a 400 rather than accepting it and requiring a
+    # follow-up edit.
+    additional_info: Optional[str] = None
+
+
+class RevenueAccountAdditionalInfoIn(BaseModel):
+    """Additional Information for an existing revenue_sow_accounts row -
+    usable for either a SOW-backed row (optional there) or a SOW-less one
+    (still mandatory there - see update_revenue_account_additional_info,
+    which checks which kind of row this account_id is before deciding)."""
+    additional_info: Optional[str] = None
+
+
+class RevenueAccountClassificationIn(BaseModel):
+    """Revenue Type/Practice for a SOW-less revenue_sow_accounts row - mirrors
+    SowClassificationIn, but stored directly on the row itself since there's
+    no Contract here to hold it."""
+    revenue_type_id: Optional[int] = None
+    practice_id: Optional[int] = None
+
+
+class RevenueAccountLocationCountsIn(BaseModel):
+    onsite_count: int = 0
+    offshore_count: int = 0
+    nearshore_count: int = 0
+
+
+class RevenueAccountCellIn(BaseModel):
+    """One (account, fiscal month) projection cell for a SOW-less row -
+    mirrors RevenueCellIn but keyed by account_id instead of sow_id (fiscal_year
+    isn't needed here - it's read off the account row itself)."""
+    account_id: int
+    fiscal_month: int
+    projection: float = 0
+
+
 # Time and Material tracking (Financial > Projections > Time and
 # Material) - one row per employee assignment to a Contract, not per SOW.
 # See tm_assignments/tm_assignment_fiscal_years in db.py.
@@ -1105,44 +1158,62 @@ def _fiscal_months(entries: Dict[int, dict]) -> List[dict]:
 
 @app.get("/api/revenue/sows")
 def list_revenue_sows(fiscal_year: Optional[int] = None):
-    """SoW Level grid: one row per SOW explicitly added to revenue tracking
-    for this fiscal year (see POST /api/revenue/sows), each with all 12
-    fiscal months (Apr-Mar) - months with no entry yet default to 0 so the
-    grid is ready to type into immediately after a row is added. Onsite #/
-    Offshore #/Nearshore # are read straight off the revenue_sow_accounts
-    row - directly user-editable (see upsert_revenue_sow_location_counts),
-    not derived from anything else."""
+    """SoW Level grid: one row per SOW - or, per explicit request, per bare
+    Customer with no SOW picked at all - explicitly added to revenue tracking
+    for this fiscal year (see POST /api/revenue/sows and POST
+    /api/revenue/accounts), each with all 12 fiscal months (Apr-Mar) - months
+    with no entry yet default to 0 so the grid is ready to type into
+    immediately after a row is added. Onsite #/Offshore #/Nearshore # are
+    read straight off the revenue_sow_accounts row - directly user-editable
+    (see upsert_revenue_sow_location_counts/upsert_revenue_account_location_counts),
+    not derived from anything else. Every row carries account_id (the
+    revenue_sow_accounts row's own id) alongside sow_id (null for a SOW-less
+    row) so the front end can key Edit/Copy/Delete/Save off account_id
+    uniformly regardless of which kind of row it is. sows is LEFT JOINed
+    (not JOINed) so a SOW-less row - which has no sows row to join to at all -
+    still shows up; its customer/revenue-type/practice come from
+    revenue_sow_accounts' own columns (via COALESCE) instead of the Contract's,
+    per the split described in db.py's schema comment."""
     fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
     with db.get_db() as conn:
         tracked = conn.execute(
-            """SELECT s.id AS sow_id, s.title AS sow_title, s.customer_id, c.customer_name,
+            """SELECT ra.id AS account_id, ra.sow_id AS sow_id, s.title AS sow_title,
+                      COALESCE(s.customer_id, ra.customer_id) AS customer_id,
+                      c.customer_name AS customer_name,
                       s.total_value, s.duration_months, bm.name AS billing_model_name,
-                      s.revenue_type_id, rt.name AS revenue_type_name,
-                      s.practice_id, p.name AS practice_name,
-                      ra.onsite_count, ra.offshore_count, ra.nearshore_count
+                      COALESCE(s.revenue_type_id, ra.revenue_type_id) AS revenue_type_id,
+                      COALESCE(rt.name, art.name) AS revenue_type_name,
+                      COALESCE(s.practice_id, ra.practice_id) AS practice_id,
+                      COALESCE(p.name, ap.name) AS practice_name,
+                      ra.onsite_count, ra.offshore_count, ra.nearshore_count, ra.additional_info
                FROM revenue_sow_accounts ra
-               JOIN sows s ON s.id = ra.sow_id
-               LEFT JOIN customers c ON c.id = s.customer_id
+               LEFT JOIN sows s ON s.id = ra.sow_id
+               LEFT JOIN customers c ON c.id = COALESCE(s.customer_id, ra.customer_id)
                LEFT JOIN billing_models bm ON bm.id = s.billing_model_id
                LEFT JOIN revenue_types rt ON rt.id = s.revenue_type_id
                LEFT JOIN practices p ON p.id = s.practice_id
+               LEFT JOIN revenue_types art ON art.id = ra.revenue_type_id
+               LEFT JOIN practices ap ON ap.id = ra.practice_id
                WHERE ra.fiscal_year = ?
                ORDER BY c.customer_name COLLATE NOCASE, s.title COLLATE NOCASE""",
             (fy,),
         ).fetchall()
         entries = conn.execute(
-            "SELECT sow_id, fiscal_month, projection FROM revenue_entries WHERE fiscal_year = ?",
+            "SELECT sow_id, account_id, fiscal_month, projection FROM revenue_entries WHERE fiscal_year = ?",
             (fy,),
         ).fetchall()
 
         by_sow: Dict[int, Dict[int, dict]] = {}
+        by_account: Dict[int, Dict[int, dict]] = {}
         for e in entries:
-            by_sow.setdefault(e["sow_id"], {})[e["fiscal_month"]] = {
-                "projection": e["projection"],
-            }
+            if e["sow_id"] is not None:
+                by_sow.setdefault(e["sow_id"], {})[e["fiscal_month"]] = {"projection": e["projection"]}
+            if e["account_id"] is not None:
+                by_account.setdefault(e["account_id"], {})[e["fiscal_month"]] = {"projection": e["projection"]}
 
         rows = [
             {
+                "account_id": s["account_id"],
                 "sow_id": s["sow_id"],
                 "sow_title": s["sow_title"],
                 "customer_id": s["customer_id"],
@@ -1158,7 +1229,10 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
                 "onsite_count": s["onsite_count"] or 0,
                 "offshore_count": s["offshore_count"] or 0,
                 "nearshore_count": s["nearshore_count"] or 0,
-                "months": _fiscal_months(by_sow.get(s["sow_id"], {})),
+                "additional_info": s["additional_info"],
+                "months": _fiscal_months(
+                    by_sow.get(s["sow_id"], {}) if s["sow_id"] is not None else by_account.get(s["account_id"], {})
+                ),
             }
             for s in tracked
         ]
@@ -1256,6 +1330,169 @@ def delete_revenue_sow(sow_id: int, fiscal_year: int):
             conn, "DELETE FROM revenue_sow_accounts WHERE sow_id=? AND fiscal_year=?",
             (sow_id, fiscal_year), "revenue row",
         )
+    return None
+
+
+@app.post("/api/revenue/accounts")
+def create_revenue_account(payload: RevenueAccountCreateIn):
+    """Create a SOW-less (Customer, fiscal year) row on the Managed Services
+    grid - per explicit request, a user can save a row here without picking
+    any SOW at all, and can have any number of these per Customer per fiscal
+    year. Unlike add_revenue_sow (SOW-backed, INSERT OR IGNORE since a SOW
+    can only be tracked once per fiscal year), this always inserts a brand
+    new row - duplicates are explicitly allowed - and hands back its
+    account_id for every subsequent write (month cells, classification,
+    location counts) to key on, since there's no (sow_id, fiscal_year) style
+    natural key here to upsert against."""
+    if not (payload.additional_info or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Please fill in the Additional Information column before saving a row with no SOW.",
+        )
+    with db.get_db() as conn:
+        customer = conn.execute(
+            "SELECT id, customer_name FROM customers WHERE id = ?", (payload.customer_id,)
+        ).fetchone()
+        if not customer:
+            raise HTTPException(status_code=400, detail="Selected customer does not exist")
+        cur = conn.execute(
+            "INSERT INTO revenue_sow_accounts (sow_id, customer_id, fiscal_year, additional_info) VALUES (NULL, ?, ?, ?)",
+            (payload.customer_id, payload.fiscal_year, payload.additional_info),
+        )
+        account_id = cur.lastrowid
+        return {
+            "account_id": account_id,
+            "sow_id": None,
+            "sow_title": None,
+            "customer_id": customer["id"],
+            "customer_name": customer["customer_name"] or "Unassigned",
+            "total_value": None,
+            "duration_months": None,
+            "acv": 0,
+            "billing_model_name": None,
+            "revenue_type_id": None,
+            "revenue_type_name": None,
+            "practice_id": None,
+            "practice_name": None,
+            "onsite_count": 0,
+            "offshore_count": 0,
+            "nearshore_count": 0,
+            "additional_info": payload.additional_info,
+            "months": _fiscal_months({}),
+        }
+
+
+def _get_revenue_account_or_404(conn, account_id: int) -> dict:
+    row = conn.execute("SELECT * FROM revenue_sow_accounts WHERE id = ?", (account_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Revenue row not found")
+    return _row_to_dict(row)
+
+
+@app.put("/api/revenue/accounts/{account_id}/classification")
+def update_revenue_account_classification(account_id: int, payload: RevenueAccountClassificationIn):
+    """Narrow update for Revenue Type/Practice on a SOW-less row - mirrors
+    update_sow_classification, but writes directly onto the
+    revenue_sow_accounts row (there's no Contract here to hold it - see
+    db.py's schema comment)."""
+    with db.get_db() as conn:
+        account = _get_revenue_account_or_404(conn, account_id)
+        if account["sow_id"] is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="This row is backed by a SOW - use PUT /api/sows/{sow_id}/classification instead",
+            )
+        if payload.revenue_type_id is not None and not conn.execute(
+            "SELECT 1 FROM revenue_types WHERE id = ?", (payload.revenue_type_id,)
+        ).fetchone():
+            raise HTTPException(status_code=400, detail="Selected revenue type does not exist")
+        if payload.practice_id is not None and not conn.execute(
+            "SELECT 1 FROM practices WHERE id = ?", (payload.practice_id,)
+        ).fetchone():
+            raise HTTPException(status_code=400, detail="Selected practice does not exist")
+        conn.execute(
+            "UPDATE revenue_sow_accounts SET revenue_type_id=?, practice_id=? WHERE id=?",
+            (payload.revenue_type_id, payload.practice_id, account_id),
+        )
+        return {"account_id": account_id, "revenue_type_id": payload.revenue_type_id, "practice_id": payload.practice_id}
+
+
+@app.put("/api/revenue/accounts/{account_id}/additional-info")
+def update_revenue_account_additional_info(account_id: int, payload: RevenueAccountAdditionalInfoIn):
+    """Additional Information (the grid's last column, after Mar) - unlike
+    classification/location-counts above, this one applies to any tracked
+    row, SOW-backed or not, since it has no Contract-level equivalent to
+    conflict with. Only enforced as mandatory here for a SOW-less row (per
+    explicit request); a SOW-backed row may clear or leave it blank."""
+    with db.get_db() as conn:
+        account = _get_revenue_account_or_404(conn, account_id)
+        if account["sow_id"] is None and not (payload.additional_info or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Please fill in the Additional Information column before saving a row with no SOW.",
+            )
+        conn.execute(
+            "UPDATE revenue_sow_accounts SET additional_info=? WHERE id=?",
+            (payload.additional_info, account_id),
+        )
+        return {"account_id": account_id, "additional_info": payload.additional_info}
+
+
+@app.put("/api/revenue/accounts/{account_id}/location-counts")
+def upsert_revenue_account_location_counts(account_id: int, payload: RevenueAccountLocationCountsIn):
+    """Onsite #/Offshore #/Nearshore # for a SOW-less row - mirrors
+    upsert_revenue_sow_location_counts, but keyed directly by account_id
+    (already known - the row was created explicitly first via
+    create_revenue_account, unlike the SOW-backed path which still creates
+    its row implicitly via (sow_id, fiscal_year))."""
+    with db.get_db() as conn:
+        _get_revenue_account_or_404(conn, account_id)
+        conn.execute(
+            "UPDATE revenue_sow_accounts SET onsite_count=?, offshore_count=?, nearshore_count=? WHERE id=?",
+            (payload.onsite_count, payload.offshore_count, payload.nearshore_count, account_id),
+        )
+        return {
+            "account_id": account_id,
+            "onsite_count": payload.onsite_count,
+            "offshore_count": payload.offshore_count,
+            "nearshore_count": payload.nearshore_count,
+        }
+
+
+@app.put("/api/revenue/accounts/cell")
+def upsert_revenue_account_cell(cell: RevenueAccountCellIn):
+    """Upsert one (account, fiscal month) cell for a SOW-less row - mirrors
+    upsert_revenue_cell, but keyed by account_id instead of sow_id (fiscal_year
+    is read off the account row itself rather than passed in, since the
+    account_id already implies it)."""
+    if not 1 <= cell.fiscal_month <= 12:
+        raise HTTPException(status_code=400, detail="fiscal_month must be between 1 and 12")
+    with db.get_db() as conn:
+        account = _get_revenue_account_or_404(conn, cell.account_id)
+        conn.execute(
+            """INSERT INTO revenue_entries (account_id, fiscal_year, fiscal_month, projection, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(account_id, fiscal_month)
+               DO UPDATE SET projection = excluded.projection, updated_at = datetime('now')""",
+            (cell.account_id, account["fiscal_year"], cell.fiscal_month, cell.projection),
+        )
+        row = conn.execute(
+            """SELECT account_id, fiscal_year, fiscal_month, projection FROM revenue_entries
+               WHERE account_id=? AND fiscal_month=?""",
+            (cell.account_id, cell.fiscal_month),
+        ).fetchone()
+        return _row_to_dict(row)
+
+
+@app.delete("/api/revenue/accounts/{account_id}", status_code=204)
+def delete_revenue_account(account_id: int):
+    """Remove a SOW-less row from the Revenue Management grid, deleting all
+    of its month entries along with it. Only ever called for a row with no
+    sow_id - a SOW-backed row still goes through delete_revenue_sow above."""
+    with db.get_db() as conn:
+        _get_revenue_account_or_404(conn, account_id)
+        conn.execute("DELETE FROM revenue_entries WHERE account_id=?", (account_id,))
+        _execute_delete(conn, "DELETE FROM revenue_sow_accounts WHERE id=?", (account_id,), "revenue row")
     return None
 
 
