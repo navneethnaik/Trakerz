@@ -15,6 +15,21 @@ function fmtCompact(n) {
   if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(1).replace(/\.0$/, "")}K`;
   return `${sign}$${Math.round(abs)}`;
 }
+// Footer "N rows returned" message (bottom-left of the app-wide footer,
+// see #footerRowCount in index.html) - reflects how many rows the
+// *currently active* filter(s) on whichever page is open left in view.
+// Every filterable page's load/render function calls this at its tail with
+// either a row count (when at least one of its filters/search box is set to
+// something other than "All"/blank) or null (to clear the message - no
+// active filter, or a page this feature doesn't cover). showTab() also
+// clears it up front on every navigation, so a count never lingers over
+// from whatever page was open before.
+function setFooterRowCount(count) {
+  const el = document.getElementById("footerRowCount");
+  if (!el) return;
+  el.textContent = count === null || count === undefined ? "" : `${count} row${count === 1 ? "" : "s"} returned`;
+}
+
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 // Renders any "YYYY-MM-DD"-ish date string as dd-mmm-yyyy (e.g. 03-Sep-2026).
 function fmtDate(s) {
@@ -184,6 +199,11 @@ function setRevenueCategory(category) {
 }
 
 function showTab(name) {
+  // Cleared up front so the footer's "N rows returned" message never shows a
+  // count left over from whatever page was open before - each page's own
+  // load function (dispatched below) re-sets it once its data arrives, only
+  // if that page actually has an active filter.
+  setFooterRowCount(null);
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
   const topLevelBtn = document.querySelector(`.tab-btn[data-tab="${name}"]`);
   if (topLevelBtn) {
@@ -231,6 +251,7 @@ function showTab(name) {
   if (name === "sow-report") loadSowReport();
   if (name === "resource-hub") loadResourceReport();
   if (name === "revenue-hub") loadRevenueReport();
+  if (name === "billing-days-report") loadBillingDaysReport();
 }
 
 // ---------- About / landing page (opened via the Trakerz logo) ----------
@@ -507,6 +528,7 @@ async function loadSows() {
   // whatever the search box / status filter / customer filter narrowed the
   // table down to.
   updateSowAlertBanner(currentSows);
+  setFooterRowCount(q || status || customerId || billingModelId ? currentSows.length : null);
 }
 
 function renderSowsTable(sowsIn) {
@@ -1119,6 +1141,7 @@ async function loadCustomers() {
     if (val) params.set(key, val);
   });
   const customers = await fetch(`${API}/customers?${params}`).then((r) => r.json());
+  setFooterRowCount(Array.from(params.keys()).length ? customers.length : null);
 
   const tbody = document.getElementById("customerTableBody");
   tbody.innerHTML = "";
@@ -1684,6 +1707,124 @@ async function saveHolidayRow(item, tr, customers) {
   }
 }
 
+// ---------- Reports > Billing Days ----------
+// Location-wise Working Days/Holidays/Billing Days, for whichever single
+// customer is selected in this page's own Customer filter (there's no
+// single "selected customer" to compute this for while that filter is "All
+// customers"). Originally lived above Holiday Calendar's own table, moved
+// out onto its own Reports page per explicit request. Working Days is every
+// Mon-Fri in the calendar month a fiscal month falls in (see
+// fiscalMonthCalendarRange, the same Apr-Mar mapping used by the Resource
+// report); Holidays counts this customer's Holiday Calendar rows flagged
+// for that Location whose date both falls in that month and is itself a
+// weekday - matching the backend's own _compute_tm_projections convention
+// (a holiday landing on a weekend is already not a working day, so it's
+// never subtracted twice). Billing Days is Working Days minus Holidays -
+// there's no per-employee Leave to subtract at this customer+location
+// level, unlike the Time and Material projection calculation.
+function isWeekdayIso(iso) {
+  const day = new Date(`${iso}T00:00:00`).getDay();
+  return day !== 0 && day !== 6;
+}
+
+function countWeekdaysInRange(startIso, endIso) {
+  let count = 0;
+  const cursor = new Date(`${startIso}T00:00:00`);
+  const end = new Date(`${endIso}T00:00:00`);
+  while (cursor <= end) {
+    const day = cursor.getDay();
+    if (day !== 0 && day !== 6) count++;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+// Renders one metric's Total/Apr..Mar/Q1..Q4 cells - a plain-integer,
+// day-count analog of the Revenue report's revenueReportRowCellsHtml (no
+// currency formatting, since these are day counts, not money).
+function holidaySummaryRowCellsHtml(values) {
+  const total = values.reduce((a, v) => a + v, 0);
+  const q1 = values[0] + values[1] + values[2];
+  const q2 = values[3] + values[4] + values[5];
+  const q3 = values[6] + values[7] + values[8];
+  const q4 = values[9] + values[10] + values[11];
+  return `<td class="rts-highlight-col">${total}</td>` +
+    `<td>${values[0]}</td><td>${values[1]}</td><td>${values[2]}</td><td class="rts-highlight-col">${q1}</td>` +
+    `<td>${values[3]}</td><td>${values[4]}</td><td>${values[5]}</td><td class="rts-highlight-col">${q2}</td>` +
+    `<td>${values[6]}</td><td>${values[7]}</td><td>${values[8]}</td><td class="rts-highlight-col">${q3}</td>` +
+    `<td>${values[9]}</td><td>${values[10]}</td><td>${values[11]}</td><td class="rts-highlight-col">${q4}</td>`;
+}
+
+let billingDaysReportCustomerFilter = "";
+document.getElementById("billingDaysReportCustomerFilter").addEventListener("change", (e) => {
+  billingDaysReportCustomerFilter = e.target.value;
+  loadBillingDaysReport();
+});
+
+async function loadBillingDaysReport() {
+  const [items, customers, locations] = await Promise.all([
+    fetch(`${API}/holidays`).then((r) => r.json()),
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(`${API}/locations`).then((r) => r.json()),
+  ]);
+  populateCustomerFilterSelect(customers, "billingDaysReportCustomerFilter");
+  renderBillingDaysReport(items, locations);
+}
+
+function renderBillingDaysReport(items, locations) {
+  const tbody = document.getElementById("billingDaysReportBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  if (!billingDaysReportCustomerFilter) {
+    tbody.innerHTML = `<tr><td colspan="18" class="empty-state">Select a customer above to see Working Days, Holidays and Billing Days by location for the current fiscal year.</td></tr>`;
+    setFooterRowCount(null);
+    return;
+  }
+
+  const fy = fiscalYearForToday();
+  const customerHolidays = items.filter((item) => String(item.customer_id) === billingDaysReportCustomerFilter);
+  setFooterRowCount(customerHolidays.length);
+  const locationBySlug = {};
+  locations.forEach((loc) => { locationBySlug[(loc.name || "").trim().toLowerCase()] = loc; });
+
+  // Fixed Onsite/Offshore/Nearshore order (same as HOLIDAY_LOCATION_FIELDS
+  // and the main table's own column order below), not an alphabetical sort.
+  HOLIDAY_LOCATION_FIELDS.forEach((slug) => {
+    const loc = locationBySlug[slug];
+    const displayName = loc ? loc.name : slug.charAt(0).toUpperCase() + slug.slice(1);
+
+    const working = [];
+    const holidays = [];
+    const billing = [];
+    for (let fm = 1; fm <= 12; fm++) {
+      const [monthFirst, monthLast] = fiscalMonthCalendarRange(fy, fm);
+      const w = countWeekdaysInRange(monthFirst, monthLast);
+      const h = customerHolidays.filter(
+        (item) => item[slug] && item.holiday_date >= monthFirst && item.holiday_date <= monthLast && isWeekdayIso(item.holiday_date)
+      ).length;
+      working.push(w);
+      holidays.push(h);
+      billing.push(Math.max(w - h, 0));
+    }
+
+    const billingTr = document.createElement("tr");
+    billingTr.className = "holiday-location-row";
+    billingTr.innerHTML = `<td>${escapeHtml(displayName)} (Billing Days)</td>` + holidaySummaryRowCellsHtml(billing);
+    tbody.appendChild(billingTr);
+
+    const workingTr = document.createElement("tr");
+    workingTr.className = "rev-type-child-row";
+    workingTr.innerHTML = `<td class="rev-type-child-label">Working Days</td>` + holidaySummaryRowCellsHtml(working);
+    tbody.appendChild(workingTr);
+
+    const holidaysTr = document.createElement("tr");
+    holidaysTr.className = "rev-type-child-row";
+    holidaysTr.innerHTML = `<td class="rev-type-child-label">Holidays</td>` + holidaySummaryRowCellsHtml(holidays);
+    tbody.appendChild(holidaysTr);
+  });
+}
+
 async function loadHolidays() {
   const [items, customers, locations] = await Promise.all([
     fetch(`${API}/holidays`).then((r) => r.json()),
@@ -1693,6 +1834,7 @@ async function loadHolidays() {
   populateHolidayCustomerFilter(customers);
   populateHolidayLocationFilter(locations);
   const filteredItems = items.filter((item) => holidayRowMatchesFilters(item, locations));
+  setFooterRowCount(holidayCustomerFilter || holidayLocationFilter ? filteredItems.length : null);
   const tbody = document.getElementById("holidayTableBody");
   tbody.innerHTML = "";
   if (!filteredItems.length) {
@@ -2056,6 +2198,9 @@ async function loadLeaves() {
   populateLeaveEmployeeTypeFilter(employeeTypes);
 
   const filteredItems = items.filter(leaveRowMatchesFilters);
+  setFooterRowCount(
+    leaveCustomerFilter || leaveBandFilter || leaveLocationFilter || leaveEmployeeTypeFilter ? filteredItems.length : null
+  );
   const tbody = document.getElementById("leaveTableBody");
   tbody.innerHTML = "";
   if (!filteredItems.length) {
@@ -2172,6 +2317,7 @@ async function loadResources() {
   const resources = await fetch(`${API}/resources?${params}`).then((r) => r.json());
 
   updateStaffingEndingSoonCount(resources);
+  setFooterRowCount(q ? resources.length : null);
 
   const tbody = document.getElementById("resourceTableBody");
   tbody.innerHTML = "";
@@ -2326,7 +2472,7 @@ document.getElementById("sowReportBillingModelFilter").addEventListener("change"
 function populateCustomerFilterSelect(customers, selectId) {
   const select = document.getElementById(selectId);
   const current = select.value;
-  select.innerHTML = '<option value="">All</option>' +
+  select.innerHTML = '<option value="">All customers</option>' +
     customers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
   select.value = current;
 }
@@ -2606,104 +2752,21 @@ async function loadSowReport() {
   document.getElementById("sowReportExpiringCount").onclick = () =>
     openSowDetailsModal("Statement of Work Details – Expiring in 30 Days", expiringSows);
 
-  destroySowReportCharts();
-  renderSowReportStatusChart(filteredSows);
-  renderSowReportTcvByCustomerChart(filteredSows);
-  renderSowReportSignedByMonthChart(filteredSows);
-}
-
-// Chart.js instances for Reports > Statement of Work, destroyed+recreated
-// each load the same way homeCharts/destroyHomeCharts work for the
-// Dashboard - a fresh registry per report page since each page's charts are
-// bound to their own <canvas> elements and reload independently.
-const sowReportCharts = { statusMix: null, tcvByCustomer: null, signedByMonth: null };
-function destroySowReportCharts() {
-  Object.keys(sowReportCharts).forEach((k) => {
-    if (sowReportCharts[k]) { sowReportCharts[k].destroy(); sowReportCharts[k] = null; }
-  });
-}
-
-// SOW Status mix - same slice-per-status idea as renderResourceLocationChart,
-// over whichever SOWs the page's filters currently leave in scope.
-function renderSowReportStatusChart(sows) {
-  const counts = {};
-  sows.forEach((s) => { const key = s.status || "Unspecified"; counts[key] = (counts[key] || 0) + 1; });
-  const labels = Object.keys(counts);
-  if (!labels.length) return;
-  const palette = Object.values(CHART_COLORS);
-  sowReportCharts.statusMix = new Chart(document.getElementById("chartSowReportStatus"), {
-    type: "pie",
-    data: { labels, datasets: [{ data: labels.map((l) => counts[l]), backgroundColor: labels.map((_, i) => palette[i % palette.length]), borderWidth: 0 }] },
-    options: {
-      responsive: true, aspectRatio: 1.3,
-      plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } },
-    },
-    plugins: [sliceLabelPlugin],
-  });
-}
-
-// TCV by Customer - one bar per customer with at least one SOW in scope,
-// highest total value first.
-function renderSowReportTcvByCustomerChart(sows) {
-  const totals = {};
-  sows.forEach((s) => {
-    const key = s.customer_name || "Unassigned";
-    totals[key] = (totals[key] || 0) + (s.total_value || 0);
-  });
-  const labels = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
-  if (!labels.length) return;
-  sowReportCharts.tcvByCustomer = new Chart(document.getElementById("chartSowReportTcvByCustomer"), {
-    type: "bar",
-    data: { labels, datasets: [{ label: "TCV", data: labels.map((l) => totals[l]), backgroundColor: CHART_COLORS.indigo }] },
-    options: {
-      responsive: true, aspectRatio: 1.3,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => fmt(ctx.parsed.y) } } },
-      scales: { y: { beginAtZero: true, ticks: { callback: (v) => fmtCompact(v) } } },
-    },
-  });
-}
-
-// SOWs signed by month - bucketed by calendar month/year of each SOW's own
-// Start Date (not the fixed Apr-Mar fiscal grid used elsewhere, since SOWs
-// can be signed at any point across multiple years and this is meant to
-// show that trend over time), oldest to newest.
-function renderSowReportSignedByMonthChart(sows) {
-  const counts = {};
-  sows.forEach((s) => {
-    if (!s.start_date) return;
-    const key = s.start_date.slice(0, 7); // "YYYY-MM"
-    counts[key] = (counts[key] || 0) + 1;
-  });
-  const keys = Object.keys(counts).sort();
-  if (!keys.length) return;
-  const labels = keys.map((k) => {
-    const [y, m] = k.split("-");
-    return `${MONTH_ABBR[parseInt(m, 10) - 1]} ${y}`;
-  });
-  sowReportCharts.signedByMonth = new Chart(document.getElementById("chartSowReportSignedByMonth"), {
-    type: "line",
-    data: {
-      labels,
-      datasets: [{ label: "SOWs Signed", data: keys.map((k) => counts[k]), borderColor: CHART_COLORS.cyan, backgroundColor: CHART_COLORS.cyan, tension: 0.3, fill: false }],
-    },
-    options: {
-      responsive: true, aspectRatio: 1.3,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-    },
-  });
+  setFooterRowCount(sowReportCustomerId || sowReportStatusFilter || sowReportBillingModelFilter ? filteredSows.length : null);
 }
 
 // ---------- Reports > Resource ----------
-// Filters for Customer, Location, Employee Type and Band, each narrowing
-// the same /api/resources list every chart on this page reads from.
-// Resources have no customer_id column (see loadHome()'s own comment on
-// this) - they link to a customer by matching account_name text against
-// the selected customer's customer_name, same convention used there.
+// Per explicit request, this report is scoped to Time and Material resources
+// only (one row per /api/tm/assignments assignment, for the current fiscal
+// year) - Managed Services headcount (the onsite/offshore/nearshore counts
+// on the Managed Services grid) is a different, account-level number and is
+// deliberately not part of this report. Filters: Customer and Location -
+// Employee Type/Band aren't tracked on a Time and Material assignment, so
+// unlike the old /api/resources-backed version of this page, those two
+// filters no longer apply here.
 let resourceReportCustomerFilter = "";
 let resourceReportLocationFilter = "";
-let resourceReportEmployeeTypeFilter = "";
-let resourceReportBandFilter = "";
+let resourceReportFiscalYear = null;
 document.getElementById("resourceReportCustomerFilter").addEventListener("change", (e) => {
   resourceReportCustomerFilter = e.target.value;
   loadResourceReport();
@@ -2712,146 +2775,106 @@ document.getElementById("resourceReportLocationFilter").addEventListener("change
   resourceReportLocationFilter = e.target.value;
   loadResourceReport();
 });
-document.getElementById("resourceReportEmployeeTypeFilter").addEventListener("change", (e) => {
-  resourceReportEmployeeTypeFilter = e.target.value;
-  loadResourceReport();
-});
-document.getElementById("resourceReportBandFilter").addEventListener("change", (e) => {
-  resourceReportBandFilter = e.target.value;
-  loadResourceReport();
-});
+
+// The (first_day, last_day) calendar-month range [inclusive] a fiscal month
+// (1=Apr..12=Mar) falls in for a fiscal year that runs Apr(fy)-Mar(fy+1) -
+// a JS-side mirror of the backend's _fiscal_month_calendar_range, returning
+// ISO "YYYY-MM-DD" strings (safe to compare lexicographically against
+// start_date/end_date, which are stored the same way).
+function fiscalMonthCalendarRange(fy, fm) {
+  const calYear = fm <= 9 ? fy : fy + 1;
+  const calMonth = fm <= 9 ? fm + 3 : fm - 9;
+  const firstDay = `${calYear}-${String(calMonth).padStart(2, "0")}-01`;
+  const lastDayNum = new Date(calYear, calMonth, 0).getDate();
+  const lastDay = `${calYear}-${String(calMonth).padStart(2, "0")}-${String(lastDayNum).padStart(2, "0")}`;
+  return [firstDay, lastDay];
+}
+
+// Whether a Time and Material assignment overlaps a given fiscal month at
+// all - same overlap test as the backend's _compute_tm_projections (an
+// assignment with no start_date can never be placed in a month; one with no
+// end_date is treated as still ongoing).
+function tmAssignmentActiveInFiscalMonth(row, fy, fm) {
+  if (!row.start_date) return false;
+  const [monthFirst, monthLast] = fiscalMonthCalendarRange(fy, fm);
+  const rangeStart = row.start_date > monthFirst ? row.start_date : monthFirst;
+  const rangeEnd = row.end_date && row.end_date < monthLast ? row.end_date : monthLast;
+  return rangeStart <= rangeEnd;
+}
 
 async function loadResourceReport() {
-  const [customers, resources, locations, employeeTypes, bands] = await Promise.all([
+  if (resourceReportFiscalYear === null) resourceReportFiscalYear = fiscalYearForToday();
+
+  const [customers, locations, tmData] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
-    fetch(`${API}/resources`).then((r) => r.json()),
     fetch(`${API}/locations`).then((r) => r.json()),
-    fetch(`${API}/employee-types`).then((r) => r.json()),
-    fetch(`${API}/bands`).then((r) => r.json()),
+    fetch(`${API}/tm/assignments?fiscal_year=${resourceReportFiscalYear}`).then((r) => r.json()),
   ]);
   populateCustomerFilterSelect(customers, "resourceReportCustomerFilter");
   populateIdFilterSelect(locations, "resourceReportLocationFilter", "All Locations");
-  populateIdFilterSelect(employeeTypes, "resourceReportEmployeeTypeFilter", "All Employee Types");
-  populateIdFilterSelect(bands, "resourceReportBandFilter", "All Bands");
 
-  const selectedCustomer = resourceReportCustomerFilter
-    ? customers.find((c) => String(c.id) === resourceReportCustomerFilter)
-    : null;
-  let filtered = selectedCustomer
-    ? resources.filter((r) => (r.account_name || "") === selectedCustomer.customer_name)
-    : resources;
+  let filtered = tmData.rows || [];
+  if (resourceReportCustomerFilter) {
+    filtered = filtered.filter((r) => String(r.customer_id) === resourceReportCustomerFilter);
+  }
   if (resourceReportLocationFilter) {
     filtered = filtered.filter((r) => String(r.location_id) === resourceReportLocationFilter);
   }
-  if (resourceReportEmployeeTypeFilter) {
-    filtered = filtered.filter((r) => String(r.employee_type_id) === resourceReportEmployeeTypeFilter);
-  }
-  if (resourceReportBandFilter) {
-    filtered = filtered.filter((r) => String(r.band_id) === resourceReportBandFilter);
-  }
 
   document.getElementById("resourceReportCount").textContent = filtered.length;
+  setFooterRowCount(resourceReportCustomerFilter || resourceReportLocationFilter ? filtered.length : null);
 
-  destroyResourceReportCharts();
-  renderResourceReportLocationChart(filtered);
-  renderResourceReportBandChart(filtered, bands);
-  renderResourceReportEmployeeTypeChart(filtered, employeeTypes);
-  renderResourceReportTopAccountsChart(filtered);
+  renderResourceReportLocationMonthTable(filtered, locations, resourceReportFiscalYear, "resourceReportLocationMonthBody");
 }
 
-const resourceReportCharts = { location: null, band: null, employeeType: null, topAccounts: null };
-function destroyResourceReportCharts() {
-  Object.keys(resourceReportCharts).forEach((k) => {
-    if (resourceReportCharts[k]) { resourceReportCharts[k].destroy(); resourceReportCharts[k] = null; }
-  });
-}
+// Month-wise resource count by Location - every configured Location is shown
+// as its own row (zero-filled, same "always list every configured item"
+// convention as the old Band/Employee Type charts), with a Total row summing
+// headcount across locations for each month. A resource is counted in every
+// fiscal month its assignment's [start_date, end_date] overlaps at all.
+function renderResourceReportLocationMonthTable(rows, locations, fiscalYear, tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
 
-// Headcount by Location - same shape as the Dashboard's own
-// renderResourceLocationChart, against this page's own filtered resources
-// and its own <canvas>/registry.
-function renderResourceReportLocationChart(resources) {
-  const counts = {};
-  resources.forEach((r) => { const key = r.location_name || "Unspecified"; counts[key] = (counts[key] || 0) + 1; });
-  const labels = Object.keys(counts);
-  if (!labels.length) return;
-  const palette = Object.values(CHART_COLORS);
-  resourceReportCharts.location = new Chart(document.getElementById("chartResourceReportLocation"), {
-    type: "pie",
-    data: { labels, datasets: [{ data: labels.map((l) => counts[l]), backgroundColor: labels.map((_, i) => palette[i % palette.length]), borderWidth: 0 }] },
-    options: {
-      responsive: true, aspectRatio: 1.3,
-      plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } },
-    },
-    plugins: [sliceLabelPlugin],
-  });
-}
-
-// Headcount by Band - every configured band shown (even ones with zero
-// resources in scope), same numeric-aware ordering as renderBandTable.
-function renderResourceReportBandChart(resources, bands) {
-  const counts = {};
-  resources.forEach((r) => { const key = r.band_name || "Unspecified"; counts[key] = (counts[key] || 0) + 1; });
-  const names = bands.map((b) => b.name);
-  Object.keys(counts).forEach((k) => { if (!names.includes(k)) names.push(k); });
+  let names = locations.map((l) => l.name);
+  rows.forEach((r) => { const key = r.location_name || "Unspecified"; if (!names.includes(key)) names.push(key); });
   names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  if (!names.length) return;
-  resourceReportCharts.band = new Chart(document.getElementById("chartResourceReportBand"), {
-    type: "bar",
-    data: { labels: names, datasets: [{ label: "Resources", data: names.map((n) => counts[n] || 0), backgroundColor: CHART_COLORS.cyan }] },
-    options: {
-      responsive: true, aspectRatio: 1.3,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-    },
-  });
-}
 
-// Headcount by Employee Type - mirrors the Band chart above, over every
-// configured employee type.
-function renderResourceReportEmployeeTypeChart(resources, employeeTypes) {
-  const counts = {};
-  resources.forEach((r) => { const key = r.employee_type_name || "Unspecified"; counts[key] = (counts[key] || 0) + 1; });
-  const names = employeeTypes.map((t) => t.name);
-  Object.keys(counts).forEach((k) => { if (!names.includes(k)) names.push(k); });
-  names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  if (!names.length) return;
-  resourceReportCharts.employeeType = new Chart(document.getElementById("chartResourceReportEmployeeType"), {
-    type: "bar",
-    data: { labels: names, datasets: [{ label: "Resources", data: names.map((n) => counts[n] || 0), backgroundColor: CHART_COLORS.orange }] },
-    options: {
-      responsive: true, aspectRatio: 1.3,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-    },
-  });
-}
+  tbody.innerHTML = "";
+  if (!names.length) {
+    tbody.innerHTML = `<tr><td colspan="13" class="empty-state">No Locations configured yet, or no Time and Material resources in scope.</td></tr>`;
+    return;
+  }
 
-// Top Accounts by resource count - horizontal bars (long account names read
-// better this way), top 10 by headcount.
-function renderResourceReportTopAccountsChart(resources) {
-  const counts = {};
-  resources.forEach((r) => { const key = r.account_name || "Unassigned"; counts[key] = (counts[key] || 0) + 1; });
-  const labels = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 10);
-  if (!labels.length) return;
-  resourceReportCharts.topAccounts = new Chart(document.getElementById("chartResourceReportTopAccounts"), {
-    type: "bar",
-    data: { labels, datasets: [{ label: "Resources", data: labels.map((l) => counts[l]), backgroundColor: CHART_COLORS.indigo }] },
-    options: {
-      indexAxis: "y",
-      responsive: true, aspectRatio: 3.2,
-      plugins: { legend: { display: false } },
-      scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
-    },
+  const monthTotals = new Array(12).fill(0);
+  names.forEach((name) => {
+    const rowsForLocation = rows.filter((r) => (r.location_name || "Unspecified") === name);
+    const counts = [];
+    for (let fm = 1; fm <= 12; fm++) {
+      const count = rowsForLocation.filter((r) => tmAssignmentActiveInFiscalMonth(r, fiscalYear, fm)).length;
+      counts.push(count);
+      monthTotals[fm - 1] += count;
+    }
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${escapeHtml(name)}</td>` + counts.map((c) => `<td>${c}</td>`).join("");
+    tbody.appendChild(tr);
   });
+
+  const totalTr = document.createElement("tr");
+  totalTr.className = "table-total-row";
+  totalTr.innerHTML = `<td>Total</td>` + monthTotals.map((c) => `<td>${c}</td>`).join("");
+  tbody.appendChild(totalTr);
 }
 
 // ---------- Reports > Revenue ----------
-// Filters for Customer, Revenue Type and Fiscal Year - both the Managed
-// Services (/api/revenue/sows) and Time and Material (/api/tm/assignments)
-// grids are fetched for the selected fiscal year and combined below, since
-// "Revenue" here means projected revenue from either source.
+// Filters for Customer, Revenue Type, Practice and Fiscal Year - both the
+// Managed Services (/api/revenue/sows) and Time and Material
+// (/api/tm/assignments) grids are fetched for the selected fiscal year and
+// combined below, since "Revenue" here means projected revenue from either
+// source.
 let revenueReportCustomerFilter = "";
 let revenueReportRevenueTypeFilter = "";
+let revenueReportPracticeFilter = "";
 let revenueReportFiscalYear = null;
 document.getElementById("revenueReportCustomerFilter").addEventListener("change", (e) => {
   revenueReportCustomerFilter = e.target.value;
@@ -2861,45 +2884,30 @@ document.getElementById("revenueReportRevenueTypeFilter").addEventListener("chan
   revenueReportRevenueTypeFilter = e.target.value;
   loadRevenueReport();
 });
-document.getElementById("revenueReportFyFilter").addEventListener("change", (e) => {
-  revenueReportFiscalYear = parseInt(e.target.value, 10);
+document.getElementById("revenueReportPracticeFilter").addEventListener("change", (e) => {
+  revenueReportPracticeFilter = e.target.value;
   loadRevenueReport();
 });
 
-// Builds the Fiscal Year <select>'s options once (a handful of years
-// centered on the current one - there's no "list of fiscal years with
-// data" endpoint to read this from, unlike the other filters here), then
-// just keeps it in sync with revenueReportFiscalYear on later loads.
-function populateFiscalYearFilterSelect(selectId) {
-  const select = document.getElementById(selectId);
-  if (!select.options.length) {
-    const centerFy = fiscalYearForToday();
-    const years = [];
-    for (let fy = centerFy - 3; fy <= centerFy + 1; fy++) years.push(fy);
-    select.innerHTML = years.map((fy) => `<option value="${fy}">${fyLabelText(fy)}</option>`).join("");
-  }
-  select.value = String(revenueReportFiscalYear);
-}
-
-// Sums a Managed Services or Time and Material row's 12 fiscal-month
-// projections into one fiscal-year total - both /api/revenue/sows and
-// /api/tm/assignments rows carry a "months" array in the same shape.
-function revenueRowTotal(row) {
-  return (row.months || []).reduce((sum, m) => sum + (m.projection || 0), 0);
-}
-
+// Fiscal Year filter removed from this page for now per explicit request
+// (see the matching index.html comment) - revenueReportFiscalYear still
+// exists and still drives which fiscal year's /api/revenue/sows and
+// /api/tm/assignments data this page fetches, it's just always
+// fiscalYearForToday() below rather than user-selectable right now.
 async function loadRevenueReport() {
   if (revenueReportFiscalYear === null) revenueReportFiscalYear = fiscalYearForToday();
-  populateFiscalYearFilterSelect("revenueReportFyFilter");
 
-  const [customers, revenueTypes, msData, tmData] = await Promise.all([
+  const [customers, revenueTypes, practices, msData, tmData] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/revenue-types`).then((r) => r.json()),
+    fetch(`${API}/practices`).then((r) => r.json()),
     fetch(`${API}/revenue/sows?fiscal_year=${revenueReportFiscalYear}`).then((r) => r.json()),
     fetch(`${API}/tm/assignments?fiscal_year=${revenueReportFiscalYear}`).then((r) => r.json()),
   ]);
   populateCustomerFilterSelect(customers, "revenueReportCustomerFilter");
   populateIdFilterSelect(revenueTypes, "revenueReportRevenueTypeFilter", "All Revenue Types");
+  populateIdFilterSelect(practices, "revenueReportPracticeFilter", "All Practices");
+  currentRevenueTypes = revenueTypes;
 
   let msRows = msData.rows || [];
   let tmRows = tmData.rows || [];
@@ -2911,93 +2919,132 @@ async function loadRevenueReport() {
     msRows = msRows.filter((r) => String(r.revenue_type_id) === revenueReportRevenueTypeFilter);
     tmRows = tmRows.filter((r) => String(r.revenue_type_id) === revenueReportRevenueTypeFilter);
   }
+  if (revenueReportPracticeFilter) {
+    msRows = msRows.filter((r) => String(r.practice_id) === revenueReportPracticeFilter);
+    tmRows = tmRows.filter((r) => String(r.practice_id) === revenueReportPracticeFilter);
+  }
 
-  destroyRevenueReportCharts();
-  renderRevenueReportMonthlyTrendChart(msRows, tmRows);
-  renderRevenueReportByRevenueTypeChart(msRows, tmRows);
-  renderRevenueReportByCustomerChart(msRows, tmRows);
+  renderRevenueReportSummaryTable(msRows, tmRows, "revenueReportSummaryBody");
+  setFooterRowCount(
+    revenueReportCustomerFilter || revenueReportRevenueTypeFilter || revenueReportPracticeFilter
+      ? msRows.length + tmRows.length
+      : null
+  );
 }
 
-const revenueReportCharts = { monthlyTrend: null, byRevenueType: null, byCustomer: null };
-function destroyRevenueReportCharts() {
-  Object.keys(revenueReportCharts).forEach((k) => {
-    if (revenueReportCharts[k]) { revenueReportCharts[k].destroy(); revenueReportCharts[k] = null; }
+// Reports > Revenue's table - one row per Revenue Type, prefixed with an
+// expand arrow (same .expand-btn/.expanded convention as the SOW table's
+// milestone expand button - see toggleMilestoneSubrow above - just prefixed
+// before the label instead of appended after it) that reveals two child
+// rows underneath: that Revenue Type's own Time and Material total and its
+// own Managed Services total, per explicit request. The collapsed parent
+// row still shows the combined (both sources added together) Total/Apr-Mar/
+// Q1-Q4 figures, same numbers this table showed before the breakdown was
+// added. Deliberately a separate function from Revenue Outlook's own
+// renderRevenueTypeSummaryTable (used by the Managed Services/Time and
+// Material grids' own single-source summary tables) rather than a shared
+// one, since those two need one flat number per Revenue Type/month and have
+// no source to split - this page's whole point is keeping that split
+// visible, not collapsing it. Shares that function's fixed REVENUE_TYPE_ORDER/
+// revenueTypeOrderKey ordering and currentRevenueTypes label list, and the
+// same table-total-row styling for its own trailing Total row, so the two
+// pages still look and order themselves consistently.
+function revenueReportSumsByType(rows) {
+  const sums = new Map();
+  rows.forEach((r) => {
+    const key = r.revenue_type_name || "";
+    if (!sums.has(key)) sums.set(key, new Array(12).fill(0));
+    const arr = sums.get(key);
+    (r.months || []).forEach((m, i) => { arr[i] += m.projection || 0; });
   });
+  return sums;
 }
 
-// Monthly Revenue Trend - Managed Services vs Time and Material, summed
-// across whichever rows the Customer/Revenue Type filters leave in scope,
-// one line per source over the fiscal year's 12 months (Apr-Mar).
-function renderRevenueReportMonthlyTrendChart(msRows, tmRows) {
-  if (!msRows.length && !tmRows.length) return;
-  const msMonthly = FY_MONTH_LABELS.map((_, i) => msRows.reduce((sum, r) => sum + ((r.months[i] && r.months[i].projection) || 0), 0));
-  const tmMonthly = FY_MONTH_LABELS.map((_, i) => tmRows.reduce((sum, r) => sum + ((r.months[i] && r.months[i].projection) || 0), 0));
-  revenueReportCharts.monthlyTrend = new Chart(document.getElementById("chartRevenueReportMonthlyTrend"), {
-    type: "line",
-    data: {
-      labels: FY_MONTH_LABELS,
-      datasets: [
-        { label: "Managed Services", data: msMonthly, borderColor: CHART_COLORS.indigo, backgroundColor: CHART_COLORS.indigo, tension: 0.3, fill: false },
-        { label: "Time and Material", data: tmMonthly, borderColor: CHART_COLORS.emerald, backgroundColor: CHART_COLORS.emerald, tension: 0.3, fill: false },
-      ],
-    },
-    options: {
-      responsive: true, aspectRatio: 3.2,
-      plugins: { legend: { position: "bottom" }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } } },
-      scales: { y: { beginAtZero: true, ticks: { callback: (v) => fmtCompact(v) } } },
-    },
-  });
+// Renders one row's worth of <td> cells (Total, Apr-Mar, Q1-Q4) from a
+// 12-element fiscal-month sums array - shared by the parent row (combined)
+// and both child rows (Time and Material only / Managed Services only)
+// below, same column layout and rts-highlight-col convention as
+// renderRevenueTypeSummaryTable's own row-building code.
+function revenueReportRowCellsHtml(sums) {
+  const total = sums.reduce((a, v) => a + v, 0);
+  const q1 = sums[0] + sums[1] + sums[2];
+  const q2 = sums[3] + sums[4] + sums[5];
+  const q3 = sums[6] + sums[7] + sums[8];
+  const q4 = sums[9] + sums[10] + sums[11];
+  return `<td class="rts-highlight-col">${fmtPlain(total)}</td>` +
+    `<td>${fmtPlain(sums[0])}</td><td>${fmtPlain(sums[1])}</td><td>${fmtPlain(sums[2])}</td><td class="rts-highlight-col">${fmtPlain(q1)}</td>` +
+    `<td>${fmtPlain(sums[3])}</td><td>${fmtPlain(sums[4])}</td><td>${fmtPlain(sums[5])}</td><td class="rts-highlight-col">${fmtPlain(q2)}</td>` +
+    `<td>${fmtPlain(sums[6])}</td><td>${fmtPlain(sums[7])}</td><td>${fmtPlain(sums[8])}</td><td class="rts-highlight-col">${fmtPlain(q3)}</td>` +
+    `<td>${fmtPlain(sums[9])}</td><td>${fmtPlain(sums[10])}</td><td>${fmtPlain(sums[11])}</td><td class="rts-highlight-col">${fmtPlain(q4)}</td>`;
 }
 
-// Revenue by Revenue Type - fiscal-year total (Managed Services + Time and
-// Material combined) grouped by Revenue Type, mix types with $0 in scope
-// excluded rather than shown as empty slices. Uses the legend/tooltip for
-// values instead of sliceLabelPlugin, since that plugin prints raw dataset
-// numbers on each slice and a dollar figure needs currency formatting
-// rather than being shown as a bare integer.
-function renderRevenueReportByRevenueTypeChart(msRows, tmRows) {
-  const totals = {};
-  [...msRows, ...tmRows].forEach((r) => {
-    const key = r.revenue_type_name || "Unassigned";
-    totals[key] = (totals[key] || 0) + revenueRowTotal(r);
-  });
-  const labels = Object.keys(totals).filter((l) => totals[l] > 0);
-  if (!labels.length) return;
-  const palette = Object.values(CHART_COLORS);
-  revenueReportCharts.byRevenueType = new Chart(document.getElementById("chartRevenueReportByRevenueType"), {
-    type: "pie",
-    data: { labels, datasets: [{ data: labels.map((l) => totals[l]), backgroundColor: labels.map((_, i) => palette[i % palette.length]), borderWidth: 0 }] },
-    options: {
-      responsive: true, aspectRatio: 1.4,
-      plugins: {
-        legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } },
-        tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${fmt(ctx.parsed)}` } },
-      },
-    },
-  });
-}
+function renderRevenueReportSummaryTable(msRows, tmRows, tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
 
-// Revenue by Customer - same combined fiscal-year total as the chart above,
-// grouped by customer instead, highest first, horizontal bars for long
-// customer names.
-function renderRevenueReportByCustomerChart(msRows, tmRows) {
-  const totals = {};
-  [...msRows, ...tmRows].forEach((r) => {
-    const key = r.customer_name || "Unassigned";
-    totals[key] = (totals[key] || 0) + revenueRowTotal(r);
+  const msSums = revenueReportSumsByType(msRows);
+  const tmSums = revenueReportSumsByType(tmRows);
+  const typeKeys = new Set([...msSums.keys(), ...tmSums.keys()]);
+
+  // Same fixed display order as renderRevenueTypeSummaryTable (Contracted -
+  // Staffed, Contracted - Not staffed, Renewals, Pipeline, then anything
+  // else, then Unassigned last), matched via the same normalized
+  // revenueTypeOrderKey() comparison for the same reason (real Revenue Type
+  // names have been seen stored with different spacing/casing than this
+  // list's own spelling).
+  let labels = currentRevenueTypes.map((rt) => rt.name);
+  const orderKeys = REVENUE_TYPE_ORDER.map(revenueTypeOrderKey);
+  labels = labels.slice().sort((a, b) => {
+    const ai = orderKeys.indexOf(revenueTypeOrderKey(a));
+    const bi = orderKeys.indexOf(revenueTypeOrderKey(b));
+    return (ai === -1 ? orderKeys.length : ai) - (bi === -1 ? orderKeys.length : bi);
   });
-  const labels = Object.keys(totals).filter((l) => totals[l] > 0).sort((a, b) => totals[b] - totals[a]);
-  if (!labels.length) return;
-  revenueReportCharts.byCustomer = new Chart(document.getElementById("chartRevenueReportByCustomer"), {
-    type: "bar",
-    data: { labels, datasets: [{ label: "Revenue", data: labels.map((l) => totals[l]), backgroundColor: CHART_COLORS.orange }] },
-    options: {
-      indexAxis: "y",
-      responsive: true, aspectRatio: 1.4,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => fmt(ctx.parsed.x) } } },
-      scales: { x: { beginAtZero: true, ticks: { callback: (v) => fmtCompact(v) } } },
-    },
+  if (typeKeys.has("")) labels.push("Unassigned");
+
+  tbody.innerHTML = "";
+  if (!labels.length) {
+    tbody.innerHTML = `<tr class="revenue-type-empty-row"><td colspan="18" class="empty-state">No Revenue Types configured yet - add some under Global Settings.</td></tr>`;
+    return;
+  }
+
+  const grandTotals = new Array(12).fill(0);
+  labels.forEach((label) => {
+    const key = label === "Unassigned" ? "" : label;
+    const tm = tmSums.get(key) || new Array(12).fill(0);
+    const ms = msSums.get(key) || new Array(12).fill(0);
+    const combined = tm.map((v, i) => v + ms[i]);
+    combined.forEach((v, i) => { grandTotals[i] += v; });
+
+    const parentTr = document.createElement("tr");
+    parentTr.className = "rev-type-parent-row";
+    parentTr.innerHTML = `<td><button type="button" class="expand-btn rev-type-expand-btn" title="Show Time and Material / Managed Services breakdown">${icon("chevron")}</button>${escapeHtml(label)}</td>` +
+      revenueReportRowCellsHtml(combined);
+    tbody.appendChild(parentTr);
+
+    const tmTr = document.createElement("tr");
+    tmTr.className = "rev-type-child-row";
+    tmTr.hidden = true;
+    tmTr.innerHTML = `<td class="rev-type-child-label">Time and Material</td>` + revenueReportRowCellsHtml(tm);
+    tbody.appendChild(tmTr);
+
+    const msTr = document.createElement("tr");
+    msTr.className = "rev-type-child-row";
+    msTr.hidden = true;
+    msTr.innerHTML = `<td class="rev-type-child-label">Managed Services</td>` + revenueReportRowCellsHtml(ms);
+    tbody.appendChild(msTr);
+
+    parentTr.querySelector(".rev-type-expand-btn").addEventListener("click", (e) => {
+      const expanding = tmTr.hidden;
+      tmTr.hidden = !expanding;
+      msTr.hidden = !expanding;
+      e.currentTarget.classList.toggle("expanded", expanding);
+    });
   });
+
+  const totalTr = document.createElement("tr");
+  totalTr.className = "table-total-row";
+  totalTr.innerHTML = `<td>Total</td>${revenueReportRowCellsHtml(grandTotals)}`;
+  tbody.appendChild(totalTr);
 }
 
 // SOW details popup - shows the full list of SOWs behind whichever count on
@@ -3181,6 +3228,20 @@ document.getElementById("revenuePracticeFilter").addEventListener("change", (e) 
 // offering this again" set: several assignments can share one Contract, so
 // the Contract Title dropdown never excludes already-tracked ones.
 let tmAssignmentsCache = new Map();
+// Time and Material's own free-text search - Customer Name, Employee
+// Name/ID, Contract Title and WBS ID - sits before the Customer filter in
+// the toolbar (see index.html) and, like the SOW list's own #searchInput,
+// runs on a debounced "input" event rather than waiting for change/blur.
+let tmSearchQuery = "";
+document.getElementById("tmSearchInput").addEventListener("input", debounce(() => {
+  tmSearchQuery = document.getElementById("tmSearchInput").value.trim().toLowerCase();
+  // Re-render from the already-fetched tmAssignmentsCache rather than
+  // re-fetching - search/sort only change which of the already-loaded rows
+  // are shown, unlike the Customer/Revenue Type/Location/Practice filters
+  // above (which still call the full loadTmAssignments()).
+  renderTmAssignmentsTable();
+}, 250));
+
 // Time and Material's own Customer filter - separate from
 // revenueCustomerFilter (Managed Services') since the two grids are
 // different data and a user may want to filter each independently.
@@ -3231,9 +3292,94 @@ function tmRowMatchesFilters(r) {
     (!tmCustomerFilter || String(r.customer_id) === tmCustomerFilter) &&
     (!tmRevenueTypeFilter || String(r.revenue_type_id) === tmRevenueTypeFilter) &&
     (!tmLocationFilter || String(r.location_id) === tmLocationFilter) &&
-    (!tmPracticeFilter || String(r.practice_id) === tmPracticeFilter)
+    (!tmPracticeFilter || String(r.practice_id) === tmPracticeFilter) &&
+    tmRowMatchesSearch(r)
   );
 }
+
+// tmSearchQuery is already lowercased when it's set (see the input listener
+// above), so this only needs to lowercase each row's own field values.
+function tmRowMatchesSearch(r) {
+  if (!tmSearchQuery) return true;
+  return (
+    (r.customer_name || "").toLowerCase().includes(tmSearchQuery) ||
+    (r.employee_name || "").toLowerCase().includes(tmSearchQuery) ||
+    (r.employee_id || "").toLowerCase().includes(tmSearchQuery) ||
+    (r.sow_title || "").toLowerCase().includes(tmSearchQuery) ||
+    (r.wbs_id || "").toLowerCase().includes(tmSearchQuery)
+  );
+}
+
+// Footer row count for Revenue Management (#tab-revenue) - only one of the
+// Managed Services/Time and Material grids is visible at a time (see
+// revenueCategory/setRevenueCategory above), so this always reflects
+// whichever one currently is, recomputed from that grid's own cache and
+// filter predicate. Called from the tail of both loadRevenueSows() and
+// renderTmAssignmentsTable() - whichever runs, the result is the same,
+// since revenueCategory doesn't change between the two.
+function revenueMsFilterActive() {
+  return !!(revenueCustomerFilter || revenueBillingModelFilter || revenueRevenueTypeFilter || revenuePracticeFilter);
+}
+function revenueTmFilterActive() {
+  return !!(tmCustomerFilter || tmRevenueTypeFilter || tmLocationFilter || tmPracticeFilter || tmSearchQuery);
+}
+function updateRevenueTabFooterRowCount() {
+  if (revenueCategory === "managed-services") {
+    const rows = Array.from(revenueSowsCache.values()).filter(revenueSowMatchesFilters);
+    setFooterRowCount(revenueMsFilterActive() ? rows.length : null);
+  } else {
+    const rows = Array.from(tmAssignmentsCache.values()).filter(tmRowMatchesFilters);
+    setFooterRowCount(revenueTmFilterActive() ? rows.length : null);
+  }
+}
+
+// Column sorting for the Time and Material grid - Start Date/End Date only,
+// per explicit request (every other column stays in its existing, unsorted
+// order). Client-side, same tmSort-state/sortable-th/sort-arrow convention
+// as the SOW table's sowSort (see sortSows/updateSortArrows above), scoped
+// to #tab-revenue .tm-table so it doesn't pick up the SOW table's own
+// sortable-th click handlers.
+let tmSort = { key: null, dir: 1 };
+
+function sortTmRows(rows) {
+  if (!tmSort.key) return rows;
+  const key = tmSort.key;
+  const dir = tmSort.dir;
+  return [...rows].sort((a, b) => {
+    const av = a[key];
+    const bv = b[key];
+    // Rows with no date sort to the end regardless of direction.
+    if (!av && !bv) return 0;
+    if (!av) return 1;
+    if (!bv) return -1;
+    return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
+  });
+}
+
+function updateTmSortArrows() {
+  document.querySelectorAll("#tab-revenue .tm-table thead th.sortable-th").forEach((th) => {
+    const arrow = th.querySelector(".sort-arrow");
+    if (th.dataset.sortKey === tmSort.key) {
+      th.classList.add("sorted");
+      arrow.textContent = tmSort.dir === 1 ? "▲" : "▼";
+    } else {
+      th.classList.remove("sorted");
+      arrow.textContent = "";
+    }
+  });
+}
+
+document.querySelectorAll("#tab-revenue .tm-table thead th.sortable-th").forEach((th) => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.sortKey;
+    if (tmSort.key === key) {
+      tmSort.dir *= -1;
+    } else {
+      tmSort = { key, dir: 1 };
+    }
+    renderTmAssignmentsTable();
+  });
+});
 
 function populateRevenueCustomerFilter(customers) {
   const select = document.getElementById("revenueCustomerFilter");
@@ -3403,6 +3549,7 @@ async function loadRevenueSows() {
     renumberRevenueRows();
   }
   renderRevenueTypeSummaryTable(filteredRows);
+  updateRevenueTabFooterRowCount();
 }
 
 // Revenue Type x Month summary table above the detail grid - one row per
@@ -4280,12 +4427,23 @@ function tmSowsForCustomer(customerId) {
 async function loadTmAssignments() {
   const data = await fetch(`${API}/tm/assignments?fiscal_year=${currentFiscalYear}`).then((r) => r.json());
   tmAssignmentsCache = new Map(data.rows.map((r) => [r.assignment_id, r]));
-  const filteredRows = data.rows.filter(tmRowMatchesFilters);
+  renderTmAssignmentsTable();
+}
+
+// Renders the grid from tmAssignmentsCache - split out from loadTmAssignments
+// so the search box and the Start Date/End Date column sort (see
+// tmSearchQuery/tmSort above) can re-filter/re-sort the already-fetched rows
+// without a network round trip; loadTmAssignments still calls this after
+// fetching fresh data (a new fiscal year, or the Customer/Revenue Type/
+// Location/Practice filters, which stay on the full reload).
+function renderTmAssignmentsTable() {
+  const allRows = Array.from(tmAssignmentsCache.values());
+  const filteredRows = sortTmRows(allRows.filter(tmRowMatchesFilters));
   const tbody = document.getElementById("tmAssignmentsTableBody");
   tbody.innerHTML = "";
   if (!filteredRows.length) {
     tbody.innerHTML = `<tr><td colspan="30" class="empty-state">${
-      data.rows.length ? "No entries match the selected filter." : 'No entries yet. Click "Add Entry" to start tracking a Time and Material assignment.'
+      allRows.length ? "No entries match the selected filter." : 'No entries yet. Click "Add Entry" to start tracking a Time and Material assignment.'
     }</td></tr>`;
   } else {
     filteredRows.forEach((r) => tbody.appendChild(buildTmAssignmentRow(r, false)));
@@ -4293,6 +4451,8 @@ async function loadTmAssignments() {
     highlightDuplicateTmEmployeeIds();
   }
   renderRevenueTypeSummaryTable(filteredRows, "tmRevenueTypeSummaryBody");
+  updateTmSortArrows();
+  updateRevenueTabFooterRowCount();
 }
 
 function renumberTmRows() {

@@ -345,6 +345,12 @@ body.scroll-locked #tab-config-holidays .table-scroll {
 body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
   flex: 0 0 auto; max-height: 220px; overflow-y: auto; margin-bottom: 4px;
 }
+/* Location (Billing Days) row on Reports > Billing Days (see
+   renderBillingDaysReport() in app.js) - bolded to read as a subtotal
+   heading over its own indented Working Days/Holidays rows below (which
+   reuse the Revenue Type table's .rev-type-child-row/.rev-type-child-label
+   styling as-is, unmodified). */
+.holiday-location-row td { font-weight: 700; }
 #tab-resources .sow-table thead th { position: sticky; top: 0; z-index: 2; }
 #tab-config-leaves .sow-table thead th { position: sticky; top: 0; z-index: 2; }
 #tab-customers .sow-table thead th { position: sticky; top: 0; z-index: 2; }
@@ -502,12 +508,10 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
    reusing .dash-customer-filter for each one's own styling - wraps on
    narrow widths rather than overflowing the header row. */
 .report-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-/* .chart-row (generic 3-up grid, see above) variants for report pages whose
-   charts don't split evenly into three - a single full-width chart (e.g. a
-   monthly trend line) or two side by side (e.g. a pie plus a wider bar
-   chart with many customer labels). */
+/* .chart-row (generic 3-up grid, see above) variant for a report page whose
+   charts don't split evenly into three - currently just Resource's own
+   single full-width "Top Accounts" bar chart below its 3-up row. */
 .chart-row.chart-row-single { grid-template-columns: 1fr; }
-.chart-row.chart-row-2col { grid-template-columns: 1fr 1fr; }
 
 /* ---------- Dashboard ---------- */
 /* Resources by Location / Band / Type - always exactly these 3 cards. */
@@ -675,6 +679,10 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
    doesn't dominate the toolbar next to the customer/status filters and
    Export/New SOW buttons. */
 #searchInput { max-width: 260px; padding: 4px 10px; }
+/* Time and Material grid's own search box - same capped sizing as
+   #searchInput above and for the same reason (this toolbar also has four
+   filter <select>s and an Export button to its right). */
+#tmSearchInput { max-width: 260px; padding: 4px 10px; }
 /* Shared toolbar layout helpers - a heading that takes up the remaining
    space (pushing action buttons to the right) and a plain spacer for
    toolbars with no heading, e.g. Revenue Management's filter row. Replaces
@@ -743,6 +751,16 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 #tab-sows .sow-table th.sortable-th:hover { background: #6f625c; }
 #tab-sows .sow-table th.sortable-th .sort-arrow { display: inline-block; margin-left: 4px; font-size: 10px; color: #fff; }
 #tab-sows .sow-table th.sortable-th.sorted { background: #4f4440; }
+/* Sortable Time and Material columns (Start Date/End Date only, per
+   explicit request) - same sortable-th/sort-arrow convention as the SOW
+   table above, but theme-agnostic overlay colors instead of that table's
+   hardcoded hex values since this grid's header uses --table-header-bg
+   (which itself changes with the theme picker - see the comment on that
+   variable further down this file). */
+#tab-revenue .tm-table th.sortable-th { cursor: pointer; user-select: none; }
+#tab-revenue .tm-table th.sortable-th:hover { background: rgba(255, 255, 255, .15); }
+#tab-revenue .tm-table th.sortable-th .sort-arrow { display: inline-block; margin-left: 4px; font-size: 10px; color: #fff; }
+#tab-revenue .tm-table th.sortable-th.sorted { background: rgba(255, 255, 255, .25); }
 /* End-date proximity highlight - 0-15 days out in red, 16-50 days out in
    amber, independent of the Status badge. :hover keeps the tint (with a
    slightly stronger shade) so the row doesn't flash back to plain white on
@@ -915,6 +933,19 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
    blending in with the Apr-Mar figures they're summing. */
 .revenue-type-summary-table th.rts-highlight-col { background: var(--primary-hover); }
 .revenue-type-summary-table td.rts-highlight-col { background: rgba(var(--primary-rgb), .14); color: var(--primary-hover); font-weight: 700; }
+
+/* Reports > Revenue's expand-to-breakdown Revenue Type rows (see
+   renderRevenueReportSummaryTable in app.js) - the expand-btn/expanded
+   convention is the same one the SOW table's milestone toggle uses (see
+   .expand-btn above), just prefixed before the label here instead of
+   appended after it, so its default left margin is swapped for a right one.
+   The two child rows (Time and Material / Managed Services) share the
+   parent row's own Total/Apr-Mar/Q1-Q4 column layout, so they're plain
+   <tr>s rather than a nested subtable - only the label cell and background
+   need their own styling to read as "belonging to" the row above them. */
+.rev-type-expand-btn { margin-left: 0; margin-right: 6px; }
+.rev-type-child-row td { background: var(--row-hover); }
+.rev-type-child-row td.rev-type-child-label { padding-left: 34px; color: var(--text-muted); font-style: italic; }
 
 .chart-card canvas { max-width: 100%; }
 .alert-list li .empty, .alert-list li.empty { color: var(--text-muted); }
@@ -1107,12 +1138,21 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 /* ---------- Footer ---------- */
 .app-footer {
   flex-shrink: 0;
-  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 11px;
   color: var(--text-muted);
   padding: 10px 20px;
   border-top: 1px solid var(--border);
 }
+/* Left-aligned "N rows returned" message (see setFooterRowCount() in
+   app.js) - populated only while whichever page is currently open has an
+   active filter narrowing its list, blank otherwise. Sits opposite the
+   pre-existing credit line, which keeps its own implicit right alignment
+   via the flex row's justify-content above. */
+.footer-row-count { text-align: left; font-size: 14px; font-weight: 700; color: #000; }
 /* Small note pinned under the Staffing table (flex-shrink:0 keeps it from
    being squeezed away inside that page's scroll-locked flex column, the
    same layout the frozen stat tiles/header rely on). */

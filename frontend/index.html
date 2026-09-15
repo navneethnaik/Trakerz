@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=101" />
+<link rel="stylesheet" href="style.css?v=108" />
 </head>
 <body>
 <header class="topbar">
@@ -186,11 +186,15 @@
         </button>
         <button class="dropdown-item" data-tab="resource-hub">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-          Resource
+          Resource (Time and Material)
         </button>
         <button class="dropdown-item" data-tab="revenue-hub">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
           Revenue
+        </button>
+        <button class="dropdown-item" data-tab="billing-days-report">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          Billing Days
         </button>
         <!-- Was its own top-level page beside Reports - moved under here
              per explicit request ("for now"), same empty placeholder as
@@ -471,7 +475,7 @@
     <div class="dash-header-row">
       <h2 class="dash-title">Reports</h2>
       <select id="dashboardCustomerFilter" class="dash-customer-filter">
-        <option value="">All</option>
+        <option value="">All customers</option>
       </select>
     </div>
     <p class="page-header-desc dash-header-desc">A live snapshot of your SOW portfolio &ndash; customers, active SOWs, staffing, revenue and what's expiring soon, all in one place.</p>
@@ -1111,20 +1115,6 @@
       </div>
     </div>
 
-    <div class="chart-row">
-      <div class="chart-card">
-        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg></span><span>SOW Status Mix</span></h3>
-        <canvas id="chartSowReportStatus" height="220"></canvas>
-      </div>
-      <div class="chart-card">
-        <h3><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg></span><span>TCV by Customer</span></h3>
-        <canvas id="chartSowReportTcvByCustomer" height="220"></canvas>
-      </div>
-      <div class="chart-card">
-        <h3><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span><span>SOWs Signed by Month</span></h3>
-        <canvas id="chartSowReportSignedByMonth" height="220"></canvas>
-      </div>
-    </div>
   </section>
 
   <!-- Placeholder pages for the "Resource" and "Revenue" items under the
@@ -1135,44 +1125,29 @@
        distinct, separate page. -->
   <section id="tab-resource-hub" class="tab-panel">
     <div class="dash-header-row">
-      <h2 class="page-header-title">Resource</h2>
+      <h2 class="page-header-title">Resource (Time and Material)</h2>
       <div class="report-filters">
         <select id="resourceReportCustomerFilter" class="dash-customer-filter">
-          <option value="">All Customers</option>
+          <option value="">All customers</option>
         </select>
         <select id="resourceReportLocationFilter" class="dash-customer-filter">
           <option value="">All Locations</option>
         </select>
-        <select id="resourceReportEmployeeTypeFilter" class="dash-customer-filter">
-          <option value="">All Employee Types</option>
-        </select>
-        <select id="resourceReportBandFilter" class="dash-customer-filter">
-          <option value="">All Bands</option>
-        </select>
       </div>
     </div>
-    <p class="page-header-desc dash-header-desc">A live breakdown of every resource (<span id="resourceReportCount">0</span>) by location, band, employee type and account &ndash; optionally scoped with the filters above.</p>
+    <p class="page-header-desc dash-header-desc">Month-wise headcount of Time and Material resources (<span id="resourceReportCount">0</span>) by location for the current fiscal year &ndash; optionally scoped with the filters above. Managed Services headcount is not included here.</p>
 
-    <div class="chart-row">
-      <div class="chart-card">
-        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></span><span>Headcount by Location</span></h3>
-        <canvas id="chartResourceReportLocation" height="220"></canvas>
-      </div>
-      <div class="chart-card">
-        <h3><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg></span><span>Headcount by Band</span></h3>
-        <canvas id="chartResourceReportBand" height="220"></canvas>
-      </div>
-      <div class="chart-card">
-        <h3><span class="card-icon icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span><span>Headcount by Employee Type</span></h3>
-        <canvas id="chartResourceReportEmployeeType" height="220"></canvas>
-      </div>
-    </div>
-
-    <div class="chart-row chart-row-single">
-      <div class="chart-card">
-        <h3><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg></span><span>Top Accounts by Resource Count</span></h3>
-        <canvas id="chartResourceReportTopAccounts" height="140"></canvas>
-      </div>
+    <div class="table-scroll">
+      <table class="sow-table">
+        <thead>
+          <tr id="resourceReportLocationMonthHeaderRow">
+            <th>Location</th>
+            <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
+            <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
+          </tr>
+        </thead>
+        <tbody id="resourceReportLocationMonthBody"></tbody>
+      </table>
     </div>
   </section>
 
@@ -1186,27 +1161,68 @@
         <select id="revenueReportRevenueTypeFilter" class="dash-customer-filter">
           <option value="">All Revenue Types</option>
         </select>
-        <select id="revenueReportFyFilter" class="dash-customer-filter"></select>
+        <select id="revenueReportPracticeFilter" class="dash-customer-filter">
+          <option value="">All Practices</option>
+        </select>
+        <!-- Fiscal Year filter removed for now per explicit request - the
+             page still shows the current fiscal year (see
+             revenueReportFiscalYear/fiscalYearForToday() in app.js), just
+             without a way to pick a different one right now. -->
       </div>
     </div>
-    <p class="page-header-desc dash-header-desc">Projected monthly revenue across Managed Services and Time and Material for the selected fiscal year &ndash; optionally scoped with the filters above.</p>
+    <p class="page-header-desc dash-header-desc">Combined Managed Services + Time and Material revenue by Revenue Type and month for the current fiscal year &ndash; optionally scoped with the filters above.</p>
 
-    <div class="chart-row chart-row-single">
-      <div class="chart-card">
-        <h3><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span><span>Monthly Revenue Trend &ndash; Managed Services vs Time and Material</span></h3>
-        <canvas id="chartRevenueReportMonthlyTrend" height="140"></canvas>
+    <!-- Same Revenue Type x Month summary table as Revenue Outlook's own
+         Managed Services/Time and Material sections (see
+         renderRevenueTypeSummaryTable in app.js) - here fed the two sources'
+         rows combined, rather than just one, since this page's whole point
+         is showing both together for the selected account. -->
+    <div class="table-scroll revenue-type-summary-scroll">
+      <table class="sow-table revenue-type-summary-table">
+        <thead>
+          <tr id="revenueReportSummaryHeaderRow">
+            <th>Revenue Type</th><th class="rts-highlight-col">Total</th>
+            <th>Apr</th><th>May</th><th>Jun</th><th class="rts-highlight-col">Q1</th>
+            <th>Jul</th><th>Aug</th><th>Sep</th><th class="rts-highlight-col">Q2</th>
+            <th>Oct</th><th>Nov</th><th>Dec</th><th class="rts-highlight-col">Q3</th>
+            <th>Jan</th><th>Feb</th><th>Mar</th><th class="rts-highlight-col">Q4</th>
+          </tr>
+        </thead>
+        <tbody id="revenueReportSummaryBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Reports > Billing Days - moved out of Configuration > Holiday Calendar
+       per explicit request, onto its own Reports page so it isn't tied to
+       that page's own toolbar/table layout. Same Location-wise Working
+       Days/Holidays/Billing Days computation as before (see
+       renderBillingDaysReport() in app.js), just for whichever customer is
+       picked in this page's own Customer filter. -->
+  <section id="tab-billing-days-report" class="tab-panel">
+    <div class="dash-header-row">
+      <h2 class="page-header-title">Working Billing Days</h2>
+      <div class="report-filters">
+        <select id="billingDaysReportCustomerFilter" class="dash-customer-filter">
+          <option value="">All customers</option>
+        </select>
       </div>
     </div>
+    <p class="page-header-desc dash-header-desc">Location-wise Working Days, Holidays and Billing Days by month for the current fiscal year, for the selected customer.</p>
 
-    <div class="chart-row chart-row-2col">
-      <div class="chart-card">
-        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg></span><span>Revenue by Revenue Type</span></h3>
-        <canvas id="chartRevenueReportByRevenueType" height="220"></canvas>
-      </div>
-      <div class="chart-card">
-        <h3><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg></span><span>Revenue by Customer</span></h3>
-        <canvas id="chartRevenueReportByCustomer" height="220"></canvas>
-      </div>
+    <div class="table-scroll">
+      <table class="sow-table revenue-type-summary-table">
+        <thead>
+          <tr id="billingDaysReportHeaderRow">
+            <th></th><th class="rts-highlight-col">Total</th>
+            <th>Apr</th><th>May</th><th>Jun</th><th class="rts-highlight-col">Q1</th>
+            <th>Jul</th><th>Aug</th><th>Sep</th><th class="rts-highlight-col">Q2</th>
+            <th>Oct</th><th>Nov</th><th>Dec</th><th class="rts-highlight-col">Q3</th>
+            <th>Jan</th><th>Feb</th><th>Mar</th><th class="rts-highlight-col">Q4</th>
+          </tr>
+        </thead>
+        <tbody id="billingDaysReportBody"></tbody>
+      </table>
     </div>
   </section>
 
@@ -1369,6 +1385,7 @@
          .ms-section above, by setRevenueCategory() in app.js. -->
     <div class="rev-category-section tm-section" hidden>
       <div class="toolbar">
+        <input id="tmSearchInput" type="search" placeholder="Search customer, employee or contract..." />
         <select id="tmCustomerFilter">
           <option value="">All customers</option>
         </select>
@@ -1452,8 +1469,8 @@
               <th class="rev-leading-th">Original Rate Card</th>
               <th class="rev-leading-th">Discount (%)</th>
               <th class="rev-leading-th">Discounted Rate</th>
-              <th class="rev-leading-th">Start Date</th>
-              <th class="rev-leading-th">End Date</th>
+              <th class="rev-leading-th sortable-th" data-sort-key="start_date">Start Date<span class="sort-arrow"></span></th>
+              <th class="rev-leading-th sortable-th" data-sort-key="end_date">End Date<span class="sort-arrow"></span></th>
               <th class="rev-leading-th group-divider">Total Projected Revenue</th>
               <th class="rev-band-a rev-month-hdr">Apr</th>
               <th class="rev-band-b rev-month-hdr">May</th>
@@ -1476,7 +1493,10 @@
   </section>
 </main>
 
-<footer class="app-footer">Developed by Navneeth Diwaker Naik</footer>
+<footer class="app-footer">
+  <span id="footerRowCount" class="footer-row-count"></span>
+  <span class="footer-credit">Developed by Navneeth Diwaker Naik</span>
+</footer>
 
 <!-- New/Edit SOW form modal - see openSowModal()/the "New/Edit SOW popup"
      block in app.js. Field classes (sow-f-*) rather than ids, since this is
@@ -1683,6 +1703,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=123"></script>
+<script src="app.js?v=133"></script>
 </body>
 </html>
