@@ -31,7 +31,7 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Trakerz", version="1.0")
 
-BILLED_STATUSES = ("invoiced", "paid")
+BILLED_STATUSES = ("invoiced",)
 EXPIRING_SOON_DAYS = 30
 # SOW Status is a free-text, user-editable master list (Configuration > SOW
 # Status), not a fixed enum - customers add their own labels (e.g. "Future
@@ -52,7 +52,7 @@ class MilestoneIn(BaseModel):
     description: str
     amount: float = 0
     due_date: Optional[str] = None
-    status: str = "pending"          # pending | invoiced | paid
+    status: str = "to_be_invoiced"    # to_be_invoiced | invoiced
     billed_date: Optional[str] = None
 
 
@@ -1180,6 +1180,7 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
             """SELECT ra.id AS account_id, ra.sow_id AS sow_id, s.title AS sow_title,
                       COALESCE(s.customer_id, ra.customer_id) AS customer_id,
                       c.customer_name AS customer_name,
+                      s.start_date, s.end_date,
                       s.total_value, s.duration_months, bm.name AS billing_model_name,
                       COALESCE(s.revenue_type_id, ra.revenue_type_id) AS revenue_type_id,
                       COALESCE(rt.name, art.name) AS revenue_type_name,
@@ -1218,6 +1219,8 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
                 "sow_title": s["sow_title"],
                 "customer_id": s["customer_id"],
                 "customer_name": s["customer_name"] or "Unassigned",
+                "start_date": s["start_date"],
+                "end_date": s["end_date"],
                 "total_value": s["total_value"],
                 "duration_months": s["duration_months"],
                 "acv": _compute_acv(s["total_value"], s["duration_months"]),
@@ -1852,8 +1855,9 @@ def _has_leave_record(conn, customer_id: Optional[int], employee_id: Optional[st
     exists for this assignment's Customer + Employee ID - drives the
     "Leave details are missing" info icon next to the employee name on the
     Time and Material grid, same cross-reference direction as the "not
-    tagged to any SOW" highlight on the Leave grid itself (see
-    _employee_ids_tagged_to_sow), just checked from the other table."""
+    tagged to any Time and Material assignment" highlight on the Leave grid
+    itself (see _employee_ids_tagged_to_tm), just checked from the other
+    table."""
     if not customer_id or not (employee_id or "").strip():
         return False
     row = conn.execute(
@@ -2473,16 +2477,17 @@ _LEAVE_SELECT = """
 """
 
 
-def _employee_ids_tagged_to_sow(conn) -> set:
+def _employee_ids_tagged_to_tm(conn) -> set:
     """Employee IDs (lowercased) that currently have at least one Time and
-    Material assignment against a real Statement of Work. Used to flag Leave
-    records for employees who aren't tied to any active SOW work - a leave
-    record itself no longer carries a SOW/WBS ID (see the tab-config-leaves
-    comment in index.html), so this is computed by cross-referencing the
-    T&M grid's own employee_id/sow_id instead."""
+    Material assignment at all - regardless of whether that assignment is
+    itself linked to a Statement of Work (sow_id can be null on an
+    assignment - see tm_assignments in db.py - and still counts here). Used
+    to flag Leave records for employees who aren't tied to any Time and
+    Material work - a leave record itself carries no SOW/WBS ID, so this is
+    computed by cross-referencing the T&M grid's own employee_id instead."""
     rows = conn.execute(
         "SELECT DISTINCT employee_id FROM tm_assignments "
-        "WHERE sow_id IS NOT NULL AND employee_id IS NOT NULL AND TRIM(employee_id) <> ''"
+        "WHERE employee_id IS NOT NULL AND TRIM(employee_id) <> ''"
     ).fetchall()
     return {(r["employee_id"] or "").strip().lower() for r in rows}
 
@@ -2511,11 +2516,11 @@ def list_leaves():
             _LEAVE_SELECT + " ORDER BY c.customer_name COLLATE NOCASE, lm.employee_name COLLATE NOCASE"
         ).fetchall()
         locations, employee_types, bands = _load_resource_lookup_maps(conn)
-        tagged_ids = _employee_ids_tagged_to_sow(conn)
+        tagged_ids = _employee_ids_tagged_to_tm(conn)
         result = []
         for r in rows:
             item = _attach_resource_names(_row_to_dict(r), locations, employee_types, bands)
-            item["tagged_to_sow"] = (item.get("employee_id") or "").strip().lower() in tagged_ids
+            item["tagged_to_tm"] = (item.get("employee_id") or "").strip().lower() in tagged_ids
             result.append(item)
         return result
 

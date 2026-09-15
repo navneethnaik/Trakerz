@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=97" />
+<link rel="stylesheet" href="style.css?v=101" />
 </head>
 <body>
 <header class="topbar">
@@ -555,43 +555,6 @@
       <h2 class="page-header-title">Statement of Work</h2>
       <p class="page-header-desc">Create and manage every SOW &ndash; track status, milestones, invoices and key documents, and see what's expiring soon.</p>
     </div>
-    <div class="stat-row" id="sowStatRow">
-      <div class="stat-section">
-        <div class="stat-section-label">SoW, TCV &amp; ACV</div>
-        <div class="stat-section-tiles">
-          <div class="stat-card stat-indigo">
-            <div class="stat-value" id="sowStatTotal">0</div>
-            <div class="stat-label">SoW #</div>
-          </div>
-          <div class="stat-card stat-amber">
-            <div class="stat-value" id="sowStatValue">$0</div>
-            <div class="stat-label">TCV</div>
-          </div>
-          <div class="stat-card stat-emerald">
-            <div class="stat-value" id="sowStatAcv">$0</div>
-            <div class="stat-label">ACV</div>
-          </div>
-        </div>
-      </div>
-      <div class="stat-divider"></div>
-      <div class="stat-section">
-        <div class="stat-section-label">SoW status</div>
-        <div class="stat-section-tiles" id="sowStatusTiles">
-          <div class="stat-card stat-red">
-            <div class="stat-value" id="sowStatExpiring">0</div>
-            <div class="stat-label">Expiring in 30 days</div>
-          </div>
-          <!-- One tile per configured SOW status, built by renderSowStatusTiles() -->
-        </div>
-      </div>
-      <div class="stat-divider"></div>
-      <div class="stat-section">
-        <div class="stat-section-label">Opportunity type</div>
-        <div class="stat-section-tiles" id="sowOpportunityTypeTiles">
-          <!-- One tile per configured Opportunity Type, built by renderSowOpportunityTypeTiles() -->
-        </div>
-      </div>
-    </div>
     <div class="toolbar">
       <input id="searchInput" type="search" placeholder="Search customer or title..." />
       <select id="sowCustomerFilter">
@@ -603,6 +566,7 @@
       <select id="sowBillingModelFilter">
         <option value="">All billing models</option>
       </select>
+      <div class="toolbar-spacer"></div>
       <button id="exportSowsBtn" type="button" class="ghost-btn">
         <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         Export to Excel
@@ -617,33 +581,28 @@
         <thead>
           <tr class="group-header-row">
             <th rowspan="2">Actions</th><th rowspan="2">Sl. No</th>
-            <th colspan="14" class="group-header">Statement of Work Details</th>
-            <th colspan="4" class="group-header group-divider">BTP Information</th>
+            <th rowspan="2" class="sortable-th" data-sort-key="customer_name">Customer Name<span class="sort-arrow"></span></th>
+            <th colspan="4" class="group-header">Opportunity Details</th>
+            <th colspan="2" class="group-header group-divider">Billing and Operating Model</th>
+            <th colspan="3" class="group-header group-divider">Duration Details</th>
+            <th colspan="3" class="group-header group-divider">Financial Details</th>
+            <th colspan="4" class="group-header group-divider">BTP Details</th>
             <th colspan="3" class="group-header group-divider">Reference Documents</th>
             <th rowspan="2" class="group-divider">Additional Information</th>
           </tr>
           <tr>
-            <th>Opportunity ID</th><th>Opportunity Type</th><th>Statement of Work</th>
-            <th class="sortable-th" data-sort-key="customer_name">Customer Name<span class="sort-arrow"></span></th><th>Purchase Order #</th>
-            <th class="sortable-th" data-sort-key="start_date">Start date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="end_date">End date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="total_value">TCV (USD)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="duration_months">Duration (Months)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="acv">ACV (USD)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="gm_percent">GM %<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="status">Status<span class="sort-arrow"></span></th>
-            <th class="sortable-th" data-sort-key="billing_model_name">Billing model<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="operating_model_name">Operating model<span class="sort-arrow"></span></th>
-            <th class="group-divider">Customer Code</th><th>Project Title</th><th>Contract Code</th><th>Project Code</th>
-            <th class="group-divider">Statement of Work</th><th>Purchase Order</th><th>Deal Sheet</th>
+            <th>Opportunity ID</th><th>Opportunity Type</th><th>Opportunity Title</th><th class="sortable-th" data-sort-key="status">Status<span class="sort-arrow"></span></th>
+            <th class="group-divider sortable-th" data-sort-key="billing_model_name">Billing Model<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="operating_model_name">Operating Model<span class="sort-arrow"></span></th>
+            <th class="group-divider sortable-th" data-sort-key="start_date">Start Date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="end_date">End Date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="duration_months">Months #<span class="sort-arrow"></span></th>
+            <th class="group-divider sortable-th" data-sort-key="total_value">TCV ($)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="gm_percent">GM %<span class="sort-arrow"></span></th><th>PO#</th>
+            <th class="group-divider">Customer Code</th><th>Contract Code</th><th>Project Name</th><th>Project Code</th>
+            <th class="group-divider">Statement of Work</th><th>Deal Sheet</th><th>Purchase Order</th>
           </tr>
         </thead>
         <tbody id="sowTableBody"></tbody>
       </table>
     </div>
     <div id="alertBanner" class="alert-banner" hidden></div>
-  </section>
-
-  <!-- SOW DETAIL -->
-  <section id="tab-detail" class="tab-panel">
-    <button id="backToList" class="ghost-btn">
-      <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-      Back to SOWs
-    </button>
-    <div id="detailContent"></div>
   </section>
 
   <!-- CUSTOMER MANAGEMENT (Management) -->
@@ -707,6 +666,11 @@
            number inputs grouped under one spanning header, replacing the
            old one-row-per-Customer+Location shape now that Locations is a
            fixed three-value list (see Global Settings > Locations). -->
+      <!-- .table-scroll wrapper (matching Resource and Leave/SOWs/Staffing)
+           gives this table its own internal scrollbar so the sticky <thead>
+           below has a scrolling ancestor to stick within - see the
+           scroll-locked rules in style.css. -->
+      <div class="table-scroll">
       <table class="sow-table billing-hours-table">
         <!-- Explicit per-column widths via colgroup, plus table-layout:
              fixed (see .billing-hours-table in style.css) - without this,
@@ -734,6 +698,7 @@
         </thead>
         <tbody id="billingHoursTableBody"></tbody>
       </table>
+      </div>
     </div>
   </section>
 
@@ -761,10 +726,16 @@
            the fixed three locations observe that date, replacing the old
            one-row-per-Customer+Location+Date shape (where the same date for
            two locations needed two rows). -->
+      <!-- .table-scroll wrapper (matching Resource and Leave/SOWs/Staffing)
+           gives this table its own internal scrollbar so the sticky <thead>
+           below has a scrolling ancestor to stick within - see the
+           scroll-locked rules in style.css. -->
+      <div class="table-scroll">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Customer Name</th><th>Holiday Date</th><th>Onsite</th><th>Offshore</th><th>Nearshore</th><th>Holiday Details</th></tr></thead>
         <tbody id="holidayTableBody"></tbody>
       </table>
+      </div>
     </div>
   </section>
 
@@ -976,15 +947,13 @@
       <h2 class="page-header-title">Revenue Type</h2>
       <p class="page-header-desc">Maintain the revenue type options used across Statement of Work, Revenue Management and Time and Material.</p>
     </div>
-    <div class="toolbar">
-      <!-- Disabled, not removed - Revenue Type is a fixed default list
-           (seeded by DEFAULT_REVENUE_TYPES in db.py) but unlike Locations
-           the button stays visible in the DOM, per explicit instruction. -->
-      <button id="newRevenueTypeBtn" class="primary-btn" disabled title="Revenue types are fixed and cannot be added">
-        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        Add Revenue Type
-      </button>
-    </div>
+    <!-- No "Add Revenue Type" button - Revenue Type is a fixed default list
+         (seeded by DEFAULT_REVENUE_TYPES in db.py), removed per explicit
+         instruction (previously kept in the DOM but disabled - see
+         locationManager's own already-missing "Add Location" button in
+         app.js for the same pattern). Existing rows can still have their
+         Revenue type details edited (see lockNameOnEdit in
+         makeInlineListManager in app.js), just not added or deleted. -->
     <div class="config-card">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Revenue type</th><th>Revenue type details</th></tr></thead>
@@ -1104,11 +1073,19 @@
   <section id="tab-sow-report" class="tab-panel">
     <div class="dash-header-row">
       <h2 class="page-header-title">Statement of Work</h2>
-      <select id="sowReportCustomerFilter" class="dash-customer-filter">
-        <option value="">All</option>
-      </select>
+      <div class="report-filters">
+        <select id="sowReportCustomerFilter" class="dash-customer-filter">
+          <option value="">All Customers</option>
+        </select>
+        <select id="sowReportStatusFilter" class="dash-customer-filter">
+          <option value="">All Statuses</option>
+        </select>
+        <select id="sowReportBillingModelFilter" class="dash-customer-filter">
+          <option value="">All Billing Models</option>
+        </select>
+      </div>
     </div>
-    <p class="page-header-desc dash-header-desc">A live breakdown of every Statement of Work by status and, for Active SOWs, by Billing Model &ndash; optionally scoped to one account.</p>
+    <p class="page-header-desc dash-header-desc">A live breakdown of every Statement of Work by status and, for Active SOWs, by Billing Model &ndash; optionally scoped with the filters above.</p>
 
     <div class="dash-lists-row">
       <div class="list-card list-card-compact">
@@ -1133,6 +1110,21 @@
         </table>
       </div>
     </div>
+
+    <div class="chart-row">
+      <div class="chart-card">
+        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg></span><span>SOW Status Mix</span></h3>
+        <canvas id="chartSowReportStatus" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg></span><span>TCV by Customer</span></h3>
+        <canvas id="chartSowReportTcvByCustomer" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span><span>SOWs Signed by Month</span></h3>
+        <canvas id="chartSowReportSignedByMonth" height="220"></canvas>
+      </div>
+    </div>
   </section>
 
   <!-- Placeholder pages for the "Resource" and "Revenue" items under the
@@ -1142,17 +1134,80 @@
        orphaned/unlinked from the nav as before - this "Resource" tab is a
        distinct, separate page. -->
   <section id="tab-resource-hub" class="tab-panel">
-    <div class="page-header">
+    <div class="dash-header-row">
       <h2 class="page-header-title">Resource</h2>
+      <div class="report-filters">
+        <select id="resourceReportCustomerFilter" class="dash-customer-filter">
+          <option value="">All Customers</option>
+        </select>
+        <select id="resourceReportLocationFilter" class="dash-customer-filter">
+          <option value="">All Locations</option>
+        </select>
+        <select id="resourceReportEmployeeTypeFilter" class="dash-customer-filter">
+          <option value="">All Employee Types</option>
+        </select>
+        <select id="resourceReportBandFilter" class="dash-customer-filter">
+          <option value="">All Bands</option>
+        </select>
+      </div>
     </div>
-    <p class="empty-state">This page hasn't been designed yet - check back soon.</p>
+    <p class="page-header-desc dash-header-desc">A live breakdown of every resource (<span id="resourceReportCount">0</span>) by location, band, employee type and account &ndash; optionally scoped with the filters above.</p>
+
+    <div class="chart-row">
+      <div class="chart-card">
+        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></span><span>Headcount by Location</span></h3>
+        <canvas id="chartResourceReportLocation" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg></span><span>Headcount by Band</span></h3>
+        <canvas id="chartResourceReportBand" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3><span class="card-icon icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span><span>Headcount by Employee Type</span></h3>
+        <canvas id="chartResourceReportEmployeeType" height="220"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-row chart-row-single">
+      <div class="chart-card">
+        <h3><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg></span><span>Top Accounts by Resource Count</span></h3>
+        <canvas id="chartResourceReportTopAccounts" height="140"></canvas>
+      </div>
+    </div>
   </section>
 
   <section id="tab-revenue-hub" class="tab-panel">
-    <div class="page-header">
+    <div class="dash-header-row">
       <h2 class="page-header-title">Revenue</h2>
+      <div class="report-filters">
+        <select id="revenueReportCustomerFilter" class="dash-customer-filter">
+          <option value="">All Customers</option>
+        </select>
+        <select id="revenueReportRevenueTypeFilter" class="dash-customer-filter">
+          <option value="">All Revenue Types</option>
+        </select>
+        <select id="revenueReportFyFilter" class="dash-customer-filter"></select>
+      </div>
     </div>
-    <p class="empty-state">This page hasn't been designed yet - check back soon.</p>
+    <p class="page-header-desc dash-header-desc">Projected monthly revenue across Managed Services and Time and Material for the selected fiscal year &ndash; optionally scoped with the filters above.</p>
+
+    <div class="chart-row chart-row-single">
+      <div class="chart-card">
+        <h3><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span><span>Monthly Revenue Trend &ndash; Managed Services vs Time and Material</span></h3>
+        <canvas id="chartRevenueReportMonthlyTrend" height="140"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-row chart-row-2col">
+      <div class="chart-card">
+        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg></span><span>Revenue by Revenue Type</span></h3>
+        <canvas id="chartRevenueReportByRevenueType" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg></span><span>Revenue by Customer</span></h3>
+        <canvas id="chartRevenueReportByCustomer" height="220"></canvas>
+      </div>
+    </div>
   </section>
 
   <!-- Placeholder pages for the "Time and Material" and "Managed Services"
@@ -1254,24 +1309,41 @@
           Add Entry
         </button>
       </div>
+      <!-- Two-row grouped header (SoW and Resource Details / Revenue
+           Projections and Monthly Breakdown), same group-header-row/
+           group-header/group-divider pattern as the Statement of Work
+           table above - see style.css for the sticky top:0/top:29px rule
+           this requires (#tab-revenue .rev-grid-table thead tr:first-child/
+           tr:last-child). ACV and Monthly Revenue were removed and Start
+           Date/End Date added per explicit request; Practice - not named in
+           that request - was kept (explicitly confirmed) as the last column
+           of the first group. -->
       <div class="table-scroll">
         <table class="sow-table revenue-table rev-grid-table">
           <thead>
+            <tr class="group-header-row">
+              <th class="rev-leading-th" rowspan="2">Actions</th>
+              <th class="rev-leading-th" rowspan="2">Sl. No</th>
+              <th colspan="11" class="group-header">SoW and Resource Details</th>
+              <th colspan="13" class="group-header group-divider">Revenue Projections and Monthly Breakdown</th>
+              <!-- Mandatory when saving a row with no SOW (per explicit
+                   request) - optional/free text otherwise. See
+                   buildRevenueSowRow()/openRevenueEntryDraft() in app.js. -->
+              <th class="rev-leading-th" rowspan="2">Additional Information</th>
+            </tr>
             <tr>
-              <th class="rev-leading-th">Actions</th>
-              <th class="rev-leading-th">Sl. No</th>
               <th class="rev-leading-th">Revenue Type</th>
               <th class="rev-leading-th">Customer Name</th>
               <th class="rev-leading-th">Statement of Work</th>
+              <th class="rev-leading-th">Start Date</th>
+              <th class="rev-leading-th">End Date</th>
               <th class="rev-leading-th">Billing Model</th>
-              <th class="rev-leading-th">Practice</th>
+              <th class="rev-leading-th">TCV ($)</th>
               <th class="rev-leading-th">Onsite #</th>
               <th class="rev-leading-th">Offshore #</th>
               <th class="rev-leading-th">Nearshore #</th>
-              <th class="rev-leading-th">TCV (USD)</th>
-              <th class="rev-leading-th">ACV (USD)</th>
-              <th class="rev-leading-th">Monthly Revenue</th>
-              <th class="rev-leading-th">Total</th>
+              <th class="rev-leading-th">Practice</th>
+              <th class="rev-leading-th group-divider">Total</th>
               <th class="rev-band-a rev-month-hdr">Apr</th>
               <th class="rev-band-b rev-month-hdr">May</th>
               <th class="rev-band-a rev-month-hdr">Jun</th>
@@ -1284,10 +1356,6 @@
               <th class="rev-band-b rev-month-hdr">Jan</th>
               <th class="rev-band-a rev-month-hdr">Feb</th>
               <th class="rev-band-b rev-month-hdr">Mar</th>
-              <!-- Mandatory when saving a row with no SOW (per explicit
-                   request) - optional/free text otherwise. See
-                   buildRevenueSowRow()/openRevenueEntryDraft() in app.js. -->
-              <th class="rev-leading-th">Additional Information</th>
             </tr>
           </thead>
           <tbody id="revenueSowsTableBody"></tbody>
@@ -1352,28 +1420,41 @@
           Add Entry
         </button>
       </div>
+      <!-- Two-row grouped header (Revenue Type and Customer Information /
+           Employee Details / Revenue Projections and Monthly Breakdown), same
+           group-header-row/group-header/group-divider pattern as the
+           Statement of Work table - see style.css for the sticky
+           top:0/top:29px rule this requires. Billing Hours (per day) moved
+           from right after Location to right before Rate Card, per the
+           explicitly requested column sequence; no columns added or removed
+           here. -->
       <div class="table-scroll">
         <table class="sow-table tm-table rev-grid-table">
           <thead>
+            <tr class="group-header-row">
+              <th class="rev-leading-th" rowspan="2">Actions</th>
+              <th class="rev-leading-th" rowspan="2">Sl. No</th>
+              <th colspan="3" class="group-header">Revenue Type and Customer Information</th>
+              <th colspan="12" class="group-header group-divider">Employee Details</th>
+              <th colspan="13" class="group-header group-divider">Revenue Projections and Monthly Breakdown</th>
+            </tr>
             <tr>
-              <th class="rev-leading-th">Actions</th>
-              <th class="rev-leading-th">Sl. No</th>
               <th class="rev-leading-th">Revenue Type</th>
               <th class="rev-leading-th">Customer Name</th>
               <th class="rev-leading-th">Statement of Work</th>
-              <th class="rev-leading-th">Employee ID</th>
+              <th class="rev-leading-th group-divider">Employee ID</th>
               <th class="rev-leading-th">Employee Name</th>
               <th class="rev-leading-th">Location</th>
-              <th class="rev-leading-th">Billing Hours per day</th>
               <th class="rev-leading-th">Practice</th>
               <th class="rev-leading-th">SoW Role</th>
               <th class="rev-leading-th">WBS ID</th>
-              <th class="rev-leading-th">Rate Card</th>
+              <th class="rev-leading-th">Billing Hours (per day)</th>
+              <th class="rev-leading-th">Original Rate Card</th>
               <th class="rev-leading-th">Discount (%)</th>
-              <th class="rev-leading-th">Discounted Rate Card</th>
+              <th class="rev-leading-th">Discounted Rate</th>
               <th class="rev-leading-th">Start Date</th>
               <th class="rev-leading-th">End Date</th>
-              <th class="rev-leading-th">Total</th>
+              <th class="rev-leading-th group-divider">Total Projected Revenue</th>
               <th class="rev-band-a rev-month-hdr">Apr</th>
               <th class="rev-band-b rev-month-hdr">May</th>
               <th class="rev-band-a rev-month-hdr">Jun</th>
@@ -1397,36 +1478,120 @@
 
 <footer class="app-footer">Developed by Navneeth Diwaker Naik</footer>
 
-<!-- Milestone form modal -->
-<div id="milestoneModal" class="modal" hidden>
-  <div class="modal-box">
+<!-- New/Edit SOW form modal - see openSowModal()/the "New/Edit SOW popup"
+     block in app.js. Field classes (sow-f-*) rather than ids, since this is
+     the one and only instance in the DOM and the same class names let
+     wireSowFormFormulas()/wireSowDocUploadRow() work unchanged whether their
+     container is this modal box or (previously) a table row. Sectioned to
+     match the read-only table's own grouped header below: Opportunity
+     Details / Billing and Operating Model / Duration Details / Financial
+     Details / BTP Details / Reference Documents / Additional Information,
+     plus a Milestones section (Fixed Price only, toggled live by
+     refreshSowModalMilestonesVisibility()). Billing Model now lives only
+     under Billing and Operating Model (sow-f-billing) - it used to also be
+     shown a second time under Financial Details (sow-f-billing2, kept in
+     sync by syncSowBillingSelects()), removed per explicit request. -->
+<div id="sowFormModal" class="modal" hidden>
+  <div class="modal-box modal-xwide">
     <div class="modal-header">
-      <h2><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span><span id="milestoneModalTitle">New Milestone / Invoice</span></h2>
+      <h2><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span><span id="sowFormModalTitle">New SOW</span></h2>
       <div class="modal-header-actions">
-        <button type="button" id="cancelMilestoneBtnTop" class="ghost-btn">Cancel</button>
-        <button type="submit" form="milestoneForm" class="primary-btn">Save</button>
+        <button type="button" id="cancelSowBtnTop" class="ghost-btn">Cancel</button>
+        <button type="submit" form="sowForm" class="primary-btn">Save</button>
       </div>
     </div>
-    <form id="milestoneForm">
-      <input type="hidden" id="m_id" />
-      <input type="hidden" id="m_sowId" />
-      <label>Description<input id="m_description" required /></label>
+    <form id="sowForm">
+      <label>Customer Name
+        <select class="sow-f-customer" required>
+          <option value="">Select customer&hellip;</option>
+        </select>
+      </label>
+
+      <div class="form-section-title">Opportunity Details</div>
+      <div class="three-col">
+        <label>Opportunity ID<input type="text" class="sow-f-opportunity" /></label>
+        <label>Opportunity Type
+          <select class="sow-f-opportunity-type">
+            <option value="">Select opportunity type&hellip;</option>
+          </select>
+        </label>
+        <label>Status<select class="sow-f-status"></select></label>
+      </div>
+      <label>Opportunity Title<input class="sow-f-title" required /></label>
+
+      <div class="form-section-title">Billing and Operating Model</div>
       <div class="two-col">
-        <label>Amount ($)<input id="m_amount" type="number" step="0.01" min="0" value="0" /></label>
-        <label>Status
-          <select id="m_status">
-            <option value="pending">Pending</option>
-            <option value="invoiced">Invoiced</option>
-            <option value="paid">Paid</option>
+        <label>Billing Model
+          <select class="sow-f-billing">
+            <option value="">Select billing model&hellip;</option>
+          </select>
+        </label>
+        <label>Operating Model
+          <select class="sow-f-operating">
+            <option value="">Select operating model&hellip;</option>
           </select>
         </label>
       </div>
-      <div class="two-col">
-        <label>Due date<input id="m_due" type="date" /></label>
-        <label>Billed date<input id="m_billed" type="date" /></label>
+
+      <div class="form-section-title">Duration Details</div>
+      <div class="three-col">
+        <label>Start Date<input type="date" class="sow-f-start" /></label>
+        <label>End Date<input type="date" class="sow-f-end" /></label>
+        <label>Months #<input type="number" step="0.1" class="sow-f-duration form-field-readonly" readonly /></label>
       </div>
+
+      <div class="form-section-title">Financial Details</div>
+      <div class="three-col">
+        <label>TCV ($)<input type="number" step="0.01" min="0" class="sow-f-value" value="0" /></label>
+        <label>GM %<input type="number" step="0.01" min="0" max="100" class="sow-f-gm" /></label>
+        <label>PO#<input type="text" class="sow-f-po" /></label>
+      </div>
+
+      <div class="form-section-title">BTP Details</div>
+      <div class="four-col">
+        <label>Customer Code<input type="text" class="sow-f-customer-code form-field-readonly" readonly /></label>
+        <label>Contract Code<input type="text" class="sow-f-contract-code" /></label>
+        <label>Project Name<input type="text" class="sow-f-project-title" /></label>
+        <label>Project Code<input type="text" class="sow-f-project-code" /></label>
+      </div>
+
+      <div class="form-section-title">Reference Documents</div>
+      <label>Statement of Work
+        <div class="doclink-row">
+          <input type="text" class="sow-f-doclink" />
+          <button type="button" class="ghost-btn sow-upload-doc-btn" title="Upload"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg><span>Upload</span></button>
+          <input type="file" class="sow-doc-file" hidden />
+        </div>
+      </label>
+      <label>Deal Sheet
+        <div class="doclink-row">
+          <input type="text" class="sow-f-deal-sheet-link" />
+          <button type="button" class="ghost-btn sow-upload-deal-btn" title="Upload"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg><span>Upload</span></button>
+          <input type="file" class="sow-deal-file" hidden />
+        </div>
+      </label>
+      <label>Purchase Order
+        <div class="doclink-row">
+          <input type="text" class="sow-f-po-doclink" />
+          <button type="button" class="ghost-btn sow-upload-po-btn" title="Upload"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg><span>Upload</span></button>
+          <input type="file" class="sow-po-doc-file" hidden />
+        </div>
+      </label>
+
+      <div class="form-section-title">Additional Information</div>
+      <label>Additional Information<input type="text" class="sow-f-notes" /></label>
+
+      <div id="sowMilestonesSection" class="milestones-inline" hidden>
+        <div class="form-section-title">Milestones</div>
+        <div class="milestone-row milestone-row-header">
+          <span>Description</span><span>Amount ($)</span><span>Status</span><span>Due date</span><span>Billed date</span><span></span>
+        </div>
+        <div id="sowMilestoneRows"></div>
+        <button type="button" id="addMilestoneRowBtn" class="ghost-btn">+ Add milestone</button>
+      </div>
+
       <div class="modal-actions">
-        <button type="button" id="cancelMilestoneBtn" class="ghost-btn">Cancel</button>
+        <button type="button" id="cancelSowBtn" class="ghost-btn">Cancel</button>
         <button type="submit" class="primary-btn">Save</button>
       </div>
     </form>
@@ -1518,6 +1683,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=116"></script>
+<script src="app.js?v=123"></script>
 </body>
 </html>

@@ -77,8 +77,6 @@ function icon(name, size) {
   return `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[name] || ""}</svg>`;
 }
 
-let currentSowId = null;
-
 // ---------- Tabs ----------
 document.querySelectorAll(".tab-btn[data-tab]").forEach((btn) => {
   btn.addEventListener("click", () => showTab(btn.dataset.tab));
@@ -200,11 +198,15 @@ function showTab(name) {
   const panel = document.getElementById("tab-" + name);
   if (panel) panel.classList.add("active");
 
-  // The SOWs, Staffing and Revenue Management pages freeze their stat tiles
+  // The SOWs, Staffing, Revenue Management, Resource and Leave, Customer,
+  // Billing Hours and Holiday Calendar pages freeze their stat tiles/toolbar
   // and table header in place and scroll only the table body (see
   // .scroll-locked rules in style.css) - toggled here rather than left on
   // permanently so every other page keeps its normal whole-page scrolling.
-  document.body.classList.toggle("scroll-locked", ["sows", "resources", "revenue"].includes(name));
+  document.body.classList.toggle(
+    "scroll-locked",
+    ["sows", "resources", "revenue", "config-leaves", "customers", "config-billing-hours", "config-holidays"].includes(name)
+  );
 
   if (name === "home") loadHome();
   if (name === "sows") loadSows();
@@ -227,9 +229,9 @@ function showTab(name) {
   if (name === "config-revenue-types") loadRevenueTypes();
   if (name === "config-practices") loadPractices();
   if (name === "sow-report") loadSowReport();
+  if (name === "resource-hub") loadResourceReport();
+  if (name === "revenue-hub") loadRevenueReport();
 }
-
-document.getElementById("backToList").addEventListener("click", () => showTab("sows"));
 
 // ---------- About / landing page (opened via the Trakerz logo) ----------
 // Not one of the regular nav tabs (no data-tab button), so it's wired up
@@ -300,7 +302,7 @@ function initLandingCarousel() {
 initLandingCarousel();
 
 // ---------- Overdue/expiring/over-budget banner (computed client-side from
-// the currently-filtered SOW list by loadSowStats() every time the
+// the currently-filtered SOW list by loadSows() every time the
 // Statement of Work page's search/status/customer filters change) ----------
 // User-dismissible: closing it hides it for the rest of this session as long
 // as the underlying counts don't change. If a later refresh produces a
@@ -415,106 +417,15 @@ function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 
-// Statuses that don't count towards "expiring soon"/"overdue" alerts even
-// past their end date - mirrors CLOSED_STATUSES in backend/main.py exactly,
-// since these tile/banner numbers are now computed client-side from the
-// already-enriched (and already search/status/customer-filtered) SOW list
-// rather than a separate unfiltered /api/dashboard call.
-const CLOSED_STATUSES = ["completed", "cancelled", "expired"];
-
-// Tiles at the top of the SOWs page now reflect whatever the search box /
-// status filter / customer filter currently narrow the table down to
-// (rather than always showing portfolio-wide totals), so switching filters
-// updates "SoW #", "TCV", "Expiring in 30 days" and the per-status counts
-// together with the table below them. Order: Total SOWs, Total TCV, then
-// one tile per configured SOW status (even statuses with zero matches in
-// the current filter), built dynamically since statuses are user-editable
-// master data. Cycles through the stat-card color classes since there's no
-// fixed number of statuses.
-const SOW_STATUS_TILE_COLORS = ["stat-emerald", "stat-cyan", "stat-red", "stat-orange", "stat-indigo", "stat-amber"];
-
-function renderSowStatusTiles(statuses, statusCounts) {
-  const row = document.getElementById("sowStatusTiles");
-  row.querySelectorAll(".sow-status-tile").forEach((el) => el.remove());
-  (statuses || []).forEach((status, i) => {
-    const count = countStatusCI(statusCounts, status.name);
-    const color = SOW_STATUS_TILE_COLORS[i % SOW_STATUS_TILE_COLORS.length];
-    const tile = document.createElement("div");
-    tile.className = `stat-card ${color} sow-status-tile`;
-    tile.innerHTML = `
-      <div class="stat-value">${count}</div>
-      <div class="stat-label">${escapeHtml(capitalize(status.name))}</div>
-    `;
-    row.appendChild(tile);
-  });
-}
-
-// Same idea as the per-status tiles above, but one tile per configured
-// Opportunity Type (New/Extension/Amendment/...) - also user-editable master
-// data (Settings > Opportunity Type), so built dynamically rather than
-// hardcoded. Appended after the status tiles; uses a separate marker class
-// (sow-opptype-tile) so the two groups can each be cleared/rebuilt on every
-// filter change without touching one another.
-const SOW_OPPTYPE_TILE_COLORS = ["stat-violet", "stat-pink", "stat-cyan", "stat-amber", "stat-emerald", "stat-orange"];
-
-function renderSowOpportunityTypeTiles(opportunityTypes, typeCounts) {
-  const row = document.getElementById("sowOpportunityTypeTiles");
-  row.querySelectorAll(".sow-opptype-tile").forEach((el) => el.remove());
-  (opportunityTypes || []).forEach((type, i) => {
-    const count = countStatusCI(typeCounts, type.name);
-    const color = SOW_OPPTYPE_TILE_COLORS[i % SOW_OPPTYPE_TILE_COLORS.length];
-    const tile = document.createElement("div");
-    tile.className = `stat-card ${color} sow-opptype-tile`;
-    tile.innerHTML = `
-      <div class="stat-value">${count}</div>
-      <div class="stat-label">${escapeHtml(capitalize(type.name))}</div>
-    `;
-    row.appendChild(tile);
-  });
-}
-
-// sows here is the already-filtered list loadSows() just fetched from
-// /api/sows (search/status/customer applied server-side) - each row already
-// carries days_to_end/alerts/status/total_value from the backend's
-// _enrich_sow(), so every tile and the alert banner can be derived from it
-// directly instead of a second, unfiltered /api/dashboard round trip.
-async function loadSowStats(sows) {
-  const [statuses, opportunityTypes] = await Promise.all([
-    fetch(`${API}/statuses`).then((r) => r.json()),
-    fetch(`${API}/opportunity-types`).then((r) => r.json()),
-  ]);
-
-  document.getElementById("sowStatTotal").textContent = sows.length;
-  const totalValue = sows.reduce((sum, s) => sum + (s.total_value || 0), 0);
-  // Abbreviated ($22.5M) rather than fmt()'s full "$22,474,000.00" - the
-  // full figure overflowed the circular tile. Full precision is still one
-  // hover away via the title tooltip.
-  const sowStatValueEl = document.getElementById("sowStatValue");
-  sowStatValueEl.textContent = fmtCompact(totalValue);
-  sowStatValueEl.title = fmt(totalValue);
-
-  const totalAcv = sows.reduce((sum, s) => sum + (s.acv || 0), 0);
-  const sowStatAcvEl = document.getElementById("sowStatAcv");
-  sowStatAcvEl.textContent = fmtCompact(totalAcv);
-  sowStatAcvEl.title = fmt(totalAcv);
-
-  const expiringCount = sows.filter((s) => {
-    if (CLOSED_STATUSES.includes((s.status || "").trim().toLowerCase())) return false;
-    return s.days_to_end !== null && s.days_to_end !== undefined && s.days_to_end >= 0 && s.days_to_end <= 30;
-  }).length;
-  document.getElementById("sowStatExpiring").textContent = expiringCount;
-
-  const statusCounts = {};
-  sows.forEach((s) => { statusCounts[s.status] = (statusCounts[s.status] || 0) + 1; });
-  renderSowStatusTiles(statuses, statusCounts);
-
-  const opportunityTypeCounts = {};
-  sows.forEach((s) => {
-    const name = s.opportunity_type_name;
-    if (name) opportunityTypeCounts[name] = (opportunityTypeCounts[name] || 0) + 1;
-  });
-  renderSowOpportunityTypeTiles(opportunityTypes, opportunityTypeCounts);
-
+// Drives the overdue/expiring/over-budget banner below the table from
+// whatever the search box / status filter / customer filter currently narrow
+// the table down to - each row already carries alerts from the backend's
+// _enrich_sow(), so this is derived from the already-fetched list directly
+// instead of a separate unfiltered /api/dashboard call. (The stat tiles that
+// used to sit above the table and feed off this same filtered list have been
+// removed per an explicit request - this banner is a separate, still-wanted
+// element and keeps working unchanged.)
+function updateSowAlertBanner(sows) {
   renderAlertBanner({
     overdue: sows.filter((s) => (s.alerts || []).includes("overdue")),
     expiring_soon: sows.filter((s) => (s.alerts || []).includes("expiring_soon")),
@@ -592,10 +503,10 @@ async function loadSows() {
   if (billingModelId) params.set("billing_model_id", billingModelId);
   currentSows = await fetch(`${API}/sows?${params}`).then((r) => r.json());
   renderSowsTable(currentSows);
-  // Tiles/banner reflect this same filtered list, so they stay in sync with
+  // Banner reflects this same filtered list, so it stays in sync with
   // whatever the search box / status filter / customer filter narrowed the
   // table down to.
-  loadSowStats(currentSows);
+  updateSowAlertBanner(currentSows);
 }
 
 function renderSowsTable(sowsIn) {
@@ -604,37 +515,36 @@ function renderSowsTable(sowsIn) {
   const tbody = document.getElementById("sowTableBody");
   tbody.innerHTML = "";
   if (!sows.length) {
-    tbody.innerHTML = '<tr><td colspan="24" class="empty-state">No SOWs yet. Click "New SOW" to add one.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="23" class="empty-state">No SOWs yet. Click "New SOW" to add one.</td></tr>';
     return;
   }
-  sows.forEach((s) => tbody.appendChild(buildSowRow(s, false)));
+  sows.forEach((s) => tbody.appendChild(buildSowRow(s)));
   renumberSowRows();
 }
 
-// Fills in every row's "Sl. No" cell based on current DOM order, skipping any
-// in-progress "New SOW"/Copy draft row (see .sow-draft-row) - same pattern as
-// renumberRevenueRows()/renumberLeaveRows-equivalent elsewhere in this file.
+// Fills in every row's "Sl. No" cell based on current DOM order, skipping the
+// milestone-subrow a Fixed Price row's expand-btn may have injected below it
+// (see toggleMilestoneSubrow) - same pattern as renumberRevenueRows()/
+// renumberLeaveRows-equivalent elsewhere in this file.
 function renumberSowRows() {
   const tbody = document.getElementById("sowTableBody");
   let n = 0;
   tbody.querySelectorAll("tr").forEach((tr) => {
-    if (tr.classList.contains("sow-draft-row") || tr.classList.contains("milestone-subrow")) return;
+    if (tr.classList.contains("milestone-subrow")) return;
     const cell = tr.querySelector(".sow-sl-no");
     if (cell) { n += 1; cell.textContent = n; }
   });
 }
 
-// Swaps a row for a rebuilt version of itself (toggling between read-only and
-// editing) while preserving its already-assigned Sl. No - same pattern as
-// replaceRevenueRow()/replaceLeaveRow-equivalent elsewhere in this file.
-function replaceSowRow(oldTr, newTr) {
-  const oldCell = oldTr.querySelector(".sow-sl-no");
-  const newCell = newTr.querySelector(".sow-sl-no");
-  if (oldCell && newCell) newCell.textContent = oldCell.textContent;
-  oldTr.replaceWith(newTr);
+// Milestone status is a fixed 2-value set (see MilestoneIn in backend/
+// main.py) rather than the free-text master lists most other statuses in
+// this app use, so both the badge color and the human-readable label are
+// simple lookups keyed off the raw stored value.
+const MILESTONE_BADGE_CLASS = { invoiced: "active", to_be_invoiced: "draft" };
+const MILESTONE_STATUS_LABEL = { invoiced: "Invoiced", to_be_invoiced: "To be invoiced" };
+function milestoneStatusLabel(status) {
+  return MILESTONE_STATUS_LABEL[status] || capitalize((status || "").replace(/_/g, " "));
 }
-
-const MILESTONE_BADGE_CLASS = { paid: "completed", invoiced: "active", pending: "draft" };
 
 function renderMilestoneSubtable(milestones) {
   if (!milestones.length) {
@@ -645,7 +555,7 @@ function renderMilestoneSubtable(milestones) {
       <td>${escapeHtml(m.description)}</td>
       <td>${fmtDate(m.due_date)}</td>
       <td>${fmt(m.amount)}</td>
-      <td><span class="badge badge-${MILESTONE_BADGE_CLASS[m.status] || "draft"}">${escapeHtml(m.status)}</span></td>
+      <td><span class="badge badge-${MILESTONE_BADGE_CLASS[m.status] || "draft"}">${escapeHtml(milestoneStatusLabel(m.status))}</span></td>
     </tr>
   `).join("");
   return `
@@ -668,7 +578,7 @@ async function toggleMilestoneSubrow(tr, s) {
   const milestones = await fetch(`${API}/sows/${s.id}/milestones`).then((r) => r.json());
   const subTr = document.createElement("tr");
   subTr.className = "milestone-subrow";
-  subTr.innerHTML = `<td colspan="24">${renderMilestoneSubtable(milestones)}</td>`;
+  subTr.innerHTML = `<td colspan="23">${renderMilestoneSubtable(milestones)}</td>`;
   tr.after(subTr);
 }
 
@@ -688,24 +598,22 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// ---------- SOW inline edit (replaces the old New SOW/Edit/Copy popup) ----------
-// Every field the old modal captured is now edited directly in the grid -
-// Save/Cancel icons swap in for Copy/Edit/Delete on the row being edited,
-// exactly like Leave Management/Resource Management/Revenue Management
-// already work (see buildLeaveRow/buildRevenueSowRow). "New SOW" and "Copy"
-// both insert a draft row at the top of the table (see openSowEntryDraft())
-// instead of opening a form; "Edit" toggles the existing row in place
-// (buildSowRow(s, true)); Cancel toggles it back. The one thing this
-// deliberately leaves out is Revenue Type/Practice - those were on the old
-// modal but were never columns on THIS grid (they're set from Revenue
-// Outlook > Best Estimates instead, via the same /classification endpoint),
-// so they're carried through unchanged on every save (see the
-// revenue_type_id/practice_id lines in the Save handler below) rather than
-// exposed here or silently wiped. Milestones (Fixed Price SOWs only) are
-// also unaffected - they're still added/edited one at a time through their
-// own small popup on the SOW Detail page (see openMilestoneModal below),
-// since a milestone can't be attached to a SOW that doesn't exist in the
-// database yet.
+// ---------- New/Edit SOW popup ----------
+// Per an explicit request this went back to being a real modal (#sowFormModal
+// in index.html) instead of the inline-editable-row approach used before -
+// New SOW/Edit/Copy all call openSowModal() now. Fields are grouped into
+// labeled sections (.form-section-title) matching the same grouping the read-
+// only table below uses: Opportunity Details / Billing and Operating Model /
+// Duration Details / Financial Details / BTP Details / Reference Documents /
+// Additional Information, plus a standalone Customer Name field and a
+// Milestones section (Fixed Price SOWs only). Billing Model (.sow-f-billing)
+// lives only under Billing and Operating Model - it used to also be shown a
+// second time under Financial Details, removed per explicit request.
+// Revenue Type/Practice aren't on this form (same as before the modal
+// existed) - they're set from Revenue Outlook > Best Estimates instead via
+// the separate /classification endpoint, so they're carried through
+// unchanged on every save (see the revenue_type_id/practice_id lines in the
+// submit handler below) rather than exposed here or silently wiped.
 let sowFormLookups = { customers: [], billingModels: [], operatingModels: [], statuses: [], opportunityTypes: [] };
 
 async function loadSowFormLookups() {
@@ -772,43 +680,24 @@ function computeSowDurationMonths(startVal, endVal, fallback) {
   return Math.round((inclusiveDays / 30.4368) * 10) / 10;
 }
 
-// ACV (USD) mirrors the server's own _enrich_sow() formula - monthly value
-// (TCV / Contract Duration (Months)) times however many of those months
-// count toward one fiscal year (capped at 12) - so the row shows the number
-// that will actually be saved/displayed without a round trip. Read-only in
-// both modes, never itself sent to the backend, just recomputed live
-// whenever TCV or Duration changes (see wireSowRowFormulas() below).
-function computeSowAcv(tcv, months) {
-  if (!(months > 0)) return 0;
-  const monthlyValue = tcv / months;
-  const monthsInFiscalYear = Math.min(months, 12);
-  return Number((monthlyValue * monthsInFiscalYear).toFixed(2)) || 0;
-}
+// Wires up Duration/Customer Code's live recompute inside the SOW form
+// popup - ACV (USD) used to be computed the same way here for a live
+// on-screen preview, but per an explicit request ACV is no longer shown
+// anywhere on this form or the table below it, so only Duration and Customer
+// Code remain. ACV is still computed server-side (_enrich_sow() in
+// backend/main.py) for anything else in the app that reads it from the API.
+function wireSowFormFormulas(container) {
+  const startInput = container.querySelector(".sow-f-start");
+  const endInput = container.querySelector(".sow-f-end");
+  const durationInput = container.querySelector(".sow-f-duration");
+  const customerSelect = container.querySelector(".sow-f-customer");
+  const customerCodeInput = container.querySelector(".sow-f-customer-code");
 
-// Wires up Duration/ACV/Customer Code's live recompute for one editing row -
-// same formulas as computeSowDurationMonths()/computeSowAcv() above, just
-// scoped to this row's own inputs instead of the old modal's fixed ids.
-function wireSowRowFormulas(tr) {
-  const startInput = tr.querySelector(".sow-f-start");
-  const endInput = tr.querySelector(".sow-f-end");
-  const durationInput = tr.querySelector(".sow-f-duration");
-  const tcvInput = tr.querySelector(".sow-f-value");
-  const acvInput = tr.querySelector(".sow-f-acv");
-  const customerSelect = tr.querySelector(".sow-f-customer");
-  const customerCodeInput = tr.querySelector(".sow-f-customer-code");
-
-  function refreshAcv() {
-    const tcv = parseFloat(tcvInput.value) || 0;
-    const months = parseFloat(durationInput.value) || 0;
-    acvInput.value = computeSowAcv(tcv, months);
-  }
   function refreshDuration() {
     durationInput.value = computeSowDurationMonths(startInput.value, endInput.value, durationInput.value);
-    refreshAcv();
   }
   startInput.addEventListener("change", refreshDuration);
   endInput.addEventListener("change", refreshDuration);
-  tcvInput.addEventListener("input", refreshAcv);
   customerSelect.addEventListener("change", () => {
     const match = sowFormLookups.customers.find((c) => String(c.id) === customerSelect.value);
     customerCodeInput.value = match ? match.customer_code : "";
@@ -856,266 +745,90 @@ function wireSowDocUploadRow(tr, btnClass, fileClass, linkClass) {
 // never added to ICON_PATHS).
 const SOW_UPLOAD_BTN_ICON = '<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>';
 
-// Builds one <tr> for the SOW grid. editing=false renders the normal
-// read-only row (unchanged from before - Copy/Edit/Delete actions, the
-// Fixed Price milestones expand-btn, doc links as clickable text). editing=
-// true renders every field as an input/select instead (Copy/Edit/Delete
-// swap for Save/Cancel), used for "Edit" on an existing row and, via a blank
-// or pre-filled stub object, for "New SOW"/"Copy" too - see
-// openSowEntryDraft() below, which is the only other caller that ever
-// passes editing=true.
-function buildSowRow(s, editing) {
+// Builds one read-only <tr> for the SOW grid (Copy/Edit/Delete actions, the
+// Fixed Price milestones expand-btn, doc links as clickable text). Column
+// order mirrors the table's own two-row grouped header in index.html -
+// Customer Name, then Opportunity Details / Billing and Operating Model /
+// Duration Details / Financial Details / BTP Details / Reference Documents /
+// Additional Information. Editing now happens in the New/Edit SOW popup (see
+// openSowModal() below) rather than in place, so this only ever renders the
+// display form of a row.
+function buildSowRow(s) {
   const isFixedPrice = (s.billing_model_name || "").toLowerCase().includes("fixed price");
   const tr = document.createElement("tr");
   tr.dataset.sowId = s.id ?? "";
-  // Generic "row is open for inline editing" highlight + input/select
-  // styling, shared with Customers/Resources/etc. (see .inline-editing-row
-  // in style.css) rather than a SOW-specific class.
-  if (editing) tr.classList.add("inline-editing-row");
   // Highlight rows by how soon the SOW's end date is coming up: 0-15 days
   // out in red, 16-50 days out in amber. Independent of status - it's a
   // visual "check this date" cue, not a replacement for the Status badge.
-  // Read-only rows only - an editing row already has its own highlight
-  // (.inline-editing-row above).
-  if (!editing && s.days_to_end !== null && s.days_to_end !== undefined) {
+  if (s.days_to_end !== null && s.days_to_end !== undefined) {
     if (s.days_to_end >= 0 && s.days_to_end <= 15) tr.classList.add("expiry-red");
     else if (s.days_to_end >= 16 && s.days_to_end <= 50) tr.classList.add("expiry-amber");
   }
 
-  const actionsHtml = editing
-    ? `<td class="row-actions">
-        <button type="button" class="ghost-btn btn-edit icon-btn sow-save-btn" title="Save">${icon("check")}</button>
-        <button type="button" class="ghost-btn icon-btn sow-cancel-btn" title="Cancel">${icon("x")}</button>
-      </td>`
-    : `<td class="row-actions">
+  const actionsHtml = `<td class="row-actions">
         <button class="ghost-btn btn-edit icon-btn copy-btn" title="Copy">${icon("copy")}</button>
         <button class="ghost-btn btn-edit icon-btn edit-btn" title="Edit">${icon("edit")}</button>
         <button class="ghost-btn btn-danger icon-btn del-btn" title="Delete">${icon("trash")}</button>
       </td>`;
 
-  const customerCodeVal = (sowFormLookups.customers.find((c) => c.id === s.customer_id) || {}).customer_code ?? s.customer_code ?? "";
-
-  const bodyHtml = editing ? `
+  const bodyHtml = `
     <td class="sl-no-cell sow-sl-no"></td>
-    <td><input type="text" class="sow-cell sow-f-opportunity" value="${escapeHtml(s.opportunity_id ?? "")}" /></td>
-    <td><select class="sow-cell sow-f-opportunity-type">${sowSelectOptionsHtml(sowFormLookups.opportunityTypes, "id", "name", "Select opportunity type&hellip;", s.opportunity_type_id)}</select></td>
-    <td><input class="sow-cell sow-f-title" required value="${escapeHtml(s.title ?? "")}" /></td>
-    <td><select class="sow-cell sow-f-customer" required>${sowSelectOptionsHtml(sowFormLookups.customers, "id", "customer_name", "Select customer&hellip;", s.customer_id)}</select></td>
-    <td><input type="text" class="sow-cell sow-f-po" value="${escapeHtml(s.po_number ?? "")}" /></td>
-    <td><input type="date" class="sow-cell sow-f-start" value="${s.start_date ?? ""}" /></td>
-    <td><input type="date" class="sow-cell sow-f-end" value="${s.end_date ?? ""}" /></td>
-    <td><input type="number" step="0.01" min="0" class="sow-cell sow-f-value" value="${s.total_value ?? 0}" /></td>
-    <td><input type="number" step="0.1" class="sow-cell sow-f-duration form-field-readonly" readonly value="${s.duration_months ?? ""}" /></td>
-    <td><input type="number" step="0.01" class="sow-cell sow-f-acv form-field-readonly" readonly value="${s.acv ?? 0}" /></td>
-    <td><input type="number" step="0.01" min="0" max="100" class="sow-cell sow-f-gm" value="${s.gm_percent ?? ""}" /></td>
-    <td><select class="sow-cell sow-f-status">${sowFormLookups.statuses.map((st) => `<option value="${escapeHtml(st.name)}"${st.name === (s.status || "draft") ? " selected" : ""}>${escapeHtml(capitalize(st.name))}</option>`).join("")}</select></td>
-    <td><select class="sow-cell sow-f-billing">${sowSelectOptionsHtml(sowFormLookups.billingModels, "id", "name", "Select billing model&hellip;", s.billing_model_id)}</select></td>
-    <td><select class="sow-cell sow-f-operating">${sowSelectOptionsHtml(sowFormLookups.operatingModels, "id", "name", "Select operating model&hellip;", s.operating_model_id)}</select></td>
-    <td><input type="text" class="sow-cell sow-f-customer-code form-field-readonly" readonly value="${escapeHtml(customerCodeVal)}" /></td>
-    <td><input type="text" class="sow-cell sow-f-project-title" value="${escapeHtml(s.project_title ?? "")}" /></td>
-    <td><input type="text" class="sow-cell sow-f-contract-code" value="${escapeHtml(s.contract_code ?? "")}" /></td>
-    <td><input type="text" class="sow-cell sow-f-project-code" value="${escapeHtml(s.project_code ?? "")}" /></td>
-    <td>
-      <div class="doclink-row">
-        <input type="text" class="sow-cell sow-f-doclink" value="${escapeHtml(s.doc_link ?? "")}" />
-        <button type="button" class="ghost-btn sow-upload-doc-btn" title="Upload">${SOW_UPLOAD_BTN_ICON}<span>Upload</span></button>
-        <input type="file" class="sow-doc-file" hidden />
-      </div>
-    </td>
-    <td>
-      <div class="doclink-row">
-        <input type="text" class="sow-cell sow-f-po-doclink" value="${escapeHtml(s.po_doc_link ?? "")}" />
-        <button type="button" class="ghost-btn sow-upload-po-btn" title="Upload">${SOW_UPLOAD_BTN_ICON}<span>Upload</span></button>
-        <input type="file" class="sow-po-doc-file" hidden />
-      </div>
-    </td>
-    <td>
-      <div class="doclink-row">
-        <input type="text" class="sow-cell sow-f-deal-sheet-link" value="${escapeHtml(s.deal_sheet_link ?? "")}" />
-        <button type="button" class="ghost-btn sow-upload-deal-btn" title="Upload">${SOW_UPLOAD_BTN_ICON}<span>Upload</span></button>
-        <input type="file" class="sow-deal-file" hidden />
-      </div>
-    </td>
-    <td><input type="text" class="sow-cell sow-f-notes" value="${escapeHtml(s.notes ?? "")}" /></td>
-  ` : `
-    <td class="sl-no-cell sow-sl-no"></td>
+    <td>${escapeHtml(s.customer_name)}</td>
     <td>${escapeHtml(s.opportunity_id) || "—"}</td>
     <td>${escapeHtml(s.opportunity_type_name) || "—"}</td>
     <td>${escapeHtml(s.title)}${isFixedPrice ? `<button type="button" class="expand-btn" title="Show milestones">${icon("chevron")}</button>` : ""}</td>
-    <td>${escapeHtml(s.customer_name)}</td>
-    <td>${escapeHtml(s.po_number) || "—"}</td>
-    <td>${fmtDate(s.start_date)}</td>
-    <td>${fmtDate(s.end_date)}</td>
-    <td>${fmt(s.total_value)}</td>
-    <td>${s.duration_months !== null && s.duration_months !== undefined ? s.duration_months : "—"}</td>
-    <td>${fmt(s.acv)}</td>
-    <td>${s.gm_percent !== null && s.gm_percent !== undefined ? Number(s.gm_percent.toFixed(2)) + "%" : "—"}</td>
     <td><span class="badge badge-${slugify(s.status)}">${escapeHtml(s.status)}</span></td>
     <td>${escapeHtml(s.billing_model_name) || "—"}</td>
     <td>${escapeHtml(s.operating_model_name) || "—"}</td>
+    <td>${fmtDate(s.start_date)}</td>
+    <td>${fmtDate(s.end_date)}</td>
+    <td>${s.duration_months !== null && s.duration_months !== undefined ? s.duration_months : "—"}</td>
+    <td>${fmt(s.total_value)}</td>
+    <td>${s.gm_percent !== null && s.gm_percent !== undefined ? Number(s.gm_percent.toFixed(2)) + "%" : "—"}</td>
+    <td>${escapeHtml(s.po_number) || "—"}</td>
     <td>${escapeHtml(s.customer_code) || "—"}</td>
-    <td>${escapeHtml(s.project_title) || "—"}</td>
     <td>${escapeHtml(s.contract_code) || "—"}</td>
+    <td>${escapeHtml(s.project_title) || "—"}</td>
     <td>${escapeHtml(s.project_code) || "—"}</td>
     <td>${s.doc_link ? `<span class="truncate-cell">${renderDocLink(s.doc_link)}</span>` : "—"}</td>
-    <td>${s.po_doc_link ? `<span class="truncate-cell">${renderDocLink(s.po_doc_link)}</span>` : "—"}</td>
     <td>${s.deal_sheet_link ? `<span class="truncate-cell">${renderDocLink(s.deal_sheet_link)}</span>` : "—"}</td>
+    <td>${s.po_doc_link ? `<span class="truncate-cell">${renderDocLink(s.po_doc_link)}</span>` : "—"}</td>
     <td>${s.notes ? `<span class="truncate-cell" title="${escapeHtml(s.notes)}">${escapeHtml(s.notes)}</span>` : "—"}</td>
   `;
   tr.innerHTML = actionsHtml + bodyHtml;
 
-  if (editing) {
-    wireSowRowFormulas(tr);
-    wireSowDocUploadRow(tr, "sow-upload-doc-btn", "sow-doc-file", "sow-f-doclink");
-    wireSowDocUploadRow(tr, "sow-upload-po-btn", "sow-po-doc-file", "sow-f-po-doclink");
-    wireSowDocUploadRow(tr, "sow-upload-deal-btn", "sow-deal-file", "sow-f-deal-sheet-link");
-
-    tr.querySelector(".sow-cancel-btn").addEventListener("click", () => {
-      // s.id tells a real existing row (Cancel reverts to its read-only
-      // display) apart from a "New SOW"/Copy draft (Cancel just removes it -
-      // there's nothing on record yet to revert to).
-      if (s.id) {
-        replaceSowRow(tr, buildSowRow(s, false));
-      } else {
-        tr.remove();
-        if (!document.querySelector("#sowTableBody tr")) loadSows();
-      }
-    });
-
-    tr.querySelector(".sow-save-btn").addEventListener("click", async () => {
-      const customerVal = tr.querySelector(".sow-f-customer").value;
-      if (!customerVal) { alert("Please select a customer."); return; }
-      const titleVal = tr.querySelector(".sow-f-title").value.trim();
-      if (!titleVal) { alert("Please enter a Statement of Work title."); return; }
-      const saveBtn = tr.querySelector(".sow-save-btn");
-      const cancelBtn = tr.querySelector(".sow-cancel-btn");
-      saveBtn.disabled = true;
-      cancelBtn.disabled = true;
-      const opportunityTypeVal = tr.querySelector(".sow-f-opportunity-type").value;
-      const billingVal = tr.querySelector(".sow-f-billing").value;
-      const operatingVal = tr.querySelector(".sow-f-operating").value;
-      const durationVal = tr.querySelector(".sow-f-duration").value;
-      const gmVal = tr.querySelector(".sow-f-gm").value;
-      const payload = {
-        customer_id: parseInt(customerVal, 10),
-        title: titleVal,
-        project_title: tr.querySelector(".sow-f-project-title").value || null,
-        project_code: tr.querySelector(".sow-f-project-code").value || null,
-        contract_code: tr.querySelector(".sow-f-contract-code").value || null,
-        opportunity_id: tr.querySelector(".sow-f-opportunity").value || null,
-        opportunity_type_id: opportunityTypeVal ? parseInt(opportunityTypeVal, 10) : null,
-        po_number: tr.querySelector(".sow-f-po").value || null,
-        start_date: tr.querySelector(".sow-f-start").value || null,
-        end_date: tr.querySelector(".sow-f-end").value || null,
-        total_value: parseFloat(tr.querySelector(".sow-f-value").value) || 0,
-        duration_months: durationVal !== "" ? parseFloat(durationVal) : null,
-        gm_percent: gmVal !== "" ? parseFloat(gmVal) : null,
-        billing_model_id: billingVal ? parseInt(billingVal, 10) : null,
-        operating_model_id: operatingVal ? parseInt(operatingVal, 10) : null,
-        // Not editable on this grid (see the comment above buildSowRow) -
-        // carried through unchanged from whatever this SOW already had, so a
-        // save here never clobbers a classification set from Revenue
-        // Outlook. Both are simply null for a brand new SOW, same as before.
-        revenue_type_id: s.revenue_type_id ?? null,
-        practice_id: s.practice_id ?? null,
-        status: tr.querySelector(".sow-f-status").value,
-        doc_link: tr.querySelector(".sow-f-doclink").value || null,
-        po_doc_link: tr.querySelector(".sow-f-po-doclink").value || null,
-        deal_sheet_link: tr.querySelector(".sow-f-deal-sheet-link").value || null,
-        notes: tr.querySelector(".sow-f-notes").value || null,
-      };
-      const url = s.id ? `${API}/sows/${s.id}` : `${API}/sows`;
-      const method = s.id ? "PUT" : "POST";
-      const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        alert(formatApiError(err, "Failed to save SOW."));
-        saveBtn.disabled = false;
-        cancelBtn.disabled = false;
-        return;
-      }
-      await loadSows();
-    });
-  } else {
-    tr.addEventListener("click", (e) => {
-      if (e.target.closest(".del-btn") || e.target.closest(".edit-btn") || e.target.closest(".copy-btn") || e.target.closest(".expand-btn") || e.target.closest("a")) return;
-      openDetail(s.id);
-    });
-    if (isFixedPrice) {
-      tr.querySelector(".expand-btn").addEventListener("click", async (e) => {
-        e.stopPropagation();
-        await toggleMilestoneSubrow(tr, s);
-      });
-    }
-    tr.querySelector(".edit-btn").addEventListener("click", async (e) => {
+  if (isFixedPrice) {
+    tr.querySelector(".expand-btn").addEventListener("click", async (e) => {
       e.stopPropagation();
-      await loadSowFormLookups();
-      replaceSowRow(tr, buildSowRow(s, true));
-    });
-    // Copy: opens a "New SOW"-style draft row at the top of the table,
-    // pre-filled with this row's own values (title gets a "(Copy)" suffix)
-    // and no id, so Save creates a new record instead of overwriting the
-    // original - same distinction the old modal's Copy made, just via a
-    // draft row instead of a form. Milestones are deliberately not copied
-    // (see the comment above buildSowRow) - add them on the new SOW's own
-    // Detail page once it exists.
-    tr.querySelector(".copy-btn").addEventListener("click", async (e) => {
-      e.stopPropagation();
-      await openSowEntryDraft({ ...s, id: null, title: `${s.title} (Copy)` });
-    });
-    tr.querySelector(".del-btn").addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (confirm(`Delete SOW "${s.title}" for ${s.customer_name}? This also deletes its milestones.`)) {
-        const resp = await fetch(`${API}/sows/${s.id}`, { method: "DELETE" });
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          alert(formatApiError(err, "Failed to delete this SOW."));
-          return;
-        }
-        loadSows();
-      }
+      await toggleMilestoneSubrow(tr, s);
     });
   }
+  tr.querySelector(".edit-btn").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await openSowModal(s);
+  });
+  // Copy: opens the New/Edit SOW popup pre-filled with this row's own values
+  // (title gets a "(Copy)" suffix) and no id, so Save creates a new record
+  // instead of overwriting the original. Milestones are deliberately not
+  // copied - add them on the new SOW once it's saved.
+  tr.querySelector(".copy-btn").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await openSowModal({ ...s, id: null, title: `${s.title} (Copy)`, milestones: [] });
+  });
+  tr.querySelector(".del-btn").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (confirm(`Delete SOW "${s.title}" for ${s.customer_name}? This also deletes its milestones.`)) {
+      const resp = await fetch(`${API}/sows/${s.id}`, { method: "DELETE" });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert(formatApiError(err, "Failed to delete this SOW."));
+        return;
+      }
+      loadSows();
+    }
+  });
 
   return tr;
-}
-
-// "New SOW"/Copy - inserts an editable draft row at the top of the table
-// instead of opening a form (see the comment above buildSowRow). prefill is
-// undefined for a plain "New SOW" click (blank stub, status defaults to
-// "draft" same as the old modal) or a sow-shaped object with no id for Copy.
-async function openSowEntryDraft(prefill) {
-  await loadSowFormLookups();
-  const existingDraft = document.querySelector(".sow-draft-row");
-  if (existingDraft) existingDraft.remove();
-  const tbody = document.getElementById("sowTableBody");
-  const emptyRow = tbody.querySelector(".empty-state");
-  if (emptyRow) emptyRow.closest("tr").remove();
-
-  const stub = prefill || {
-    id: null, opportunity_id: "", opportunity_type_id: "", title: "", customer_id: "",
-    po_number: "", start_date: "", end_date: "", total_value: 0, duration_months: "",
-    acv: 0, gm_percent: "", status: "draft", billing_model_id: "", operating_model_id: "",
-    revenue_type_id: null, practice_id: null, customer_code: "", project_title: "",
-    contract_code: "", project_code: "", doc_link: "", po_doc_link: "", deal_sheet_link: "", notes: "",
-  };
-  const tr = buildSowRow(stub, true);
-  tr.classList.add("sow-draft-row");
-  tbody.insertBefore(tr, tbody.firstChild);
-  tr.scrollIntoView({ block: "center" });
-  tr.querySelector(".sow-f-title")?.focus();
-}
-document.getElementById("newSowBtn").addEventListener("click", () => openSowEntryDraft());
-
-// Edit SOW from the Detail page (see renderDetail()'s editSowBtn below) -
-// there's no form to open any more, so this instead switches back to the SOW
-// list and puts that same row into inline edit, scrolled into view, exactly
-// as if the user had clicked its own Edit icon there.
-async function editSowFromDetail(sowId) {
-  showTab("sows");
-  await loadSows();
-  const tr = document.querySelector(`#sowTableBody tr[data-sow-id="${sowId}"]`);
-  if (tr) tr.querySelector(".edit-btn")?.click();
 }
 
 function renderDocLink(link) {
@@ -1128,134 +841,205 @@ function renderDocLink(link) {
   return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
 }
 
-// ---------- SOW detail + milestones ----------
-async function openDetail(id) {
-  currentSowId = id;
-  document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-  document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
-  document.getElementById("tab-detail").classList.add("active");
-  await renderDetail();
+// ---------- New/Edit SOW popup ----------
+const sowFormModal = document.getElementById("sowFormModal");
+wireModalCancel(sowFormModal, "cancelSowBtn", "cancelSowBtnTop");
+
+// The SOW currently open in the popup - null for "New SOW"/Copy (a POST on
+// Save), an id for "Edit" (a PUT). Also what any newly-added milestone rows
+// get attached to once the SOW itself has been saved.
+let sowModalId = null;
+// Snapshot of whatever milestones the popup opened with (empty for New SOW/
+// Copy), used purely to diff against on Save so a milestone row the user
+// removed from the form gets deleted, rather than just left alone.
+let sowModalOriginalMilestones = [];
+// Revenue Type/Practice aren't fields on this form (see the comment above)
+// but still need to be carried through unchanged on every save so a Save
+// here never clobbers a classification set from Revenue Outlook - captured
+// when the popup opens rather than re-fetched on submit.
+let sowModalRevenueTypeId = null;
+let sowModalPracticeId = null;
+
+function sowIsFixedPrice(billingModelId) {
+  const match = sowFormLookups.billingModels.find((b) => String(b.id) === String(billingModelId));
+  return (match?.name || "").toLowerCase().includes("fixed price");
 }
 
-async function renderDetail() {
-  const s = await fetch(`${API}/sows/${currentSowId}`).then((r) => r.json());
-  // Milestones/Invoices only make sense for Fixed Price SOWs - same "Fixed
-  // Price" substring check used elsewhere (e.g. buildSowRow's own
-  // expand-btn) to decide whether a SOW has milestones at all.
-  const isFixedPrice = (s.billing_model_name || "").toLowerCase().includes("fixed price");
-  const container = document.getElementById("detailContent");
-  container.innerHTML = `
-    <div class="detail-header">
-      <div>
-        <h2>${escapeHtml(s.title)}</h2>
-        <div class="meta">${escapeHtml(s.customer_name)} &middot; <span class="badge badge-${slugify(s.status)}">${escapeHtml(s.status)}</span>
-          ${s.alerts.map((a) => `<span class="tag tag-${a}">${a.replace("_", " ")}</span>`).join("")}
-        </div>
-      </div>
-      <div>
-        <button class="ghost-btn btn-edit icon-btn" id="editSowBtn" title="Edit SOW">${icon("edit")}</button>
-      </div>
-    </div>
-    <div class="detail-cards">
-      <div class="stat-card"><div class="stat-label">Start &rarr; end</div><div class="stat-value stat-value-sm">${fmtDate(s.start_date)} &rarr; ${fmtDate(s.end_date)}</div></div>
-      <div class="stat-card"><div class="stat-label">TCV (USD)</div><div class="stat-value">${fmt(s.total_value)}</div></div>
-      <div class="stat-card"><div class="stat-label">Duration (Months)</div><div class="stat-value">${s.duration_months !== null && s.duration_months !== undefined ? s.duration_months : "—"}</div></div>
-      <div class="stat-card"><div class="stat-label">ACV (USD)</div><div class="stat-value">${fmt(s.acv)}</div></div>
-      <div class="stat-card"><div class="stat-label">GM %</div><div class="stat-value">${s.gm_percent !== null && s.gm_percent !== undefined ? Number(s.gm_percent.toFixed(2)) + "%" : "—"}</div></div>
-      <div class="stat-card"><div class="stat-label">Billed</div><div class="stat-value">${fmt(s.billed_total)}</div></div>
-      <div class="stat-card"><div class="stat-label">Remaining</div><div class="stat-value">${fmt(s.remaining_budget)}</div></div>
-    </div>
-    <p><strong>Project Title:</strong> ${escapeHtml(s.project_title) || "—"} &nbsp;&middot;&nbsp; <strong>Project Code:</strong> ${escapeHtml(s.project_code) || "—"} &nbsp;&middot;&nbsp; <strong>Contract Code:</strong> ${escapeHtml(s.contract_code) || "—"}</p>
-    <p><strong>Opportunity ID:</strong> ${escapeHtml(s.opportunity_id) || "—"} &nbsp;&middot;&nbsp; <strong>PO#:</strong> ${escapeHtml(s.po_number) || "—"}</p>
-    <p><strong>Billing model:</strong> ${escapeHtml(s.billing_model_name) || "—"} &nbsp;&middot;&nbsp; <strong>Operating model:</strong> ${escapeHtml(s.operating_model_name) || "—"}</p>
-    ${s.doc_link ? `<p><strong>Statement of Work:</strong> ${renderDocLink(s.doc_link)}</p>` : ""}
-    ${s.po_doc_link ? `<p><strong>Purchase Order:</strong> ${renderDocLink(s.po_doc_link)}</p>` : ""}
-    ${s.deal_sheet_link ? `<p><strong>Deal Sheet:</strong> ${renderDocLink(s.deal_sheet_link)}</p>` : ""}
-    ${s.notes ? `<p><strong>Additional information:</strong> ${escapeHtml(s.notes)}</p>` : ""}
+function refreshSowModalMilestonesVisibility() {
+  const billingVal = document.querySelector(".sow-f-billing").value;
+  document.getElementById("sowMilestonesSection").hidden = !sowIsFixedPrice(billingVal);
+}
 
-    ${isFixedPrice ? `
-      <div class="toolbar milestones-toolbar">
-        <h3>Milestones / Invoices</h3>
-        <button class="primary-btn" id="newMilestoneBtn"><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Add milestone</button>
-      </div>
-      <table class="milestone-table">
-        <thead><tr><th>Description</th><th>Amount</th><th>Status</th><th>Due</th><th>Billed date</th><th></th></tr></thead>
-        <tbody id="milestoneBody"></tbody>
-      </table>
-    ` : ""}
+function renderSowMilestoneRow(m) {
+  const row = document.createElement("div");
+  row.className = "milestone-row";
+  row.dataset.milestoneId = m?.id ?? "";
+  row.innerHTML = `
+    <input type="text" class="ms-description" placeholder="Description" value="${escapeHtml(m?.description ?? "")}" />
+    <input type="number" step="0.01" min="0" class="ms-amount" placeholder="Amount ($)" value="${m?.amount ?? ""}" />
+    <select class="ms-status">
+      <option value="to_be_invoiced"${(m?.status ?? "to_be_invoiced") === "to_be_invoiced" ? " selected" : ""}>To be invoiced</option>
+      <option value="invoiced"${m?.status === "invoiced" ? " selected" : ""}>Invoiced</option>
+    </select>
+    <input type="date" class="ms-due" value="${m?.due_date ?? ""}" title="Due date" />
+    <input type="date" class="ms-billed" value="${m?.billed_date ?? ""}" title="Billed date" />
+    <button type="button" class="ghost-btn icon-btn remove-ms-row" title="Remove milestone">${icon("x")}</button>
   `;
-
-  document.getElementById("editSowBtn").addEventListener("click", () => editSowFromDetail(s.id));
-  if (!isFixedPrice) return;
-
-  document.getElementById("newMilestoneBtn").addEventListener("click", () => openMilestoneModal());
-
-  const mbody = document.getElementById("milestoneBody");
-  mbody.innerHTML = "";
-  if (!s.milestones.length) {
-    mbody.innerHTML = '<tr><td colspan="6" class="empty-state">No milestones yet.</td></tr>';
-  } else {
-    s.milestones.forEach((m) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${escapeHtml(m.description)}</td>
-        <td>${fmt(m.amount)}</td>
-        <td><span class="badge badge-${m.status === "paid" ? "completed" : m.status === "invoiced" ? "active" : "draft"}">${m.status}</span></td>
-        <td>${fmtDate(m.due_date)}</td>
-        <td>${fmtDate(m.billed_date)}</td>
-        <td class="row-actions">
-          <button class="ghost-btn btn-edit icon-btn edit-m-btn" title="Edit">${icon("edit")}</button>
-          <button class="ghost-btn btn-danger icon-btn del-m-btn" title="Delete">${icon("trash")}</button>
-        </td>
-      `;
-      tr.querySelector(".edit-m-btn").addEventListener("click", () => openMilestoneModal(m));
-      tr.querySelector(".del-m-btn").addEventListener("click", async () => {
-        if (confirm(`Delete milestone "${m.description}"?`)) {
-          const resp = await fetch(`${API}/milestones/${m.id}`, { method: "DELETE" });
-          if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}));
-            alert(formatApiError(err, "Failed to delete this milestone."));
-            return;
-          }
-          renderDetail();
-        }
-      });
-      mbody.appendChild(tr);
-    });
-  }
+  row.querySelector(".remove-ms-row").addEventListener("click", () => row.remove());
+  return row;
 }
 
-const milestoneModal = document.getElementById("milestoneModal");
-wireModalCancel(milestoneModal, "cancelMilestoneBtn", "cancelMilestoneBtnTop");
-
-function openMilestoneModal(m) {
-  document.getElementById("milestoneModalTitle").textContent = m ? "Edit Milestone" : "New Milestone / Invoice";
-  document.getElementById("m_id").value = m?.id ?? "";
-  document.getElementById("m_sowId").value = currentSowId;
-  document.getElementById("m_description").value = m?.description ?? "";
-  document.getElementById("m_amount").value = m?.amount ?? 0;
-  document.getElementById("m_status").value = m?.status ?? "pending";
-  document.getElementById("m_due").value = m?.due_date ?? "";
-  document.getElementById("m_billed").value = m?.billed_date ?? "";
-  milestoneModal.hidden = false;
+function renderSowMilestoneRows(milestones) {
+  const container = document.getElementById("sowMilestoneRows");
+  container.innerHTML = "";
+  (milestones || []).forEach((m) => container.appendChild(renderSowMilestoneRow(m)));
 }
 
-document.getElementById("milestoneForm").addEventListener("submit", async (e) => {
+document.getElementById("addMilestoneRowBtn").addEventListener("click", () => {
+  document.getElementById("sowMilestoneRows").appendChild(renderSowMilestoneRow());
+});
+
+// Opens the popup for New SOW (s undefined), Edit (s = the row's own already-
+// fetched summary object) or Copy (s = a stub with id:null). Edit re-fetches
+// GET /api/sows/{id} to get that SOW's full milestone list, since the list
+// endpoint buildSowRow's s came from doesn't embed milestones per row.
+async function openSowModal(s) {
+  await loadSowFormLookups();
+  const isNew = !s || !s.id;
+  sowModalId = s?.id ?? null;
+  const full = s?.id ? await fetch(`${API}/sows/${s.id}`).then((r) => r.json()) : (s || {});
+  sowModalOriginalMilestones = full.milestones || [];
+  sowModalRevenueTypeId = full.revenue_type_id ?? null;
+  sowModalPracticeId = full.practice_id ?? null;
+
+  document.getElementById("sowFormModalTitle").textContent = isNew ? "New SOW" : "Edit SOW";
+  const box = sowFormModal;
+  box.querySelector(".sow-f-customer").innerHTML = sowSelectOptionsHtml(sowFormLookups.customers, "id", "customer_name", "Select customer&hellip;", full.customer_id);
+  box.querySelector(".sow-f-opportunity").value = full.opportunity_id ?? "";
+  box.querySelector(".sow-f-opportunity-type").innerHTML = sowSelectOptionsHtml(sowFormLookups.opportunityTypes, "id", "name", "Select opportunity type&hellip;", full.opportunity_type_id);
+  box.querySelector(".sow-f-title").value = full.title ?? "";
+  box.querySelector(".sow-f-status").innerHTML = sowFormLookups.statuses.map((st) => `<option value="${escapeHtml(st.name)}"${st.name === (full.status || "draft") ? " selected" : ""}>${escapeHtml(capitalize(st.name))}</option>`).join("");
+  box.querySelector(".sow-f-billing").innerHTML = sowSelectOptionsHtml(sowFormLookups.billingModels, "id", "name", "Select billing model&hellip;", full.billing_model_id);
+  box.querySelector(".sow-f-operating").innerHTML = sowSelectOptionsHtml(sowFormLookups.operatingModels, "id", "name", "Select operating model&hellip;", full.operating_model_id);
+  box.querySelector(".sow-f-start").value = full.start_date ?? "";
+  box.querySelector(".sow-f-end").value = full.end_date ?? "";
+  box.querySelector(".sow-f-duration").value = full.duration_months ?? "";
+  box.querySelector(".sow-f-value").value = full.total_value ?? 0;
+  box.querySelector(".sow-f-gm").value = full.gm_percent ?? "";
+  box.querySelector(".sow-f-po").value = full.po_number ?? "";
+  const customerCodeVal = (sowFormLookups.customers.find((c) => c.id === full.customer_id) || {}).customer_code ?? full.customer_code ?? "";
+  box.querySelector(".sow-f-customer-code").value = customerCodeVal;
+  box.querySelector(".sow-f-contract-code").value = full.contract_code ?? "";
+  box.querySelector(".sow-f-project-title").value = full.project_title ?? "";
+  box.querySelector(".sow-f-project-code").value = full.project_code ?? "";
+  box.querySelector(".sow-f-doclink").value = full.doc_link ?? "";
+  box.querySelector(".sow-f-deal-sheet-link").value = full.deal_sheet_link ?? "";
+  box.querySelector(".sow-f-po-doclink").value = full.po_doc_link ?? "";
+  box.querySelector(".sow-f-notes").value = full.notes ?? "";
+
+  renderSowMilestoneRows(sowModalOriginalMilestones);
+  refreshSowModalMilestonesVisibility();
+  sowFormModal.hidden = false;
+}
+document.getElementById("newSowBtn").addEventListener("click", () => openSowModal());
+
+wireSowFormFormulas(sowFormModal);
+sowFormModal.querySelector(".sow-f-billing").addEventListener("change", refreshSowModalMilestonesVisibility);
+wireSowDocUploadRow(sowFormModal, "sow-upload-doc-btn", "sow-doc-file", "sow-f-doclink");
+wireSowDocUploadRow(sowFormModal, "sow-upload-po-btn", "sow-po-doc-file", "sow-f-po-doclink");
+wireSowDocUploadRow(sowFormModal, "sow-upload-deal-btn", "sow-deal-file", "sow-f-deal-sheet-link");
+
+document.getElementById("sowForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const id = document.getElementById("m_id").value;
-  const sowId = document.getElementById("m_sowId").value;
-  const payload = {
-    description: document.getElementById("m_description").value,
-    amount: parseFloat(document.getElementById("m_amount").value) || 0,
-    status: document.getElementById("m_status").value,
-    due_date: document.getElementById("m_due").value || null,
-    billed_date: document.getElementById("m_billed").value || null,
-  };
-  const url = id ? `${API}/milestones/${id}` : `${API}/sows/${sowId}/milestones`;
-  const method = id ? "PUT" : "POST";
-  await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  milestoneModal.hidden = true;
-  renderDetail();
+  const box = sowFormModal;
+  const customerVal = box.querySelector(".sow-f-customer").value;
+  if (!customerVal) { alert("Please select a customer."); return; }
+  const titleVal = box.querySelector(".sow-f-title").value.trim();
+  if (!titleVal) { alert("Please enter an Opportunity Title."); return; }
+  const saveButtons = box.querySelectorAll('button[type="submit"]');
+  saveButtons.forEach((b) => (b.disabled = true));
+  try {
+    const opportunityTypeVal = box.querySelector(".sow-f-opportunity-type").value;
+    const billingVal = box.querySelector(".sow-f-billing").value;
+    const operatingVal = box.querySelector(".sow-f-operating").value;
+    const durationVal = box.querySelector(".sow-f-duration").value;
+    const gmVal = box.querySelector(".sow-f-gm").value;
+    const payload = {
+      customer_id: parseInt(customerVal, 10),
+      title: titleVal,
+      project_title: box.querySelector(".sow-f-project-title").value || null,
+      project_code: box.querySelector(".sow-f-project-code").value || null,
+      contract_code: box.querySelector(".sow-f-contract-code").value || null,
+      opportunity_id: box.querySelector(".sow-f-opportunity").value || null,
+      opportunity_type_id: opportunityTypeVal ? parseInt(opportunityTypeVal, 10) : null,
+      po_number: box.querySelector(".sow-f-po").value || null,
+      start_date: box.querySelector(".sow-f-start").value || null,
+      end_date: box.querySelector(".sow-f-end").value || null,
+      total_value: parseFloat(box.querySelector(".sow-f-value").value) || 0,
+      duration_months: durationVal !== "" ? parseFloat(durationVal) : null,
+      gm_percent: gmVal !== "" ? parseFloat(gmVal) : null,
+      billing_model_id: billingVal ? parseInt(billingVal, 10) : null,
+      operating_model_id: operatingVal ? parseInt(operatingVal, 10) : null,
+      // Not editable on this form - Revenue Type/Practice are set from
+      // Revenue Outlook > Best Estimates instead, via the same
+      // /classification endpoint, so a brand new SOW gets nulls (same as
+      // before) and an existing one keeps whatever it already had (captured
+      // in openSowModal() when the popup opened).
+      revenue_type_id: sowModalRevenueTypeId,
+      practice_id: sowModalPracticeId,
+      status: box.querySelector(".sow-f-status").value,
+      doc_link: box.querySelector(".sow-f-doclink").value || null,
+      po_doc_link: box.querySelector(".sow-f-po-doclink").value || null,
+      deal_sheet_link: box.querySelector(".sow-f-deal-sheet-link").value || null,
+      notes: box.querySelector(".sow-f-notes").value || null,
+    };
+    const url = sowModalId ? `${API}/sows/${sowModalId}` : `${API}/sows`;
+    const method = sowModalId ? "PUT" : "POST";
+    const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      alert(formatApiError(err, "Failed to save SOW."));
+      return;
+    }
+    const savedSow = await resp.json();
+
+    // Reconcile milestones only if the section is actually shown (Fixed
+    // Price) - never touch milestones just because the billing model was
+    // switched away from Fixed Price mid-edit; they're simply left as they
+    // are on record.
+    if (!document.getElementById("sowMilestonesSection").hidden) {
+      const rows = Array.from(document.querySelectorAll("#sowMilestoneRows .milestone-row"));
+      const keptIds = new Set();
+      for (const row of rows) {
+        const description = row.querySelector(".ms-description").value.trim();
+        if (!description) continue; // silently drop a still-blank row
+        const mid = row.dataset.milestoneId;
+        const mPayload = {
+          description,
+          amount: parseFloat(row.querySelector(".ms-amount").value) || 0,
+          status: row.querySelector(".ms-status").value,
+          due_date: row.querySelector(".ms-due").value || null,
+          billed_date: row.querySelector(".ms-billed").value || null,
+        };
+        if (mid) {
+          keptIds.add(mid);
+          await fetch(`${API}/milestones/${mid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mPayload) });
+        } else {
+          await fetch(`${API}/sows/${savedSow.id}/milestones`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mPayload) });
+        }
+      }
+      for (const orig of sowModalOriginalMilestones) {
+        if (!keptIds.has(String(orig.id))) {
+          await fetch(`${API}/milestones/${orig.id}`, { method: "DELETE" });
+        }
+      }
+    }
+
+    sowFormModal.hidden = true;
+    await loadSows();
+  } finally {
+    saveButtons.forEach((b) => (b.disabled = false));
+  }
 });
 
 // ---------- Customer Management (Administration) ----------
@@ -1922,6 +1706,22 @@ async function loadHolidays() {
     tr.querySelector(".hol-sl-no").textContent = idx + 1;
     tbody.appendChild(tr);
   });
+  // Trailing Total row - per explicit request, counts how many of the
+  // currently-filtered holidays are observed at each of the three locations
+  // (there's no numeric amount to sum here the way Leave sums days, so
+  // "total" means how many rows have that location's checkbox ticked). Same
+  // .table-total-row styling as the Leave/SOW Status/Billing Model summary
+  // rows elsewhere in the app (see style.css).
+  const totalTr = document.createElement("tr");
+  totalTr.className = "table-total-row";
+  const locationCounts = HOLIDAY_LOCATION_FIELDS.map((field) =>
+    filteredItems.reduce((count, item) => count + (item[field] ? 1 : 0), 0)
+  );
+  totalTr.innerHTML =
+    `<td colspan="4">Total</td>` +
+    locationCounts.map((count) => `<td class="center-cell">${count}</td>`).join("") +
+    `<td></td>`;
+  tbody.appendChild(totalTr);
 }
 
 document.getElementById("newHolidayBtn").addEventListener("click", async () => {
@@ -2024,12 +1824,12 @@ function buildLeaveRow(item, editing, customers, locations, employeeTypes, bands
   const tr = document.createElement("tr");
   if (editing) tr.classList.add("inline-editing-row");
   // Flag a saved leave record whose employee has no Time and Material
-  // assignment against any Statement of Work (tagged_to_sow, computed
-  // server-side in list_leaves by cross-referencing tm_assignments - a leave
-  // record itself carries no SOW/WBS ID, see the tab-config-leaves comment
-  // in index.html). Not applied to the inline-editing/draft row, since its
+  // assignment at all - tagged_to_tm, computed server-side in list_leaves by
+  // cross-referencing tm_assignments (regardless of whether that assignment
+  // is itself linked to a Statement of Work - a leave record itself carries
+  // no SOW/WBS ID). Not applied to the inline-editing/draft row, since its
   // employee_id can still change before it's saved.
-  const isUntagged = !editing && item.tagged_to_sow === false;
+  const isUntagged = !editing && item.tagged_to_tm === false;
   if (isUntagged) tr.classList.add("row-untagged");
 
   const actionsTd = document.createElement("td");
@@ -2073,7 +1873,7 @@ function buildLeaveRow(item, editing, customers, locations, employeeTypes, bands
   } else {
     empIdTd.textContent = item.employee_id || "—";
     if (isUntagged) {
-      empIdTd.innerHTML += `<span class="info-icon-wrap" tabindex="0">${icon("info")}<span class="info-tooltip-text">This employee is not currently tagged to any Statement of Work (no Time and Material assignment found).</span></span>`;
+      empIdTd.innerHTML += `<span class="info-icon-wrap" tabindex="0">${icon("info")}<span class="info-tooltip-text">This employee is not currently tagged to any account in Time and Material.</span></span>`;
     }
   }
   tr.appendChild(empIdTd);
@@ -2269,6 +2069,19 @@ async function loadLeaves() {
     tr.querySelector(".leave-sl-no").textContent = idx + 1;
     tbody.appendChild(tr);
   });
+  // Trailing Total row - per explicit request, sums each of the 12 leave-day
+  // columns across every currently-filtered row (same
+  // sum-what's-visible-not-everything convention as the Revenue Type
+  // summary table). Same .table-total-row styling as the SOW Status/Billing
+  // Model breakdown tables elsewhere in the app (see style.css).
+  const totalTr = document.createElement("tr");
+  totalTr.className = "table-total-row";
+  const monthSums = LEAVE_MONTH_FIELDS.map((field) =>
+    filteredItems.reduce((sum, item) => sum + (item[field] || 0), 0)
+  );
+  totalTr.innerHTML = `<td colspan="8">Total</td>` +
+    monthSums.map((sum) => `<td style="text-align:right">${fmtPlain(sum)}</td>`).join("");
+  tbody.appendChild(totalTr);
 }
 
 document.getElementById("newLeaveBtn").addEventListener("click", async () => {
@@ -2486,16 +2299,28 @@ document.getElementById("dashboardCustomerFilter").addEventListener("change", (e
 
 // Reports > Statement of Work has its own, independent account filter -
 // separate state from the dashboard's dashboardCustomerFilter above, so
-// picking an account on one page never affects the other.
+// picking an account on one page never affects the other. Status and
+// Billing Model filters sit alongside it and narrow the same underlying
+// SOW list (see loadSowReport) together with the customer filter.
 let sowReportCustomerId = "";
+let sowReportStatusFilter = "";
+let sowReportBillingModelFilter = "";
 document.getElementById("sowReportCustomerFilter").addEventListener("change", (e) => {
   sowReportCustomerId = e.target.value;
+  loadSowReport();
+});
+document.getElementById("sowReportStatusFilter").addEventListener("change", (e) => {
+  sowReportStatusFilter = e.target.value;
+  loadSowReport();
+});
+document.getElementById("sowReportBillingModelFilter").addEventListener("change", (e) => {
+  sowReportBillingModelFilter = e.target.value;
   loadSowReport();
 });
 
 // Rebuilds a customer filter <select>'s option list from the current
 // customers, keeping whatever is currently selected - shared by the
-// Dashboard's own filter and Reports > Statement of Work's filter (each
+// Dashboard's own filter and every Reports page's own Customer filter (each
 // page re-fetches customers and calls this on every load rather than once,
 // so a newly-added customer shows up without a full page refresh).
 function populateCustomerFilterSelect(customers, selectId) {
@@ -2503,6 +2328,29 @@ function populateCustomerFilterSelect(customers, selectId) {
   const current = select.value;
   select.innerHTML = '<option value="">All</option>' +
     customers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
+  select.value = current;
+}
+
+// Same idea as populateCustomerFilterSelect, generalized for any lookup
+// list shaped like [{id, name}] (Locations, Billing Models, Employee
+// Types, Bands, Revenue Types, ...) - value is the numeric id, matched
+// against the row's own *_id field by the caller.
+function populateIdFilterSelect(items, selectId, allLabel) {
+  const select = document.getElementById(selectId);
+  const current = select.value;
+  select.innerHTML = `<option value="">${escapeHtml(allLabel)}</option>` +
+    items.map((it) => `<option value="${it.id}">${escapeHtml(it.name)}</option>`).join("");
+  select.value = current;
+}
+
+// Same as populateIdFilterSelect, but for fields that are stored as free
+// text rather than a foreign key (SOW Status is a plain string column on
+// sows, not a status_id) - value is the name itself.
+function populateNameFilterSelect(items, selectId, allLabel) {
+  const select = document.getElementById(selectId);
+  const current = select.value;
+  select.innerHTML = `<option value="">${escapeHtml(allLabel)}</option>` +
+    items.map((it) => `<option value="${escapeHtml(it.name)}">${escapeHtml(it.name)}</option>`).join("");
   select.value = current;
 }
 
@@ -2708,8 +2556,8 @@ function renderSowStatusTable(statuses, statusCounts, tbodyId, countId, includeT
 // Reports > Statement of Work - a dedicated page for the SOW breakdown
 // tables and Expiring in 30 Days list also shown on the main Reports/
 // Dashboard page (see renderSowStatusTable/renderBillingModelTable/
-// renderExpiringTable above), scoped to this page's own account filter
-// (sowReportCustomerId) rather than sharing state with loadHome() (that
+// renderExpiringTable above), scoped to this page's own Customer/Status/
+// Billing Model filters rather than sharing state with loadHome() (that
 // page's own customer filter shouldn't affect this one). The two breakdown
 // tables get a trailing Total row here (includeTotal:true) that the
 // Dashboard's own copies don't. This page previously also showed TCV/ACV
@@ -2717,13 +2565,13 @@ function renderSowStatusTable(statuses, statusCounts, tbodyId, countId, includeT
 // button styled as a link (see .count-link in style.css) that opens the SOW
 // details popup (openSowDetailsModal below) listing the SOWs behind that
 // count - re-wired with .onclick (not addEventListener) each time this runs
-// so repeated loads (e.g. changing the account filter) don't stack up
-// duplicate handlers pointing at stale data.
+// so repeated loads (e.g. changing a filter) don't stack up duplicate
+// handlers pointing at stale data.
 async function loadSowReport() {
   // Same server-side customer_id scoping as loadHome() - sows.customer_id
-  // is a real column, so filtering happens in the query rather than
-  // client-side, and every widget below (the two breakdown tables,
-  // Expiring in 30 Days) is derived from this one already-scoped list.
+  // is a real column, so that part of the filtering happens in the query.
+  // Status and Billing Model are applied client-side below since they need
+  // to narrow the same already-fetched list the charts also read from.
   const sowsUrl = sowReportCustomerId ? `${API}/sows?customer_id=${sowReportCustomerId}` : `${API}/sows`;
   const [customers, sows, statuses, billingModels] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
@@ -2732,21 +2580,424 @@ async function loadSowReport() {
     fetch(`${API}/billing-models`).then((r) => r.json()),
   ]);
   populateCustomerFilterSelect(customers, "sowReportCustomerFilter");
+  populateNameFilterSelect(statuses, "sowReportStatusFilter", "All Statuses");
+  populateIdFilterSelect(billingModels, "sowReportBillingModelFilter", "All Billing Models");
+
+  let filteredSows = sows;
+  if (sowReportStatusFilter) {
+    filteredSows = filteredSows.filter((s) => (s.status || "").toLowerCase() === sowReportStatusFilter.toLowerCase());
+  }
+  if (sowReportBillingModelFilter) {
+    filteredSows = filteredSows.filter((s) => String(s.billing_model_id) === sowReportBillingModelFilter);
+  }
 
   const statusCounts = {};
-  sows.forEach((s) => { statusCounts[s.status] = (statusCounts[s.status] || 0) + 1; });
+  filteredSows.forEach((s) => { statusCounts[s.status] = (statusCounts[s.status] || 0) + 1; });
   renderSowStatusTable(statuses, statusCounts, "sowReportStatusTableBody", "sowReportStatusCount", true);
-  renderBillingModelTable(sows, billingModels, "sowReportBillingModelTableBody", "sowReportBillingModelCount", true);
-  const activeSows = sows.filter((s) => (s.status || "").toLowerCase() === "active");
-  const expiringSows = sows.filter((s) => (s.alerts || []).includes("expiring_soon"));
+  renderBillingModelTable(filteredSows, billingModels, "sowReportBillingModelTableBody", "sowReportBillingModelCount", true);
+  const activeSows = filteredSows.filter((s) => (s.status || "").toLowerCase() === "active");
+  const expiringSows = filteredSows.filter((s) => (s.alerts || []).includes("expiring_soon"));
   renderExpiringTable(expiringSows, "sowReportExpiringTableBody", "sowReportExpiringCount");
 
   document.getElementById("sowReportStatusCount").onclick = () =>
-    openSowDetailsModal("Statement of Work Details – All SOWs", sows);
+    openSowDetailsModal("Statement of Work Details – All SOWs", filteredSows);
   document.getElementById("sowReportBillingModelCount").onclick = () =>
     openSowDetailsModal("Statement of Work Details – Active SOWs", activeSows);
   document.getElementById("sowReportExpiringCount").onclick = () =>
     openSowDetailsModal("Statement of Work Details – Expiring in 30 Days", expiringSows);
+
+  destroySowReportCharts();
+  renderSowReportStatusChart(filteredSows);
+  renderSowReportTcvByCustomerChart(filteredSows);
+  renderSowReportSignedByMonthChart(filteredSows);
+}
+
+// Chart.js instances for Reports > Statement of Work, destroyed+recreated
+// each load the same way homeCharts/destroyHomeCharts work for the
+// Dashboard - a fresh registry per report page since each page's charts are
+// bound to their own <canvas> elements and reload independently.
+const sowReportCharts = { statusMix: null, tcvByCustomer: null, signedByMonth: null };
+function destroySowReportCharts() {
+  Object.keys(sowReportCharts).forEach((k) => {
+    if (sowReportCharts[k]) { sowReportCharts[k].destroy(); sowReportCharts[k] = null; }
+  });
+}
+
+// SOW Status mix - same slice-per-status idea as renderResourceLocationChart,
+// over whichever SOWs the page's filters currently leave in scope.
+function renderSowReportStatusChart(sows) {
+  const counts = {};
+  sows.forEach((s) => { const key = s.status || "Unspecified"; counts[key] = (counts[key] || 0) + 1; });
+  const labels = Object.keys(counts);
+  if (!labels.length) return;
+  const palette = Object.values(CHART_COLORS);
+  sowReportCharts.statusMix = new Chart(document.getElementById("chartSowReportStatus"), {
+    type: "pie",
+    data: { labels, datasets: [{ data: labels.map((l) => counts[l]), backgroundColor: labels.map((_, i) => palette[i % palette.length]), borderWidth: 0 }] },
+    options: {
+      responsive: true, aspectRatio: 1.3,
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } },
+    },
+    plugins: [sliceLabelPlugin],
+  });
+}
+
+// TCV by Customer - one bar per customer with at least one SOW in scope,
+// highest total value first.
+function renderSowReportTcvByCustomerChart(sows) {
+  const totals = {};
+  sows.forEach((s) => {
+    const key = s.customer_name || "Unassigned";
+    totals[key] = (totals[key] || 0) + (s.total_value || 0);
+  });
+  const labels = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
+  if (!labels.length) return;
+  sowReportCharts.tcvByCustomer = new Chart(document.getElementById("chartSowReportTcvByCustomer"), {
+    type: "bar",
+    data: { labels, datasets: [{ label: "TCV", data: labels.map((l) => totals[l]), backgroundColor: CHART_COLORS.indigo }] },
+    options: {
+      responsive: true, aspectRatio: 1.3,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => fmt(ctx.parsed.y) } } },
+      scales: { y: { beginAtZero: true, ticks: { callback: (v) => fmtCompact(v) } } },
+    },
+  });
+}
+
+// SOWs signed by month - bucketed by calendar month/year of each SOW's own
+// Start Date (not the fixed Apr-Mar fiscal grid used elsewhere, since SOWs
+// can be signed at any point across multiple years and this is meant to
+// show that trend over time), oldest to newest.
+function renderSowReportSignedByMonthChart(sows) {
+  const counts = {};
+  sows.forEach((s) => {
+    if (!s.start_date) return;
+    const key = s.start_date.slice(0, 7); // "YYYY-MM"
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  const keys = Object.keys(counts).sort();
+  if (!keys.length) return;
+  const labels = keys.map((k) => {
+    const [y, m] = k.split("-");
+    return `${MONTH_ABBR[parseInt(m, 10) - 1]} ${y}`;
+  });
+  sowReportCharts.signedByMonth = new Chart(document.getElementById("chartSowReportSignedByMonth"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{ label: "SOWs Signed", data: keys.map((k) => counts[k]), borderColor: CHART_COLORS.cyan, backgroundColor: CHART_COLORS.cyan, tension: 0.3, fill: false }],
+    },
+    options: {
+      responsive: true, aspectRatio: 1.3,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+    },
+  });
+}
+
+// ---------- Reports > Resource ----------
+// Filters for Customer, Location, Employee Type and Band, each narrowing
+// the same /api/resources list every chart on this page reads from.
+// Resources have no customer_id column (see loadHome()'s own comment on
+// this) - they link to a customer by matching account_name text against
+// the selected customer's customer_name, same convention used there.
+let resourceReportCustomerFilter = "";
+let resourceReportLocationFilter = "";
+let resourceReportEmployeeTypeFilter = "";
+let resourceReportBandFilter = "";
+document.getElementById("resourceReportCustomerFilter").addEventListener("change", (e) => {
+  resourceReportCustomerFilter = e.target.value;
+  loadResourceReport();
+});
+document.getElementById("resourceReportLocationFilter").addEventListener("change", (e) => {
+  resourceReportLocationFilter = e.target.value;
+  loadResourceReport();
+});
+document.getElementById("resourceReportEmployeeTypeFilter").addEventListener("change", (e) => {
+  resourceReportEmployeeTypeFilter = e.target.value;
+  loadResourceReport();
+});
+document.getElementById("resourceReportBandFilter").addEventListener("change", (e) => {
+  resourceReportBandFilter = e.target.value;
+  loadResourceReport();
+});
+
+async function loadResourceReport() {
+  const [customers, resources, locations, employeeTypes, bands] = await Promise.all([
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(`${API}/resources`).then((r) => r.json()),
+    fetch(`${API}/locations`).then((r) => r.json()),
+    fetch(`${API}/employee-types`).then((r) => r.json()),
+    fetch(`${API}/bands`).then((r) => r.json()),
+  ]);
+  populateCustomerFilterSelect(customers, "resourceReportCustomerFilter");
+  populateIdFilterSelect(locations, "resourceReportLocationFilter", "All Locations");
+  populateIdFilterSelect(employeeTypes, "resourceReportEmployeeTypeFilter", "All Employee Types");
+  populateIdFilterSelect(bands, "resourceReportBandFilter", "All Bands");
+
+  const selectedCustomer = resourceReportCustomerFilter
+    ? customers.find((c) => String(c.id) === resourceReportCustomerFilter)
+    : null;
+  let filtered = selectedCustomer
+    ? resources.filter((r) => (r.account_name || "") === selectedCustomer.customer_name)
+    : resources;
+  if (resourceReportLocationFilter) {
+    filtered = filtered.filter((r) => String(r.location_id) === resourceReportLocationFilter);
+  }
+  if (resourceReportEmployeeTypeFilter) {
+    filtered = filtered.filter((r) => String(r.employee_type_id) === resourceReportEmployeeTypeFilter);
+  }
+  if (resourceReportBandFilter) {
+    filtered = filtered.filter((r) => String(r.band_id) === resourceReportBandFilter);
+  }
+
+  document.getElementById("resourceReportCount").textContent = filtered.length;
+
+  destroyResourceReportCharts();
+  renderResourceReportLocationChart(filtered);
+  renderResourceReportBandChart(filtered, bands);
+  renderResourceReportEmployeeTypeChart(filtered, employeeTypes);
+  renderResourceReportTopAccountsChart(filtered);
+}
+
+const resourceReportCharts = { location: null, band: null, employeeType: null, topAccounts: null };
+function destroyResourceReportCharts() {
+  Object.keys(resourceReportCharts).forEach((k) => {
+    if (resourceReportCharts[k]) { resourceReportCharts[k].destroy(); resourceReportCharts[k] = null; }
+  });
+}
+
+// Headcount by Location - same shape as the Dashboard's own
+// renderResourceLocationChart, against this page's own filtered resources
+// and its own <canvas>/registry.
+function renderResourceReportLocationChart(resources) {
+  const counts = {};
+  resources.forEach((r) => { const key = r.location_name || "Unspecified"; counts[key] = (counts[key] || 0) + 1; });
+  const labels = Object.keys(counts);
+  if (!labels.length) return;
+  const palette = Object.values(CHART_COLORS);
+  resourceReportCharts.location = new Chart(document.getElementById("chartResourceReportLocation"), {
+    type: "pie",
+    data: { labels, datasets: [{ data: labels.map((l) => counts[l]), backgroundColor: labels.map((_, i) => palette[i % palette.length]), borderWidth: 0 }] },
+    options: {
+      responsive: true, aspectRatio: 1.3,
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } },
+    },
+    plugins: [sliceLabelPlugin],
+  });
+}
+
+// Headcount by Band - every configured band shown (even ones with zero
+// resources in scope), same numeric-aware ordering as renderBandTable.
+function renderResourceReportBandChart(resources, bands) {
+  const counts = {};
+  resources.forEach((r) => { const key = r.band_name || "Unspecified"; counts[key] = (counts[key] || 0) + 1; });
+  const names = bands.map((b) => b.name);
+  Object.keys(counts).forEach((k) => { if (!names.includes(k)) names.push(k); });
+  names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (!names.length) return;
+  resourceReportCharts.band = new Chart(document.getElementById("chartResourceReportBand"), {
+    type: "bar",
+    data: { labels: names, datasets: [{ label: "Resources", data: names.map((n) => counts[n] || 0), backgroundColor: CHART_COLORS.cyan }] },
+    options: {
+      responsive: true, aspectRatio: 1.3,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+    },
+  });
+}
+
+// Headcount by Employee Type - mirrors the Band chart above, over every
+// configured employee type.
+function renderResourceReportEmployeeTypeChart(resources, employeeTypes) {
+  const counts = {};
+  resources.forEach((r) => { const key = r.employee_type_name || "Unspecified"; counts[key] = (counts[key] || 0) + 1; });
+  const names = employeeTypes.map((t) => t.name);
+  Object.keys(counts).forEach((k) => { if (!names.includes(k)) names.push(k); });
+  names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (!names.length) return;
+  resourceReportCharts.employeeType = new Chart(document.getElementById("chartResourceReportEmployeeType"), {
+    type: "bar",
+    data: { labels: names, datasets: [{ label: "Resources", data: names.map((n) => counts[n] || 0), backgroundColor: CHART_COLORS.orange }] },
+    options: {
+      responsive: true, aspectRatio: 1.3,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+    },
+  });
+}
+
+// Top Accounts by resource count - horizontal bars (long account names read
+// better this way), top 10 by headcount.
+function renderResourceReportTopAccountsChart(resources) {
+  const counts = {};
+  resources.forEach((r) => { const key = r.account_name || "Unassigned"; counts[key] = (counts[key] || 0) + 1; });
+  const labels = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 10);
+  if (!labels.length) return;
+  resourceReportCharts.topAccounts = new Chart(document.getElementById("chartResourceReportTopAccounts"), {
+    type: "bar",
+    data: { labels, datasets: [{ label: "Resources", data: labels.map((l) => counts[l]), backgroundColor: CHART_COLORS.indigo }] },
+    options: {
+      indexAxis: "y",
+      responsive: true, aspectRatio: 3.2,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+    },
+  });
+}
+
+// ---------- Reports > Revenue ----------
+// Filters for Customer, Revenue Type and Fiscal Year - both the Managed
+// Services (/api/revenue/sows) and Time and Material (/api/tm/assignments)
+// grids are fetched for the selected fiscal year and combined below, since
+// "Revenue" here means projected revenue from either source.
+let revenueReportCustomerFilter = "";
+let revenueReportRevenueTypeFilter = "";
+let revenueReportFiscalYear = null;
+document.getElementById("revenueReportCustomerFilter").addEventListener("change", (e) => {
+  revenueReportCustomerFilter = e.target.value;
+  loadRevenueReport();
+});
+document.getElementById("revenueReportRevenueTypeFilter").addEventListener("change", (e) => {
+  revenueReportRevenueTypeFilter = e.target.value;
+  loadRevenueReport();
+});
+document.getElementById("revenueReportFyFilter").addEventListener("change", (e) => {
+  revenueReportFiscalYear = parseInt(e.target.value, 10);
+  loadRevenueReport();
+});
+
+// Builds the Fiscal Year <select>'s options once (a handful of years
+// centered on the current one - there's no "list of fiscal years with
+// data" endpoint to read this from, unlike the other filters here), then
+// just keeps it in sync with revenueReportFiscalYear on later loads.
+function populateFiscalYearFilterSelect(selectId) {
+  const select = document.getElementById(selectId);
+  if (!select.options.length) {
+    const centerFy = fiscalYearForToday();
+    const years = [];
+    for (let fy = centerFy - 3; fy <= centerFy + 1; fy++) years.push(fy);
+    select.innerHTML = years.map((fy) => `<option value="${fy}">${fyLabelText(fy)}</option>`).join("");
+  }
+  select.value = String(revenueReportFiscalYear);
+}
+
+// Sums a Managed Services or Time and Material row's 12 fiscal-month
+// projections into one fiscal-year total - both /api/revenue/sows and
+// /api/tm/assignments rows carry a "months" array in the same shape.
+function revenueRowTotal(row) {
+  return (row.months || []).reduce((sum, m) => sum + (m.projection || 0), 0);
+}
+
+async function loadRevenueReport() {
+  if (revenueReportFiscalYear === null) revenueReportFiscalYear = fiscalYearForToday();
+  populateFiscalYearFilterSelect("revenueReportFyFilter");
+
+  const [customers, revenueTypes, msData, tmData] = await Promise.all([
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(`${API}/revenue-types`).then((r) => r.json()),
+    fetch(`${API}/revenue/sows?fiscal_year=${revenueReportFiscalYear}`).then((r) => r.json()),
+    fetch(`${API}/tm/assignments?fiscal_year=${revenueReportFiscalYear}`).then((r) => r.json()),
+  ]);
+  populateCustomerFilterSelect(customers, "revenueReportCustomerFilter");
+  populateIdFilterSelect(revenueTypes, "revenueReportRevenueTypeFilter", "All Revenue Types");
+
+  let msRows = msData.rows || [];
+  let tmRows = tmData.rows || [];
+  if (revenueReportCustomerFilter) {
+    msRows = msRows.filter((r) => String(r.customer_id) === revenueReportCustomerFilter);
+    tmRows = tmRows.filter((r) => String(r.customer_id) === revenueReportCustomerFilter);
+  }
+  if (revenueReportRevenueTypeFilter) {
+    msRows = msRows.filter((r) => String(r.revenue_type_id) === revenueReportRevenueTypeFilter);
+    tmRows = tmRows.filter((r) => String(r.revenue_type_id) === revenueReportRevenueTypeFilter);
+  }
+
+  destroyRevenueReportCharts();
+  renderRevenueReportMonthlyTrendChart(msRows, tmRows);
+  renderRevenueReportByRevenueTypeChart(msRows, tmRows);
+  renderRevenueReportByCustomerChart(msRows, tmRows);
+}
+
+const revenueReportCharts = { monthlyTrend: null, byRevenueType: null, byCustomer: null };
+function destroyRevenueReportCharts() {
+  Object.keys(revenueReportCharts).forEach((k) => {
+    if (revenueReportCharts[k]) { revenueReportCharts[k].destroy(); revenueReportCharts[k] = null; }
+  });
+}
+
+// Monthly Revenue Trend - Managed Services vs Time and Material, summed
+// across whichever rows the Customer/Revenue Type filters leave in scope,
+// one line per source over the fiscal year's 12 months (Apr-Mar).
+function renderRevenueReportMonthlyTrendChart(msRows, tmRows) {
+  if (!msRows.length && !tmRows.length) return;
+  const msMonthly = FY_MONTH_LABELS.map((_, i) => msRows.reduce((sum, r) => sum + ((r.months[i] && r.months[i].projection) || 0), 0));
+  const tmMonthly = FY_MONTH_LABELS.map((_, i) => tmRows.reduce((sum, r) => sum + ((r.months[i] && r.months[i].projection) || 0), 0));
+  revenueReportCharts.monthlyTrend = new Chart(document.getElementById("chartRevenueReportMonthlyTrend"), {
+    type: "line",
+    data: {
+      labels: FY_MONTH_LABELS,
+      datasets: [
+        { label: "Managed Services", data: msMonthly, borderColor: CHART_COLORS.indigo, backgroundColor: CHART_COLORS.indigo, tension: 0.3, fill: false },
+        { label: "Time and Material", data: tmMonthly, borderColor: CHART_COLORS.emerald, backgroundColor: CHART_COLORS.emerald, tension: 0.3, fill: false },
+      ],
+    },
+    options: {
+      responsive: true, aspectRatio: 3.2,
+      plugins: { legend: { position: "bottom" }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } } },
+      scales: { y: { beginAtZero: true, ticks: { callback: (v) => fmtCompact(v) } } },
+    },
+  });
+}
+
+// Revenue by Revenue Type - fiscal-year total (Managed Services + Time and
+// Material combined) grouped by Revenue Type, mix types with $0 in scope
+// excluded rather than shown as empty slices. Uses the legend/tooltip for
+// values instead of sliceLabelPlugin, since that plugin prints raw dataset
+// numbers on each slice and a dollar figure needs currency formatting
+// rather than being shown as a bare integer.
+function renderRevenueReportByRevenueTypeChart(msRows, tmRows) {
+  const totals = {};
+  [...msRows, ...tmRows].forEach((r) => {
+    const key = r.revenue_type_name || "Unassigned";
+    totals[key] = (totals[key] || 0) + revenueRowTotal(r);
+  });
+  const labels = Object.keys(totals).filter((l) => totals[l] > 0);
+  if (!labels.length) return;
+  const palette = Object.values(CHART_COLORS);
+  revenueReportCharts.byRevenueType = new Chart(document.getElementById("chartRevenueReportByRevenueType"), {
+    type: "pie",
+    data: { labels, datasets: [{ data: labels.map((l) => totals[l]), backgroundColor: labels.map((_, i) => palette[i % palette.length]), borderWidth: 0 }] },
+    options: {
+      responsive: true, aspectRatio: 1.4,
+      plugins: {
+        legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${fmt(ctx.parsed)}` } },
+      },
+    },
+  });
+}
+
+// Revenue by Customer - same combined fiscal-year total as the chart above,
+// grouped by customer instead, highest first, horizontal bars for long
+// customer names.
+function renderRevenueReportByCustomerChart(msRows, tmRows) {
+  const totals = {};
+  [...msRows, ...tmRows].forEach((r) => {
+    const key = r.customer_name || "Unassigned";
+    totals[key] = (totals[key] || 0) + revenueRowTotal(r);
+  });
+  const labels = Object.keys(totals).filter((l) => totals[l] > 0).sort((a, b) => totals[b] - totals[a]);
+  if (!labels.length) return;
+  revenueReportCharts.byCustomer = new Chart(document.getElementById("chartRevenueReportByCustomer"), {
+    type: "bar",
+    data: { labels, datasets: [{ label: "Revenue", data: labels.map((l) => totals[l]), backgroundColor: CHART_COLORS.orange }] },
+    options: {
+      indexAxis: "y",
+      responsive: true, aspectRatio: 1.4,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => fmt(ctx.parsed.x) } } },
+      scales: { x: { beginAtZero: true, ticks: { callback: (v) => fmtCompact(v) } } },
+    },
+  });
 }
 
 // SOW details popup - shows the full list of SOWs behind whichever count on
@@ -3144,7 +3395,7 @@ async function loadRevenueSows() {
   const tbody = document.getElementById("revenueSowsTableBody");
   tbody.innerHTML = "";
   if (!filteredRows.length) {
-    tbody.innerHTML = `<tr><td colspan="33" class="empty-state">${
+    tbody.innerHTML = `<tr><td colspan="27" class="empty-state">${
       data.rows.length ? "No entries match the selected filters." : 'No entries yet. Click "Add Entry" to start tracking revenue for a SOW.'
     }</td></tr>`;
   } else {
@@ -3167,9 +3418,24 @@ async function loadRevenueSows() {
 // (tbodyId="tmRevenueTypeSummaryBody") sections - both summarize rows by
 // revenue_type_name the same way.
 
-// Fixed display order for Time and Material's Revenue Type summary table,
-// per explicit request - see renderRevenueTypeSummaryTable() below.
-const TM_REVENUE_TYPE_ORDER = ["Contracted - Staffed", "Contracted - Not staffed", "Renewals", "Pipeline"];
+// Fixed display order for both Revenue Type summary tables (Managed
+// Services and Time and Material alike), per explicit request - see
+// renderRevenueTypeSummaryTable() below. Followed by the trailing Total row
+// it always appends, regardless of this order. Matched against the actual
+// Revenue Type names via revenueTypeOrderKey() below rather than an exact
+// string match - real data has been seen stored as "Contracted-Staffed"/
+// "Contracted-Not Staffed" (no spaces around the hyphen, "Staffed"
+// capitalized both times), not this comment's own spacing/casing, so a
+// case- and whitespace-sensitive match would silently fail to reorder
+// anything.
+const REVENUE_TYPE_ORDER = ["Contracted - Staffed", "Contracted - Not staffed", "Renewals", "Pipeline"];
+// Normalizes a Revenue Type name for matching against REVENUE_TYPE_ORDER
+// above - lowercased with all whitespace stripped, so "Contracted - Staffed"
+// and "Contracted-Staffed" (or any other spacing/casing variant) compare
+// equal.
+function revenueTypeOrderKey(name) {
+  return (name || "").toLowerCase().replace(/\s+/g, "");
+}
 
 function renderRevenueTypeSummaryTable(filteredRows, tbodyId = "revenueTypeSummaryBody") {
   const tbody = document.getElementById(tbodyId);
@@ -3184,17 +3450,20 @@ function renderRevenueTypeSummaryTable(filteredRows, tbodyId = "revenueTypeSumma
     r.months.forEach((m, i) => { sums[i] += m[field] || 0; });
   });
 
+  // Both summary tables (Managed Services and Time and Material) show rows
+  // in a fixed, explicitly requested sequence - Contracted - Staffed,
+  // Contracted - Not staffed, Renewals, Pipeline, then the trailing Total
+  // row appended below - rather than /api/revenue-types' alphabetical order.
+  // Any revenue type not in this list (e.g. one added later) still shows,
+  // just appended after these four in whatever order currentRevenueTypes
+  // already has them, still ahead of the Total row.
   let labels = currentRevenueTypes.map((rt) => rt.name);
-  // Time and Material's own summary table shows rows in a fixed, explicitly
-  // requested sequence rather than /api/revenue-types' alphabetical order
-  // (Managed Services keeps the alphabetical order unchanged) - any revenue
-  // type not in this list (e.g. one added later) still shows, just appended
-  // after these four in whatever order currentRevenueTypes already has them.
-  if (tbodyId === "tmRevenueTypeSummaryBody") {
-    const known = TM_REVENUE_TYPE_ORDER.filter((name) => labels.includes(name));
-    const rest = labels.filter((name) => !TM_REVENUE_TYPE_ORDER.includes(name));
-    labels = [...known, ...rest];
-  }
+  const orderKeys = REVENUE_TYPE_ORDER.map(revenueTypeOrderKey);
+  labels = labels.slice().sort((a, b) => {
+    const ai = orderKeys.indexOf(revenueTypeOrderKey(a));
+    const bi = orderKeys.indexOf(revenueTypeOrderKey(b));
+    return (ai === -1 ? orderKeys.length : ai) - (bi === -1 ? orderKeys.length : bi);
+  });
   if (sumsByType.has("")) labels.push("Unassigned");
 
   tbody.innerHTML = "";
@@ -3226,6 +3495,32 @@ function renderRevenueTypeSummaryTable(filteredRows, tbodyId = "revenueTypeSumma
       `<td>${fmtPlain(sums[9])}</td><td>${fmtPlain(sums[10])}</td><td>${fmtPlain(sums[11])}</td><td class="rts-highlight-col">${fmtPlain(q4)}</td>`;
     tbody.appendChild(tr);
   });
+  // Trailing Total row - per explicit request, sums each column (Total,
+  // Apr-Mar, Q1-Q4) down every revenue-type row just rendered above. Same
+  // .table-total-row styling as the Leave/Holiday Calendar total rows
+  // elsewhere in the app (see style.css). Shared by both the Managed
+  // Services and Time and Material summary tables, same as the rest of this
+  // function.
+  const colTotals = new Array(17).fill(0); // Total, Apr..Mar(12), Q1..Q4
+  labels.forEach((label) => {
+    const key = label === "Unassigned" ? "" : label;
+    const sums = sumsByType.get(key) || new Array(12).fill(0);
+    const total = sums.reduce((a, v) => a + v, 0);
+    const q1 = sums[0] + sums[1] + sums[2];
+    const q2 = sums[3] + sums[4] + sums[5];
+    const q3 = sums[6] + sums[7] + sums[8];
+    const q4 = sums[9] + sums[10] + sums[11];
+    const rowValues = [total, ...sums, q1, q2, q3, q4];
+    rowValues.forEach((v, i) => { colTotals[i] += v; });
+  });
+  const totalTr = document.createElement("tr");
+  totalTr.className = "table-total-row";
+  totalTr.innerHTML = `<td>Total</td><td class="rts-highlight-col">${fmtPlain(colTotals[0])}</td>` +
+    `<td>${fmtPlain(colTotals[1])}</td><td>${fmtPlain(colTotals[2])}</td><td>${fmtPlain(colTotals[3])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[13])}</td>` +
+    `<td>${fmtPlain(colTotals[4])}</td><td>${fmtPlain(colTotals[5])}</td><td>${fmtPlain(colTotals[6])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[14])}</td>` +
+    `<td>${fmtPlain(colTotals[7])}</td><td>${fmtPlain(colTotals[8])}</td><td>${fmtPlain(colTotals[9])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[15])}</td>` +
+    `<td>${fmtPlain(colTotals[10])}</td><td>${fmtPlain(colTotals[11])}</td><td>${fmtPlain(colTotals[12])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[16])}</td>`;
+  tbody.appendChild(totalTr);
 }
 
 // Fills in the leading "Sl. No" cell of every data row (skipping any
@@ -3287,14 +3582,16 @@ function buildRevenueSowRow(r, editing) {
   // otherwise. Options are filled in and pre-selected after tr.innerHTML is
   // set below, same as the read-only cells further up render from r's
   // *_name fields. Column order here (Revenue Type, Customer Name, SOW,
-  // Billing Model, Practice, TCV, ACV) matches the thead in index.html.
+  // Start Date, End Date, Billing Model, TCV, Onsite #/Offshore #/Nearshore #,
+  // Practice) matches the grouped thead in index.html - ACV and Monthly
+  // Revenue were removed and Start Date/End Date added per explicit request.
   cells += editing
     ? `<td><select class="rev-revenue-type-select"></select></td>`
     : `<td>${escapeHtml(r.revenue_type_name) || "—"}</td>`;
-  cells += `<td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title) || "—"}</td><td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
-  cells += editing
-    ? `<td><select class="rev-practice-select"></select></td>`
-    : `<td>${escapeHtml(r.practice_name) || "—"}</td>`;
+  cells += `<td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title) || "—"}</td>`;
+  cells += `<td>${fmtDate(r.start_date)}</td><td>${fmtDate(r.end_date)}</td>`;
+  cells += `<td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
+  cells += `<td class="rev-tcv-cell">${fmt(r.total_value)}</td>`;
   // Onsite #/Offshore #/Nearshore # are directly user-editable per explicit
   // request (previously always read-only, server-computed headcounts of
   // Time and Material assignments tied to the SOW - see
@@ -3305,12 +3602,9 @@ function buildRevenueSowRow(r, editing) {
        <td><input type="number" step="1" min="0" class="rev-cell rev-offshore-input" value="${r.offshore_count ?? 0}" /></td>
        <td><input type="number" step="1" min="0" class="rev-cell rev-nearshore-input" value="${r.nearshore_count ?? 0}" /></td>`
     : `<td class="rev-tcv-cell">${r.onsite_count ?? 0}</td><td class="rev-tcv-cell">${r.offshore_count ?? 0}</td><td class="rev-tcv-cell">${r.nearshore_count ?? 0}</td>`;
-  cells += `<td class="rev-tcv-cell">${fmt(r.total_value)}</td><td class="rev-tcv-cell">${fmt(r.acv)}</td>`;
-  // Monthly Revenue is the SOW's own monthly run rate (TCV / Contract
-  // Duration (Months)) - the same "monthly_value" _compute_acv in main.py
-  // derives ACV from - always read-only, never varies month to month.
-  const monthlyRevenue = r.duration_months ? (r.total_value || 0) / r.duration_months : 0;
-  cells += `<td class="rev-tcv-cell">${fmt(monthlyRevenue)}</td>`;
+  cells += editing
+    ? `<td><select class="rev-practice-select"></select></td>`
+    : `<td>${escapeHtml(r.practice_name) || "—"}</td>`;
   // Total is always read-only (sum of the 12 months' Projections, Apr
   // through Mar) - in editing mode it recomputes live as the month inputs
   // change (see the rev-cell "input" wiring below), unlike Monthly Revenue/
@@ -3337,8 +3631,8 @@ function buildRevenueSowRow(r, editing) {
 
   if (editing) {
     // Keep the Total cell live as the 12 month inputs change, not just after
-    // Save reloads the grid - same reasoning as ACV's live preview elsewhere
-    // in the app (e.g. wireSowRowFormulas).
+    // Save reloads the grid - same reasoning as the SOW form's Duration
+    // (Months) live preview elsewhere in the app (wireSowFormFormulas).
     const totalCell = tr.querySelector(".rev-total-cell");
     const monthInputs = tr.querySelectorAll(".rev-month-input");
     function refreshTotal() {
@@ -3613,17 +3907,20 @@ async function openRevenueEntryDraft(prefill = {}) {
         <option value="">Select customer first&hellip;</option>
       </select>
     </td>
+    <!-- Start Date/End Date/Billing Model/TCV all come from whichever SOW is
+         picked below (see sowSelect's change handler) - always plain
+         read-only text, never an input, same as Billing Model already was. -->
+    <td class="draft-start-date">&mdash;</td>
+    <td class="draft-end-date">&mdash;</td>
     <td class="draft-billing-model">&mdash;</td>
-    <td><select class="draft-practice-select"><option value="">Select practice&hellip;</option></select></td>
+    <td class="draft-tcv rev-tcv-cell">&mdash;</td>
     <!-- Onsite #/Offshore #/Nearshore # are directly user-editable (see
          buildRevenueSowRow's own comment) - enabled from the start, same as
          the month inputs below, independent of a SOW being picked. -->
     <td><input type="number" step="1" min="0" class="rev-cell draft-onsite-input" value="0" /></td>
     <td><input type="number" step="1" min="0" class="rev-cell draft-offshore-input" value="0" /></td>
     <td><input type="number" step="1" min="0" class="rev-cell draft-nearshore-input" value="0" /></td>
-    <td class="draft-tcv rev-tcv-cell">&mdash;</td>
-    <td class="draft-acv rev-tcv-cell">&mdash;</td>
-    <td class="draft-monthly-revenue rev-tcv-cell">&mdash;</td>
+    <td><select class="draft-practice-select"><option value="">Select practice&hellip;</option></select></td>
     <td class="rev-tcv-cell draft-total-cell">0.00</td>
     ${draftMonthCellsHtml(true)}
     <!-- Additional Information - last column, after Mar. Mandatory only when
@@ -3636,8 +3933,8 @@ async function openRevenueEntryDraft(prefill = {}) {
   const accountSelect = tr.querySelector(".draft-account-select");
   const sowSelect = tr.querySelector(".draft-sow-select");
   const tcvCell = tr.querySelector(".draft-tcv");
-  const acvCell = tr.querySelector(".draft-acv");
-  const monthlyRevenueCell = tr.querySelector(".draft-monthly-revenue");
+  const startDateCell = tr.querySelector(".draft-start-date");
+  const endDateCell = tr.querySelector(".draft-end-date");
   const billingModelCell = tr.querySelector(".draft-billing-model");
   const revenueTypeSelect = tr.querySelector(".draft-revenue-type-select");
   const practiceSelect = tr.querySelector(".draft-practice-select");
@@ -3691,8 +3988,8 @@ async function openRevenueEntryDraft(prefill = {}) {
     // gated on Customer alone, not re-gated by the SOW dropdown below.
     saveBtn.disabled = !val;
     tcvCell.textContent = "—";
-    acvCell.textContent = "—";
-    monthlyRevenueCell.textContent = "—";
+    startDateCell.textContent = "—";
+    endDateCell.textContent = "—";
     billingModelCell.textContent = "—";
     revenueTypeSelect.value = "";
     practiceSelect.value = "";
@@ -3726,15 +4023,12 @@ async function openRevenueEntryDraft(prefill = {}) {
     // accountSelect's change handler above) - picking or clearing a SOW here
     // only affects which figures/classification get auto-filled below.
     const selectedSow = sows.find((s) => String(s.id) === sowSelect.value);
-    // TCV/ACV/Monthly Revenue are always the selected SOW's own figures,
-    // shown plain (never an <input>) - auto-populated here and read-only by
-    // construction. Monthly Revenue mirrors the same TCV / Contract
-    // Duration (Months) formula buildRevenueSowRow uses.
+    // TCV/Start Date/End Date/Billing Model are always the selected SOW's own
+    // figures, shown plain (never an <input>) - auto-populated here and
+    // read-only by construction.
     tcvCell.textContent = selectedSow ? fmt(selectedSow.total_value) : "—";
-    acvCell.textContent = selectedSow ? fmt(selectedSow.acv) : "—";
-    monthlyRevenueCell.textContent = selectedSow && selectedSow.duration_months
-      ? fmt((selectedSow.total_value || 0) / selectedSow.duration_months)
-      : "—";
+    startDateCell.textContent = selectedSow ? fmtDate(selectedSow.start_date) : "—";
+    endDateCell.textContent = selectedSow ? fmtDate(selectedSow.end_date) : "—";
     billingModelCell.textContent = (selectedSow && selectedSow.billing_model_name) || "—";
     revenueTypeSelect.value = (selectedSow && selectedSow.revenue_type_id) ?? "";
     practiceSelect.value = (selectedSow && selectedSow.practice_id) ?? "";
@@ -3889,6 +4183,8 @@ async function openRevenueEntryDraft(prefill = {}) {
           sow_title: selectedSow.title,
           customer_id: selectedSow.customer_id,
           customer_name: selectedSow.customer_name || "Unassigned",
+          start_date: selectedSow.start_date,
+          end_date: selectedSow.end_date,
           total_value: selectedSow.total_value,
           duration_months: selectedSow.duration_months,
           acv: selectedSow.acv,
@@ -3907,6 +4203,8 @@ async function openRevenueEntryDraft(prefill = {}) {
           sow_title: null,
           customer_id: parseInt(customerId, 10),
           customer_name: (selectedCustomer && selectedCustomer.customer_name) || "Unassigned",
+          start_date: null,
+          end_date: null,
           total_value: null,
           duration_months: null,
           acv: 0,
@@ -3986,7 +4284,7 @@ async function loadTmAssignments() {
   const tbody = document.getElementById("tmAssignmentsTableBody");
   tbody.innerHTML = "";
   if (!filteredRows.length) {
-    tbody.innerHTML = `<tr><td colspan="40" class="empty-state">${
+    tbody.innerHTML = `<tr><td colspan="30" class="empty-state">${
       data.rows.length ? "No entries match the selected filter." : 'No entries yet. Click "Add Entry" to start tracking a Time and Material assignment.'
     }</td></tr>`;
   } else {
@@ -4067,10 +4365,10 @@ function buildTmAssignmentRow(r, editing) {
       <td class="tm-employee-id-cell"><input type="text" class="tm-employee-id-input" value="${escapeHtml(r.employee_id || "")}" /></td>
       <td><input type="text" class="tm-employee-name-input" value="${escapeHtml(r.employee_name || "")}" /></td>
       <td><select class="tm-location-select"></select></td>
-      <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
       <td><select class="tm-practice-select"></select></td>
       <td><input type="text" class="tm-sow-role-input" value="${escapeHtml(r.sow_role || "")}" /></td>
       <td><input type="text" class="tm-wbs-input" value="${escapeHtml(r.wbs_id || "")}" /></td>
+      <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
       <td><input type="number" step="0.01" min="0" class="tm-rate-card-input" value="${r.rate_card ?? ""}" /></td>
       <td><input type="number" step="0.01" min="0" max="100" class="tm-discount-input" value="${r.discount_percent ?? ""}" /></td>
       <td class="tm-final-rate-cell tm-final-rate">${r.final_rate_card != null ? fmt(r.final_rate_card) : "—"}</td>
@@ -4085,10 +4383,10 @@ function buildTmAssignmentRow(r, editing) {
       <td class="tm-employee-id-cell">${escapeHtml(r.employee_id) || "—"}</td>
       <td>${escapeHtml(r.employee_name) || "—"}${r.leave_details_missing ? `<span class="info-icon-wrap" tabindex="0">${icon("info")}<span class="info-tooltip-text">Leave details are missing</span></span>` : ""}</td>
       <td>${escapeHtml(r.location_name) || "—"}</td>
-      <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
       <td>${escapeHtml(r.practice_name) || "—"}</td>
       <td>${escapeHtml(r.sow_role) || "—"}</td>
       <td>${escapeHtml(r.wbs_id) || "—"}</td>
+      <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
       <td class="rev-tcv-cell">${r.rate_card != null ? fmt(r.rate_card) : "—"}</td>
       <td>${r.discount_percent != null ? r.discount_percent + "%" : "—"}</td>
       <td class="rev-tcv-cell tm-final-rate">${r.final_rate_card != null ? fmt(r.final_rate_card) : "—"}</td>
@@ -4333,10 +4631,10 @@ async function openTmEntryDraft(prefill = {}) {
     <td><input type="text" class="tm-draft-employee-id-input" value="${escapeHtml(prefill.employeeId || "")}" /></td>
     <td><input type="text" class="tm-draft-employee-name-input" value="${escapeHtml(prefill.employeeName || "")}" /></td>
     <td><select class="tm-draft-location-select"></select></td>
-    <td class="tm-draft-billing-hours-cell">&mdash;</td>
     <td><select class="tm-draft-practice-select"></select></td>
     <td><input type="text" class="tm-draft-sow-role-input" value="${escapeHtml(prefill.sowRole || "")}" /></td>
     <td><input type="text" class="tm-draft-wbs-input" value="${escapeHtml(prefill.wbsId || "")}" /></td>
+    <td class="tm-draft-billing-hours-cell">&mdash;</td>
     <td><input type="number" step="0.01" min="0" class="tm-draft-rate-card-input" value="${prefill.rateCard ?? ""}" /></td>
     <td><input type="number" step="0.01" min="0" max="100" class="tm-draft-discount-input" value="${prefill.discountPercent ?? ""}" /></td>
     <td class="tm-draft-final-rate-cell tm-final-rate">&mdash;</td>
@@ -4498,7 +4796,7 @@ document.getElementById("newTmEntryBtn").addEventListener("click", () => openTmE
 // grid: an Edit icon swaps a row into text inputs with Save/Cancel, and the
 // "Add X" button prepends a blank row in that same editable state.
 function makeInlineListManager(opts) {
-  const { apiPath, tableBodyId, newBtnId, hasDetails, itemLabel, onChange, lockNameOnEdit } = opts;
+  const { apiPath, tableBodyId, newBtnId, hasDetails, itemLabel, onChange, lockNameOnEdit, hideDelete } = opts;
   const tbody = document.getElementById(tableBodyId);
   const colCount = hasDetails ? 4 : 3;
 
@@ -4515,7 +4813,7 @@ function makeInlineListManager(opts) {
       ? `<button type="button" class="ghost-btn btn-edit icon-btn inline-save-btn" title="Save">${icon("check")}</button>
          <button type="button" class="ghost-btn icon-btn inline-cancel-btn" title="Cancel">${icon("x")}</button>`
       : `<button type="button" class="ghost-btn btn-edit icon-btn inline-edit-btn" title="Edit">${icon("edit")}</button>
-         <button type="button" class="ghost-btn btn-danger icon-btn inline-del-btn" title="Delete">${icon("trash")}</button>`;
+         ${hideDelete ? "" : `<button type="button" class="ghost-btn btn-danger icon-btn inline-del-btn" title="Delete">${icon("trash")}</button>`}`;
     tr.appendChild(actionsTd);
 
     const slTd = document.createElement("td");
@@ -4577,18 +4875,21 @@ function makeInlineListManager(opts) {
       actionsTd.querySelector(".inline-edit-btn").addEventListener("click", () => {
         replaceRow(tr, buildRow(item, true));
       });
-      actionsTd.querySelector(".inline-del-btn").addEventListener("click", async () => {
-        if (confirm(`Delete ${itemLabel.toLowerCase()} "${item.name}"?`)) {
-          const resp = await fetch(`${API}/${apiPath}/${item.id}`, { method: "DELETE" });
-          if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}));
-            alert(formatApiError(err, `Failed to delete this ${itemLabel.toLowerCase()}.`));
-            return;
+      const delBtn = actionsTd.querySelector(".inline-del-btn");
+      if (delBtn) {
+        delBtn.addEventListener("click", async () => {
+          if (confirm(`Delete ${itemLabel.toLowerCase()} "${item.name}"?`)) {
+            const resp = await fetch(`${API}/${apiPath}/${item.id}`, { method: "DELETE" });
+            if (!resp.ok) {
+              const err = await resp.json().catch(() => ({}));
+              alert(formatApiError(err, `Failed to delete this ${itemLabel.toLowerCase()}.`));
+              return;
+            }
+            load();
+            if (onChange) onChange();
           }
-          load();
-          if (onChange) onChange();
-        }
-      });
+        });
+      }
     }
 
     return tr;
@@ -4674,6 +4975,7 @@ const locationManager = makeInlineListManager({
   hasDetails: true,
   itemLabel: "Location",
   lockNameOnEdit: true,
+  hideDelete: true,
 });
 
 const billingModelManager = makeInlineListManager({
@@ -4736,6 +5038,7 @@ const revenueTypeManager = makeInlineListManager({
   hasDetails: true,
   itemLabel: "Revenue Type",
   lockNameOnEdit: true,
+  hideDelete: true,
 });
 
 // Another simple master list, managed under Settings exactly like Locations -

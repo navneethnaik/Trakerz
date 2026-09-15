@@ -278,15 +278,8 @@ main { padding: 14px 20px; max-width: none; margin: 0; flex: 1 0 auto; width: 10
 .tab-panel { display: none; }
 .tab-panel.active { display: flex; flex-direction: column; flex: 1 0 auto; }
 
-/* #backToList is a direct child of the (flex, column) #tab-detail panel
-   above, so without this it stretches to the panel's full width (the
-   column flex container's default align-items: stretch) instead of
-   hugging its own text like every other ghost-btn. align-self overrides
-   that per-item; flex-end also moves it to the right side of its row,
-   mirroring where the Edit SOW button sits on the header row below it. */
-#backToList { align-self: flex-end; }
-
-/* ---------- SOWs / Staffing / Revenue Management pages: frozen stat tiles,
+/* ---------- SOWs / Staffing / Revenue Management / Resource and Leave /
+   Customer / Billing Hours / Holiday Calendar pages: frozen stat tiles,
    toolbar and table header (scroll-locked) ----------
    Applied only while one of these tabs is open (toggled in app.js's
    showTab()) so every other page keeps normal whole-page scrolling. The page
@@ -298,7 +291,25 @@ body.scroll-locked { height: 100vh; overflow: hidden; }
 body.scroll-locked main { flex: 1 1 auto; min-height: 0; overflow: hidden; }
 body.scroll-locked #tab-sows,
 body.scroll-locked #tab-resources,
-body.scroll-locked #tab-revenue { flex: 1 1 auto; min-height: 0; }
+body.scroll-locked #tab-revenue,
+body.scroll-locked #tab-config-leaves,
+body.scroll-locked #tab-customers,
+body.scroll-locked #tab-config-billing-hours,
+body.scroll-locked #tab-config-holidays { flex: 1 1 auto; min-height: 0; }
+/* Resource and Leave's toolbar+table sit inside a plain .list-card
+   (.config-card) wrapper rather than being direct children of the tab panel
+   the way #tab-sows/#tab-resources are - same "not a flex container yet"
+   issue the Revenue Management .rev-category-section comment above
+   describes, so it needs the same nested-flex-column treatment to let its
+   .table-scroll child's flex:1 1 auto below actually take effect. Billing
+   Hours and Holiday Calendar share that same .list-card wrapper shape, so
+   they need the identical override; Customer doesn't (its toolbar/table are
+   direct children of #tab-customers, same as #tab-sows/#tab-resources). */
+body.scroll-locked #tab-config-leaves > .list-card,
+body.scroll-locked #tab-config-billing-hours > .list-card,
+body.scroll-locked #tab-config-holidays > .list-card {
+  display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+}
 /* Managed Services and Time and Material each live in their own
    .rev-category-section (see index.html) so only one shows at a time - each
    needs to be its own nested flex column (rather than a plain block) for the
@@ -317,7 +328,11 @@ body.scroll-locked #tab-revenue > .rev-category-section:not([hidden]) {
 }
 body.scroll-locked #tab-sows .table-scroll,
 body.scroll-locked #tab-resources .table-scroll,
-body.scroll-locked #tab-revenue .table-scroll:not(.revenue-type-summary-scroll) {
+body.scroll-locked #tab-revenue .table-scroll:not(.revenue-type-summary-scroll),
+body.scroll-locked #tab-config-leaves .table-scroll,
+body.scroll-locked #tab-customers .table-scroll,
+body.scroll-locked #tab-config-billing-hours .table-scroll,
+body.scroll-locked #tab-config-holidays .table-scroll {
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
 }
 /* The Revenue Type summary table (see #tab-revenue in index.html) sits above
@@ -331,6 +346,9 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
   flex: 0 0 auto; max-height: 220px; overflow-y: auto; margin-bottom: 4px;
 }
 #tab-resources .sow-table thead th { position: sticky; top: 0; z-index: 2; }
+#tab-config-leaves .sow-table thead th { position: sticky; top: 0; z-index: 2; }
+#tab-customers .sow-table thead th { position: sticky; top: 0; z-index: 2; }
+#tab-config-holidays .sow-table thead th { position: sticky; top: 0; z-index: 2; }
 /* The SOW table has a two-row header (a "Contract Details / BTP Information /
    Reference Documents / Additional Information" group row spanning the
    individual column-name row below it, same shape as the Revenue Management
@@ -342,6 +360,17 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
    here if those ever do. */
 #tab-sows .sow-table thead tr:first-child th { position: sticky; top: 0; z-index: 3; }
 #tab-sows .sow-table thead tr:last-child th { position: sticky; top: 29px; z-index: 2; }
+/* Billing Hours has the same two-row header shape (a "Billing hours (per
+   day)" group label spanning Onsite/Offshore/Nearshore below it), except
+   Actions/Sl. No/Customer Name use rowspan="2" instead of being repeated in
+   both rows - those rowspan cells belong to the first <tr> in the DOM, so
+   targeting tr:first-child th still sticks them (and the group label) at
+   top:0, tall enough to cover both visual rows, while the leaf Onsite/
+   Offshore/Nearshore cells in tr:last-child stick at the same 29px offset
+   used above (identical th padding/font-size, so the first row's rendered
+   height matches). */
+#tab-config-billing-hours .sow-table thead tr:first-child th { position: sticky; top: 0; z-index: 3; }
+#tab-config-billing-hours .sow-table thead tr:last-child th { position: sticky; top: 29px; z-index: 2; }
 /* Group-header row's section labels (Contract Details / BTP Information /
    Reference Documents / Additional Information) - centered over the columns
    they span, with a stronger divider line where one section ends and the
@@ -366,13 +395,20 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
    ancestor, so it's lifted just for these pages' tables. */
 #tab-sows .sow-table,
 #tab-resources .sow-table,
-#tab-revenue .sow-table { overflow: visible; }
+#tab-revenue .sow-table,
+#tab-config-leaves .sow-table,
+#tab-customers .sow-table,
+#tab-config-billing-hours .sow-table,
+#tab-config-holidays .sow-table { overflow: visible; }
 
-/* The Revenue Management table has a single header row (one plain <th> per
-   month, now that Invoiced - and the two-row Projections/Invoiced subheader
-   it required - has been removed) that sticks to the top of the scroll
-   container. */
-#tab-revenue .rev-grid-table thead th { position: sticky; top: 0; z-index: 3; }
+/* Both Revenue Management grids (Managed Services/rev-grid-table and Time
+   and Material/tm-table) now have the same two-row grouped header shape as
+   the Statement of Work table above (group labels spanning several leaf
+   columns), so they get the same tr:first-child/tr:last-child sticky-offset
+   treatment - see the longer comment on #tab-sows above for why the second
+   row's offset is a fixed pixel value. */
+#tab-revenue .rev-grid-table thead tr:first-child th { position: sticky; top: 0; z-index: 3; }
+#tab-revenue .rev-grid-table thead tr:last-child th { position: sticky; top: 29px; z-index: 2; }
 /* The Revenue Type summary table above it (see #tab-revenue in index.html)
    has its own short scroll container (.revenue-type-summary-scroll, capped
    at 220px), so it gets the same sticky-header treatment on its single
@@ -398,10 +434,10 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 }
 .alert-banner-close:hover { opacity: 1; }
 
-/* Leave grid: a saved record whose employee isn't tagged to any Statement of
-   Work (see isUntagged/row-untagged in buildLeaveRow, app.js) - same warm
-   amber warning tint/convention as .expiry-amber below, plus a small
-   hoverable info icon in the Employee ID cell explaining why. */
+/* Leave grid: a saved record whose employee isn't tagged to any account in
+   Time and Material (see isUntagged/row-untagged in buildLeaveRow, app.js) -
+   same warm amber warning tint/convention as .expiry-amber below, plus a
+   small hoverable info icon in the Employee ID cell explaining why. */
 .sow-table tbody tr.row-untagged { background: #fff7ed; }
 .sow-table tbody tr.row-untagged td { color: #9a3412; }
 .sow-table tbody tr.row-untagged:hover { background: #fed7aa; }
@@ -423,87 +459,6 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 .info-icon-wrap:hover .info-tooltip-text,
 .info-icon-wrap:focus .info-tooltip-text,
 .info-icon-wrap:focus-visible .info-tooltip-text { opacity: 1; visibility: visible; }
-
-/* ---------- Stat cards ---------- */
-/* Circular tiles (matching the Dashboard's KPI circles) rather than rounded
-   rectangles. Laid out the same way as the Dashboard's KPI row - a single
-   non-wrapping line spaced evenly across the full row width - rather than
-   a left-aligned wrapping row, per request.
-   Deliberately no overflow-x here: setting it (even just on this axis)
-   makes the browser compute overflow-y as auto too (the CSS overflow spec's
-   "visible becomes auto when paired with a non-visible value on the other
-   axis" rule), and inside the SOWs page's height-constrained scroll-locked
-   layout that silently collapsed this row to a sliver and clipped every
-   circle in testing. If enough SOW statuses are ever configured to overflow
-   this row, revisit with a wrapping layout instead of horizontal scroll. */
-.stat-row { display: flex; flex-wrap: nowrap; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.stat-card {
-  width: 128px; height: 128px; border-radius: 50%; flex-shrink: 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  text-align: center; padding: 8px;
-  box-shadow: var(--shadow-sm);
-  transition: transform .15s, box-shadow .15s;
-  text-decoration: none; color: inherit;
-  /* Gradient ring via the dual-background technique (border-image doesn't
-     respect border-radius on a circle): an opaque padding-box fill sits on
-     top of a border-box gradient layer. */
-  border: 7px solid transparent;
-  background-clip: padding-box, border-box;
-  background-origin: padding-box, border-box;
-}
-.stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
-a.stat-card { cursor: pointer; }
-.stat-card.stat-indigo { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #4a5aa8, #232c5c); }
-.stat-card.stat-emerald { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #55e07e, #2f7b45); }
-.stat-card.stat-cyan { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #1dced8, #107177); }
-.stat-card.stat-amber { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #edab2f, #a56b06); }
-.stat-card.stat-red { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f87171, #b91c1c); }
-.stat-card.stat-orange { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, var(--primary), var(--primary-2)); }
-.stat-card.stat-violet { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #a78bfa, #6d28d9); }
-.stat-card.stat-pink { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f472b6, #be185d); }
-.stat-value { font-size: 22px; font-weight: 800; color: var(--text); line-height: 1.1; }
-/* SOW detail page's "Start -> end" tile shows a date range rather than a
-   short number/currency value, so it needs a smaller size to fit. */
-.stat-value.stat-value-sm { font-size: 16px; }
-.stat-label { font-size: 11px; color: var(--text-muted); font-weight: 700; margin-top: 4px; }
-
-/* Statement of Work page KPI tiles - rectangular cards with a colored top
-   accent bar, rather than the shared .stat-card's circular ring style used
-   on the SOW detail page (Start->end / TCV / Billed / Remaining, left
-   untouched). Scoped to #sowStatRow only, and overrides the circle's
-   fixed 128px dimensions/border-radius/ring-gradient so any number of tiles
-   (the 3 fixed ones plus one per configured SOW status) share the row width
-   equally and wrap cleanly if there are enough of them to need a second line. */
-#sowStatRow.stat-row { flex-wrap: wrap; }
-#sowStatRow .stat-card {
-  width: auto; height: auto; min-width: 140px; flex: 1 1 0;
-  border-radius: var(--radius);
-  border: 1px solid var(--border); border-top: 4px solid transparent;
-  background-image: none; background: var(--surface);
-  background-clip: border-box; background-origin: border-box;
-  padding: 16px 12px;
-}
-#sowStatRow .stat-card.stat-indigo { border-top-color: #4a5aa8; }
-#sowStatRow .stat-card.stat-emerald { border-top-color: #55e07e; }
-#sowStatRow .stat-card.stat-cyan { border-top-color: #1dced8; }
-#sowStatRow .stat-card.stat-amber { border-top-color: #edab2f; }
-#sowStatRow .stat-card.stat-red { border-top-color: #f87171; }
-#sowStatRow .stat-card.stat-orange { border-top-color: var(--primary); }
-#sowStatRow .stat-card.stat-violet { border-top-color: #a78bfa; }
-#sowStatRow .stat-card.stat-pink { border-top-color: #f472b6; }
-
-/* Grouping wrapper for the SOW page's KPI tiles: "SoW & TCV" / "SOW Status"
-   (incl. Expiring in 30 days) / "Opportunity Type" each get their own labeled
-   section, separated by a vertical divider, so the tile row reads as three
-   distinct groups rather than one flat strip. */
-#sowStatRow.stat-row { align-items: stretch; }
-.stat-section { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-width: 0; }
-.stat-section-label {
-  font-size: 12px; font-weight: 800; text-align: center;
-  color: var(--text);
-}
-.stat-section-tiles { display: flex; flex-wrap: wrap; gap: 12px; flex: 1; }
-.stat-divider { width: 1px; align-self: stretch; background: var(--border); flex: 0 0 auto; }
 
 /* ---------- Charts / lists ---------- */
 .chart-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
@@ -541,6 +496,18 @@ a.stat-card { cursor: pointer; }
 .alert-list li:last-child { border-bottom: none; }
 .alert-list .empty { color: var(--text-muted); }
 .alert-list li:not(.empty):hover { color: var(--primary-hover); }
+
+/* ---------- Reports (Statement of Work / Resource / Revenue) ---------- */
+/* Multiple filter <select>s side by side in a report page's header row,
+   reusing .dash-customer-filter for each one's own styling - wraps on
+   narrow widths rather than overflowing the header row. */
+.report-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* .chart-row (generic 3-up grid, see above) variants for report pages whose
+   charts don't split evenly into three - a single full-width chart (e.g. a
+   monthly trend line) or two side by side (e.g. a pie plus a wider bar
+   chart with many customer labels). */
+.chart-row.chart-row-single { grid-template-columns: 1fr; }
+.chart-row.chart-row-2col { grid-template-columns: 1fr 1fr; }
 
 /* ---------- Dashboard ---------- */
 /* Resources by Location / Band / Type - always exactly these 3 cards. */
@@ -669,15 +636,17 @@ a.stat-card { cursor: pointer; }
 
 /* ---------- Toolbar / buttons ---------- */
 .toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; }
-/* Global Settings, Configuration and the SOW list's own toolbars, all
-   right-aligned per explicit instruction - most lost the heading that used
-   to push their filters/buttons right via .toolbar h3's flex:1 (removed
-   from these per earlier explicit instruction); #tab-sows never had one,
-   its search box is just capped by #searchInput's max-width below instead
-   of filling the row, so flex-end is what pushes the leftover space (and
-   the whole search+filters+buttons cluster) to the right edge there.
+/* Global Settings and Configuration toolbars, right-aligned per explicit
+   instruction - most lost the heading that used to push their
+   filters/buttons right via .toolbar h3's flex:1 (removed from these per
+   earlier explicit instruction), so flex-end is what pushes the leftover
+   space (and the whole filters+buttons cluster) to the right edge instead.
    Scoped by section id rather than a bare ".toolbar" override so toolbars
-   not covered by any of these requests are untouched. */
+   not covered by any of these requests are untouched.
+   #tab-sows is deliberately NOT in this list per a later explicit request:
+   its filters stay left-aligned (the toolbar's natural flex-start) with
+   Export to Excel/New SOW pushed to the right via .toolbar-spacer instead -
+   see the markup in index.html. */
 #tab-config-locations .toolbar,
 #tab-config-billing-models .toolbar,
 #tab-config-operating-models .toolbar,
@@ -689,8 +658,7 @@ a.stat-card { cursor: pointer; }
 #tab-config-practices .toolbar,
 #tab-config-billing-hours .toolbar,
 #tab-config-holidays .toolbar,
-#tab-config-leaves .toolbar,
-#tab-sows .toolbar {
+#tab-config-leaves .toolbar {
   justify-content: flex-end;
 }
 .toolbar input, .toolbar select {
@@ -982,11 +950,6 @@ a.stat-card { cursor: pointer; }
 .tag-expiring_soon { background: #fef3c7; color: #92400e; }
 .tag-over_budget { background: #ffe4d5; color: #c2410c; }
 
-#detailContent .detail-header { display: flex; justify-content: space-between; align-items: flex-start; margin: 16px 0; }
-#detailContent h2 { margin: 0 0 4px; }
-#detailContent .meta { color: var(--text-muted); font-size: 14px; }
-.detail-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0 24px; }
-
 /* ---------- Modals ---------- */
 .modal {
   position: fixed; inset: 0; background: rgba(45, 38, 36, .5);
@@ -1059,6 +1022,13 @@ a.stat-card { cursor: pointer; }
   font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em;
 }
 .milestone-row .remove-ms-row { padding: 5px; justify-content: center; }
+
+/* SOW popup's Milestones section reuses .milestone-row but needs 6 columns
+   (description/amount/status/due date/billed date/remove) instead of the
+   base 4 - ID-scoped so it wins over .milestone-row above via specificity. */
+#sowMilestoneRows .milestone-row, #sowFormModal .milestone-row-header {
+  grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr 34px;
+}
 
 /* Same navy-header treatment as every other data table in the app
    (.sow-table / .milestone-subtable / .list-card table) - this one used to

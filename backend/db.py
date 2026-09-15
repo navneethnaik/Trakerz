@@ -470,6 +470,15 @@ def _migrate(conn):
     if _table_exists(conn, "sows") and not _column_exists(conn, "sows", "duration_months"):
         conn.execute("ALTER TABLE sows ADD COLUMN duration_months REAL")
 
+    # Data fix: Milestone status used to be a 3-value set (pending/invoiced/
+    # paid) - per an explicit request it's now just 2 (to_be_invoiced/
+    # invoiced), so fold the old values into the closest new one. Safe to run
+    # every startup - once migrated, no row is left with the old values so
+    # these UPDATEs become no-ops.
+    if _table_exists(conn, "milestones"):
+        conn.execute("UPDATE milestones SET status = 'to_be_invoiced' WHERE status = 'pending'")
+        conn.execute("UPDATE milestones SET status = 'invoiced' WHERE status = 'paid'")
+
     # Additive: Location/Band/Employee Type on Leave Management - same fields
     # Resource Management tracks per employee, added here too so a leave
     # record can be filtered/exported alongside the same attributes without
