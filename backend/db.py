@@ -301,17 +301,20 @@ CREATE TABLE IF NOT EXISTS revenue_sow_accounts (
 
 -- Per-resource revenue breakdown for a Managed Services SOW row (Revenue
 -- Outlook > Best Estimates > Managed Services), per explicit request: a SOW
--- row's Apr-Mar monthly numbers can optionally be built up from named
--- resources (ID/Name/Location/Practice/Start/End date, each with its own
--- Apr-Mar revenue) rather than just the one flat number per month on
+-- row's Apr-Mar monthly numbers are built up from named resources (ID/Name/
+-- Location/Practice/Start/End date, each with its own Apr-Mar revenue)
+-- rather than typed directly as one flat number per month on
 -- revenue_sow_accounts/revenue_entries above. This is scoped to SOW-backed
 -- rows only (sow_id NOT NULL) - not offered on the SOW-less "Account" rows -
 -- and, like revenue_entries, keyed by (sow_id, fiscal_year) directly rather
 -- than through revenue_sow_accounts.id, so a resource can be added even
 -- before that row's own INSERT OR IGNORE has ever fired for this fiscal
--- year. Adding resources here does NOT alter revenue_entries.projection -
--- the two are independent numbers on the row for now (see the frontend
--- comment on renderMsResourceSubtable for why they're not auto-summed).
+-- year. Per explicit request, the popup's own Revenue Projections and
+-- Monthly Breakdown is now always read-only and equal to the sum, per
+-- month, of this SOW's resources here (see applyResourceSums() in app.js) -
+-- revenue_entries.projection still stores that computed sum (written on
+-- Save exactly like before, just no longer hand-typed), so the SoW-level
+-- grid's own month columns and Reports keep working unchanged.
 CREATE TABLE IF NOT EXISTS ms_resources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sow_id INTEGER NOT NULL REFERENCES sows(id) ON DELETE CASCADE,

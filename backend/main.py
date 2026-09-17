@@ -1889,6 +1889,128 @@ def delete_ms_resource(resource_id: int):
     return None
 
 
+@app.get("/api/revenue/ms-resources/export")
+def export_ms_resources(sow_id: int, fiscal_year: int):
+    """Excel export of one SOW's Managed Services Resources subtable (the
+    grid inside the Add/Edit/View Managed Services Entry popup - see
+    renderMsResourceSubtable in app.js), scoped to the given SOW + fiscal
+    year exactly like list_ms_resources above - there's no "export
+    everything" version of this since the popup only ever has one SOW open
+    at a time."""
+    with db.get_db() as conn:
+        if not conn.execute("SELECT 1 FROM sows WHERE id = ?", (sow_id,)).fetchone():
+            raise HTTPException(status_code=400, detail="Selected SOW does not exist")
+    resources = list_ms_resources(sow_id=sow_id, fiscal_year=fiscal_year)
+
+    headers = ["Employee ID", "Employee Name", "Location", "Practice", "Start Date", "End Date", "Rate Card"]
+    headers.extend(FISCAL_MONTH_LABELS)
+
+    rows = []
+    for r in resources:
+        row = [r["employee_id"] or "", r["employee_name"], r["location_name"] or "", r["practice_name"] or "",
+               _parse_iso_date(r["start_date"]), _parse_iso_date(r["end_date"]), r["rate_card"]]
+        for m in r["months"]:
+            row.append(m["revenue"])
+        rows.append(row)
+
+    date_cols = (5, 6)
+    currency_cols = (7,) + tuple(range(8, len(headers) + 1))
+    widths = [14, 22, 16, 16, 14, 14, 12] + [12] * (len(headers) - 7)
+    wb = _build_workbook(f"MS Resources FY{fiscal_year}", headers, rows,
+                          date_cols=date_cols, currency_cols=currency_cols, widths=widths)
+    return _xlsx_response(wb, f"trakerz_ms_resources_sow{sow_id}_fy{fiscal_year}_{date.today().isoformat()}.xlsx")
+
+
+@app.get("/api/revenue/ms-resources/import-template")
+def ms_resources_import_template():
+    """Generic template (no sow_id/fiscal_year in the file itself - those
+    come from the popup's own Import button, appended as query params on the
+    upload, since a resource always belongs to whichever SOW + fiscal year is
+    currently open) for bulk-adding resources to that one SOW. Unlike TM's
+    template (months are server-computed there and left out), a resource's
+    monthly revenue is plain user input just like the SoW Level grid, so all
+    12 months are included here and editable. Sheet 2 is a reference list of
+    the Locations/Practices already configured, matching
+    revenue_sows_import_template's convention."""
+    headers = ["Employee ID", "Employee Name", "Location", "Practice", "Start Date (dd-mmm-yyyy)", "End Date (dd-mmm-yyyy)", "Rate Card"]
+    headers.extend(FISCAL_MONTH_LABELS)
+    widths = [14, 22, 16, 16, 20, 20, 12] + [12] * (len(headers) - 7)
+    wb = _build_workbook("MS Resources Template", headers, [], widths=widths)
+    with db.get_db() as conn:
+        location_names = [r["name"] for r in conn.execute("SELECT name FROM locations ORDER BY name COLLATE NOCASE").fetchall()]
+        practice_names = [r["name"] for r in conn.execute("SELECT name FROM practices ORDER BY name COLLATE NOCASE").fetchall()]
+    _add_reference_sheet(wb, "Reference Lists", {
+        "Available Location": location_names,
+        "Available Practice": practice_names,
+    })
+    return _xlsx_response(wb, "trakerz_ms_resources_template.xlsx")
+
+
+@app.post("/api/revenue/ms-resources/import")
+async def import_ms_resources(sow_id: int, fiscal_year: int, file: UploadFile = File(...)):
+    """Bulk version of the popup's "+ Add resource" + typing in the months:
+    each row always creates a brand-new resource (there's no natural key to
+    match an existing row against - re-importing the same sheet twice
+    duplicates rows, same as elsewhere in the app where nothing else
+    identifies a "same" record), scoped to the given sow_id + fiscal_year,
+    with its 12 monthly revenue figures. Each row's fields are validated and
+    written as a unit inside its own try/except, so one bad row can't leave
+    a half-written resource behind while other rows still import."""
+    with db.get_db() as conn:
+        if not conn.execute("SELECT 1 FROM sows WHERE id = ?", (sow_id,)).fetchone():
+            raise HTTPException(status_code=400, detail="Selected SOW does not exist")
+
+    content = await file.read()
+    try:
+        records = _read_import_rows(content, ["Employee Name"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    imported = 0
+    errors = []
+    with db.get_db() as conn:
+        for i, rec in enumerate(records, start=2):  # row 1 is the header
+            try:
+                employee_name = _cell_str(rec.get("employee name"))
+                if not employee_name:
+                    raise ValueError("Employee Name is required")
+                employee_id = _cell_str(rec.get("employee id"))
+                location_id = _lookup_id_by_name(conn, "locations", _cell_str(rec.get("location")))
+                practice_id = _lookup_id_by_name(conn, "practices", _cell_str(rec.get("practice")))
+                start_date = _cell_date(rec.get("start date (dd-mmm-yyyy)"))
+                if start_date is None:
+                    start_date = _cell_date(rec.get("start date"))
+                end_date = _cell_date(rec.get("end date (dd-mmm-yyyy)"))
+                if end_date is None:
+                    end_date = _cell_date(rec.get("end date"))
+                rate_card = _cell_float_or_none(rec.get("rate card"))
+
+                months = []
+                for m_idx, label in enumerate(FISCAL_MONTH_LABELS, start=1):
+                    months.append((m_idx, _cell_float(rec.get(label.lower()))))
+
+                cur = conn.execute(
+                    """INSERT INTO ms_resources (sow_id, fiscal_year, employee_id, employee_name,
+                       location_id, practice_id, start_date, end_date, rate_card, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    (sow_id, fiscal_year, employee_id, employee_name, location_id, practice_id,
+                     start_date, end_date, rate_card),
+                )
+                resource_id = cur.lastrowid
+                for m_idx, revenue in months:
+                    conn.execute(
+                        """INSERT INTO ms_resource_entries (resource_id, fiscal_month, revenue, updated_at)
+                           VALUES (?, ?, ?, datetime('now'))
+                           ON CONFLICT(resource_id, fiscal_month)
+                           DO UPDATE SET revenue = excluded.revenue, updated_at = datetime('now')""",
+                        (resource_id, m_idx, revenue),
+                    )
+                imported += 1
+            except Exception as e:
+                errors.append({"row": i, "message": str(e)})
+    return {"sow_id": sow_id, "fiscal_year": fiscal_year, "imported": imported, "errors": errors}
+
+
 # ---------- Time and Material tracking (Financial > Projections > Time and Material) ----------
 # One row per employee assignment to a Contract (not per SOW - see db.py's
 # tm_assignments comment), with its own Revenue Type/Employee Practice
@@ -2177,6 +2299,34 @@ def add_tm_assignment(payload: TmAssignmentCreateIn):
         )
         row = conn.execute(_TM_ASSIGNMENT_SELECT + "WHERE a.id = ?", (assignment_id,)).fetchone()
         return _tm_row_dict(conn, row, payload.fiscal_year)
+
+
+@app.post("/api/tm/assignments/preview")
+def preview_tm_projections(payload: TmAssignmentCreateIn):
+    """Live preview of an assignment's Projections while the Add/Edit Time
+    and Material popup is still open (see openTmEntryModal's
+    refreshProjectionsPreview in app.js) - per explicit request, the popup no
+    longer waits until Save to show the monthly figures. Runs the exact same
+    _billing_hours_per_day/_compute_tm_projections used to persist an
+    assignment, just against whatever the popup's fields currently hold
+    rather than a saved row, and writes nothing. Reuses TmAssignmentCreateIn
+    as its request shape (fields a preview doesn't need, like sow_id/wbs_id,
+    are simply ignored) rather than a separate model, so the frontend can
+    send nearly the same payload it already builds for the real POST/PUT,
+    plus whichever fiscal year is currently on screen."""
+    with db.get_db() as conn:
+        billing_hours = _billing_hours_per_day(conn, payload.customer_id, payload.location_id)
+        a = {
+            "customer_id": payload.customer_id,
+            "location_id": payload.location_id,
+            "employee_id": payload.employee_id,
+            "rate_card": payload.rate_card,
+            "discount_percent": payload.discount_percent,
+            "start_date": payload.start_date,
+            "end_date": payload.end_date,
+        }
+        computed = _compute_tm_projections(conn, a, payload.fiscal_year, billing_hours)
+        return {"months": [{"fiscal_month": fm, "revenue": computed.get(fm, 0)} for fm in range(1, 13)]}
 
 
 @app.put("/api/tm/assignments/{assignment_id}")

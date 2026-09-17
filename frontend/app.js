@@ -4088,13 +4088,11 @@ function buildRevenueSowRow(r) {
   // Date, Billing Model, TCV, Onsite #/Offshore #/Nearshore #) matches the
   // grouped thead in index.html.
   cells += `<td>${escapeHtml(r.revenue_type_name) || "—"}</td>`;
-  // Resources expand - per explicit request, a SOW-backed row (only - a
-  // SOW-less row has no SOW to add resources under) can be expanded to
-  // show/add named resources with their own Apr-Mar revenue, same
-  // expand-chevron convention as the main SOW table's Milestones expand.
-  cells += `<td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title) || "—"}${
-    r.sow_id ? `<button type="button" class="expand-btn ms-resource-expand-btn" title="Show resources">${icon("chevron")}</button>` : ""
-  }</td>`;
+  // Resources expansion removed from this main table per explicit request -
+  // Managed Services Resources are only ever added/viewed inside the
+  // View/Edit/Add popup now (see openRevenueEntryModal()'s Managed Services
+  // Resources section), not via an expand-chevron on this row.
+  cells += `<td>${escapeHtml(r.customer_name)}</td><td>${escapeHtml(r.sow_title) || "—"}</td>`;
   cells += `<td>${fmtDate(r.start_date)}</td><td>${fmtDate(r.end_date)}</td>`;
   cells += `<td>${escapeHtml(r.billing_model_name) || "—"}</td>`;
   cells += `<td class="rev-tcv-cell">${fmt(r.total_value)}</td>`;
@@ -4124,9 +4122,12 @@ function buildRevenueSowRow(r) {
     // be duplicated any number of times but still starts blank rather than
     // literally cloning itself - either way "Copy" opens the same Add popup
     // instead, pre-selecting this row's Customer (narrowing the SOW dropdown
-    // to that customer's other untracked SOWs) and carrying over the 12
-    // months' figures as a starting point. See openRevenueEntryModal().
-    openRevenueEntryModal(null, { customerId: r.customer_id, months: r.months });
+    // to that customer's other untracked SOWs). The 12 months' figures are no
+    // longer carried over here - they're always the sum of whichever
+    // Managed Services Resources end up added to the new row (see
+    // openRevenueEntryModal()'s applyResourceSums()), not something to
+    // pre-fill directly.
+    openRevenueEntryModal(null, { customerId: r.customer_id });
   });
   tr.querySelector(".rev-edit-btn").addEventListener("click", () => {
     openRevenueEntryModal(r);
@@ -4149,59 +4150,18 @@ function buildRevenueSowRow(r) {
     }
   });
 
-  const expandBtn = tr.querySelector(".ms-resource-expand-btn");
-  if (expandBtn) {
-    expandBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      toggleMsResourceSubrow(tr, r);
-    });
-  }
-
   return tr;
 }
 
 // ---------- Managed Services per-resource revenue (Revenue Outlook >
 // Best Estimates > Managed Services) ----------
-// Per explicit request, a SOW-backed row above can be expanded (via the
-// ms-resource-expand-btn wired in buildRevenueSowRow) to show/add named
-// resources (ID/Name/Location/Practice/Start/End date), each with its own
-// Apr-Mar revenue - independent of, and not summed into, the SOW row's own
-// 12 month Projections above (which stay a single flat number typed
-// directly into that row - see revenue_entries in db.py). This is a
-// separate, optional breakdown for whoever wants to track it at the
-// resource level instead of typing one lump number per month.
-
-function toggleMsResourceSubrow(tr, r) {
-  const btn = tr.querySelector(".ms-resource-expand-btn");
-  const next = tr.nextElementSibling;
-  if (next && next.classList.contains("ms-resource-subrow")) {
-    next.remove();
-    btn.classList.remove("expanded");
-    return;
-  }
-  btn.classList.add("expanded");
-  const subTr = document.createElement("tr");
-  subTr.className = "ms-resource-subrow";
-  const td = document.createElement("td");
-  td.colSpan = 26;
-  subTr.appendChild(td);
-  tr.after(subTr);
-  renderMsResourceSubtable(td, r.sow_id, currentFiscalYear, tr, r);
-}
-
-function msResourceMonthCellsHtml(res, editing) {
-  const entries = {};
-  (res?.months || []).forEach((m) => { entries[m.fiscal_month] = m.revenue; });
-  let html = "";
-  for (let fm = 1; fm <= 12; fm++) {
-    const band = fm % 2 === 1 ? "rev-band-a" : "rev-band-b";
-    const val = entries[fm] ?? 0;
-    html += editing
-      ? `<td class="${band}"><input type="number" step="0.01" class="rev-cell ms-res-month-input" data-fiscal-month="${fm}" value="${val}" /></td>`
-      : `<td class="rev-readonly-cell ${band}">${fmtPlain(val)}</td>`;
-  }
-  return html;
-}
+// Per explicit request, a SOW row's popup (see openRevenueEntryModal()'s
+// Managed Services Resources section) can add named resources (ID/Name/
+// Location/Practice/Start/End date), each with its own Apr-Mar revenue - and
+// the popup's own Revenue Projections and Monthly Breakdown is now always
+// the read-only sum of these resources' monthly figures (see
+// applyResourceSums() in openRevenueEntryModal), not a separate flat number
+// typed directly into the row.
 
 // Builds one <tr> for a single resource under a SOW's Resources subtable.
 // res is null for a brand-new "Add resource" draft row (always opened
@@ -4214,7 +4174,6 @@ function msResourceMonthCellsHtml(res, editing) {
 function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh) {
   const tr = document.createElement("tr");
   tr.dataset.resourceId = res?.id ?? "";
-  const total = (res?.months || []).reduce((sum, m) => sum + (m.revenue || 0), 0);
 
   let cells = editing
     ? `<td class="row-actions">
@@ -4232,25 +4191,41 @@ function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh) {
        <td><select class="ms-res-practice">${sowSelectOptionsHtml(currentPractices, "id", "name", "Select practice&hellip;", res?.practice_id)}</select></td>
        <td><input type="date" class="ms-res-start" value="${res?.start_date ?? ""}" /></td>
        <td><input type="date" class="ms-res-end" value="${res?.end_date ?? ""}" /></td>
-       <td><input type="number" step="0.01" min="0" class="ms-res-rate-card" placeholder="Rate Card" value="${res?.rate_card ?? ""}" /></td>`
+       <td><input type="number" step="0.01" min="0" class="ms-res-rate-card" placeholder="Rate Card" value="${res?.rate_card ?? ""}" /></td>
+       <td class="rev-tcv-cell ms-res-total-cell">${fmtPlain(res?.total_revenue ?? 0)}</td>`
     : `<td>${escapeHtml(res.employee_id) || "—"}</td>
        <td>${escapeHtml(res.employee_name)}</td>
        <td>${escapeHtml(res.location_name) || "—"}</td>
        <td>${escapeHtml(res.practice_name) || "—"}</td>
        <td>${fmtDate(res.start_date)}</td>
        <td>${fmtDate(res.end_date)}</td>
-       <td class="rev-tcv-cell">${res.rate_card != null ? fmt(res.rate_card) : "—"}</td>`;
-  cells += `<td class="rev-tcv-cell ms-res-total-cell">${fmtPlain(total)}</td>`;
-  cells += msResourceMonthCellsHtml(res, editing);
+       <td class="rev-tcv-cell">${res.rate_card != null ? fmt(res.rate_card) : "—"}</td>
+       <td class="rev-tcv-cell ms-res-total-cell">${fmtPlain(res.total_revenue)}</td>`;
+  // Apr-Mar monthly revenue - editable per resource while editing (each an
+  // <input>, saved cell-by-cell via PUT /api/revenue/ms-resources/cell on
+  // Save below, mirroring the SOW-level grid's old per-cell save), always
+  // read-only otherwise. This is what openRevenueEntryModal's
+  // applyResourceSums() sums back up into the popup's own (now read-only)
+  // Revenue Projections and Monthly Breakdown fields.
+  const revenueByMonth = {};
+  (res?.months || []).forEach((m) => { revenueByMonth[m.fiscal_month] = m.revenue; });
+  for (let fm = 1; fm <= 12; fm++) {
+    const band = (fm - 1) % 2 === 0 ? "rev-band-a" : "rev-band-b";
+    const val = revenueByMonth[fm] ?? 0;
+    cells += editing
+      ? `<td class="${band}"><input type="number" step="0.01" min="0" class="ms-res-month" data-fiscal-month="${fm}" value="${val}" /></td>`
+      : `<td class="rev-readonly-cell ${band}">${fmtPlain(val)}</td>`;
+  }
   tr.innerHTML = cells;
 
   if (editing) {
+    const monthInputs = tr.querySelectorAll(".ms-res-month");
     const totalCell = tr.querySelector(".ms-res-total-cell");
-    const monthInputs = tr.querySelectorAll(".ms-res-month-input");
-    monthInputs.forEach((input) => input.addEventListener("input", () => {
-      const sum = Array.from(monthInputs).reduce((acc, i) => acc + (parseFloat(i.value) || 0), 0);
+    function refreshResourceTotal() {
+      const sum = Array.from(monthInputs).reduce((acc, input) => acc + (parseFloat(input.value) || 0), 0);
       totalCell.textContent = fmtPlain(sum);
-    }));
+    }
+    monthInputs.forEach((input) => input.addEventListener("input", refreshResourceTotal));
 
     tr.querySelector(".ms-res-cancel-btn").addEventListener("click", () => {
       if (res?.id) {
@@ -4300,13 +4275,25 @@ function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh) {
           }
           resourceId = (await resp.json()).id;
         }
-        const monthInputsArr = Array.from(tr.querySelectorAll(".ms-res-month-input"));
-        await Promise.all(monthInputsArr.map((input) =>
-          fetch(`${API}/revenue/ms-resources/cell`, {
-            method: "PUT", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ resource_id: resourceId, fiscal_month: parseInt(input.dataset.fiscalMonth, 10), revenue: parseFloat(input.value) || 0 }),
+
+        // Each month is its own cell, upserted via PUT
+        // /api/revenue/ms-resources/cell (mirrors the SOW-level grid's old
+        // per-cell save) - one call per month, in parallel, after the
+        // resource itself is known to exist (so a brand-new resource has a
+        // real resourceId to save months against).
+        const monthResponses = await Promise.all(
+          Array.from(monthInputs).map((input) => {
+            const fm = parseInt(input.dataset.fiscalMonth, 10);
+            const revenue = parseFloat(input.value) || 0;
+            return fetch(`${API}/revenue/ms-resources/cell`, {
+              method: "PUT", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ resource_id: resourceId, fiscal_month: fm, revenue }),
+            });
           })
-        ));
+        );
+        if (monthResponses.some((r) => !r.ok)) {
+          alert("Resource saved, but one or more monthly revenue figures could not be saved.");
+        }
         await refresh();
       } finally {
         saveBtn.disabled = false;
@@ -4333,47 +4320,43 @@ function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh) {
   return tr;
 }
 
-// Renders the Resources subtable into `container` (the subrow's single wide
-// <td>) for one SOW+fiscal year - own header row (ID/Name/Location/Practice/
-// Start/End/Total/Apr..Mar) plus a trailing "+ Add resource" button that
-// appends a fresh editable draft row. refresh() re-fetches and rebuilds just
-// this subtable's tbody in place, keeping the parent row's own expand state
-// untouched.
-// outerRow/outerData (the SoW-level grid's own <tr> and its backing row
-// object) are optional - passed only when called from
-// toggleMsResourceSubrow(), so refresh() below can keep that row's
-// read-only Onsite #/Offshore #/Nearshore # cells (see
-// _ms_location_counts_by_sow in main.py - this mirrors that same
-// per-Location count, just computed client-side from the resources list
-// already being re-fetched here) in sync after a resource is added, edited
-// or removed, without a full loadRevenueSows() reload that would collapse
-// this very subtable. outerData is mutated in place too, so re-opening the
-// View/Edit popup for this row afterward (which reads straight off that
-// same object - see openRevenueEntryModal()) shows the current counts even
-// without a reload.
-async function renderMsResourceSubtable(container, sowId, fiscalYear, outerRow, outerData) {
+// Renders the Resources subtable into `container` (openRevenueEntryModal's
+// own Managed Services Resources section) for one SOW+fiscal year - own
+// header row (ID/Name/Location/Practice/Start/End/Rate Card/Total/Apr..Mar).
+// The "+ Add resource" button lives in the popup's own static "Managed
+// Services Resources" heading row (see index.html, right-aligned next to
+// it), not inside this dynamically-rebuilt container - so it's grabbed by id
+// and re-wired via .onclick (not addEventListener, which would stack a new
+// listener on top of the last one each time this is called - see the
+// .onchange convention used elsewhere in this file) rather than recreated
+// every time this function runs. refresh() re-fetches and rebuilds this
+// subtable's tbody in place, then hands the freshly-fetched resources list
+// to onResourcesChange (openRevenueEntryModal's applyResourceSums()), so the
+// popup's own Revenue Projections and Monthly Breakdown - always the
+// read-only sum of these resources' own monthly revenue, per explicit
+// request - stays in sync with every add/edit/delete here, not just on next
+// reload.
+async function renderMsResourceSubtable(container, sowId, fiscalYear, onResourcesChange) {
   container.innerHTML = `
     <div class="table-scroll">
       <table class="sow-table ms-resource-table">
         <thead>
           <tr>
-            <th>Actions</th><th>ID</th><th>Name</th><th>Location</th><th>Practice</th>
-            <th>Start Date</th><th>End Date</th><th>Rate Card ($)</th><th class="group-divider">Total</th>
-            <th class="rev-band-a rev-month-hdr">Apr</th><th class="rev-band-b rev-month-hdr">May</th>
-            <th class="rev-band-a rev-month-hdr">Jun</th><th class="rev-band-b rev-month-hdr">Jul</th>
-            <th class="rev-band-a rev-month-hdr">Aug</th><th class="rev-band-b rev-month-hdr">Sep</th>
-            <th class="rev-band-a rev-month-hdr">Oct</th><th class="rev-band-b rev-month-hdr">Nov</th>
-            <th class="rev-band-a rev-month-hdr">Dec</th><th class="rev-band-b rev-month-hdr">Jan</th>
-            <th class="rev-band-a rev-month-hdr">Feb</th><th class="rev-band-b rev-month-hdr">Mar</th>
+            <th>Actions</th><th class="ms-res-col-id">ID</th><th class="ms-res-col-name">Name</th>
+            <th class="ms-res-col-location">Location</th><th class="ms-res-col-practice">Practice</th>
+            <th>Start Date</th><th>End Date</th><th>Rate Card ($)</th><th>Total</th>
+            <th class="rev-band-a">Apr</th><th class="rev-band-b">May</th><th class="rev-band-a">Jun</th>
+            <th class="rev-band-b">Jul</th><th class="rev-band-a">Aug</th><th class="rev-band-b">Sep</th>
+            <th class="rev-band-a">Oct</th><th class="rev-band-b">Nov</th><th class="rev-band-a">Dec</th>
+            <th class="rev-band-b">Jan</th><th class="rev-band-a">Feb</th><th class="rev-band-b">Mar</th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
     </div>
-    <button type="button" class="ghost-btn ms-add-resource-btn">+ Add resource</button>
   `;
   const tbody = container.querySelector("tbody");
-  const addBtn = container.querySelector(".ms-add-resource-btn");
+  const addBtn = document.getElementById("msAddResourceBtn");
 
   async function refresh() {
     const resources = await fetch(`${API}/revenue/ms-resources?sow_id=${sowId}&fiscal_year=${fiscalYear}`).then((r) => r.json());
@@ -4383,28 +4366,13 @@ async function renderMsResourceSubtable(container, sowId, fiscalYear, outerRow, 
     } else {
       resources.forEach((res) => tbody.appendChild(buildMsResourceRow(res, sowId, fiscalYear, false, refresh)));
     }
-    if (outerRow && outerData) {
-      const counts = { onsite: 0, offshore: 0, nearshore: 0 };
-      resources.forEach((res) => {
-        const slug = (res.location_name || "").trim().toLowerCase();
-        if (slug in counts) counts[slug] += 1;
-      });
-      outerData.onsite_count = counts.onsite;
-      outerData.offshore_count = counts.offshore;
-      outerData.nearshore_count = counts.nearshore;
-      const onsiteCell = outerRow.querySelector(".rev-onsite-cell");
-      const offshoreCell = outerRow.querySelector(".rev-offshore-cell");
-      const nearshoreCell = outerRow.querySelector(".rev-nearshore-cell");
-      if (onsiteCell) onsiteCell.textContent = counts.onsite;
-      if (offshoreCell) offshoreCell.textContent = counts.offshore;
-      if (nearshoreCell) nearshoreCell.textContent = counts.nearshore;
-    }
+    if (onResourcesChange) onResourcesChange(resources);
   }
 
-  addBtn.addEventListener("click", () => {
+  addBtn.onclick = () => {
     if (tbody.querySelector(".empty-state")) tbody.innerHTML = "";
     tbody.appendChild(buildMsResourceRow(null, sowId, fiscalYear, true, refresh));
-  });
+  };
 
   await refresh();
 }
@@ -4530,9 +4498,6 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
   const endDateInput = box.querySelector(".rev-f-end-date");
   const billingModelInput = box.querySelector(".rev-f-billing-model");
   const tcvInput = box.querySelector(".rev-f-tcv");
-  const onsiteInput = box.querySelector(".rev-f-onsite");
-  const offshoreInput = box.querySelector(".rev-f-offshore");
-  const nearshoreInput = box.querySelector(".rev-f-nearshore");
   const notesInput = box.querySelector(".rev-f-notes");
   const monthInputs = box.querySelectorAll(".rev-f-month");
   const totalEl = document.getElementById("revenueEntryModalTotal");
@@ -4582,6 +4547,129 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
     billingModelInput.value = (selectedSow && selectedSow.billing_model_name) || "—";
     tcvInput.value = selectedSow ? fmt(selectedSow.total_value) : "—";
   }
+
+  function refreshTotal() {
+    const sum = Array.from(monthInputs).reduce((acc, input) => acc + (parseFloat(input.value) || 0), 0);
+    totalEl.textContent = fmtPlain(sum);
+  }
+
+  // Revenue Projections and Monthly Breakdown is always read-only now, per
+  // explicit request - it's the sum of this SOW's Managed Services
+  // Resources' own monthly revenue (ms_resource_entries), not a flat number
+  // typed directly here. applyResourceSums() is renderMsResourceSubtable's
+  // onResourcesChange callback below, so it re-runs after every resource
+  // add/edit/delete, not just when the popup first opens - 0 for every
+  // month whenever there are no resources yet (no SOW selected, or a SOW
+  // with none added), even if this row previously had manually-entered
+  // figures; those are only actually overwritten once Save is clicked.
+  function applyResourceSums(resources) {
+    const sums = {};
+    (resources || []).forEach((res) => {
+      (res.months || []).forEach((m) => {
+        sums[m.fiscal_month] = (sums[m.fiscal_month] || 0) + (m.revenue || 0);
+      });
+    });
+    monthInputs.forEach((input) => {
+      const fm = parseInt(input.dataset.fiscalMonth, 10);
+      input.value = sums[fm] || 0;
+    });
+    refreshTotal();
+  }
+
+  // Managed Services Resources - reuses the exact same
+  // renderMsResourceSubtable() used to live inline in the main grid, just
+  // targeting this popup's own container. A resource only ever belongs to a
+  // sow_id (see ms_resources in db.py), never to a bare Customer, so this
+  // stays hidden behind its own hint until a SOW is actually selected -
+  // which, for "Add Entry", may not happen until the user picks one after
+  // opening the popup. The grid's own Onsite/Offshore/Nearshore counts
+  // simply pick up whatever was added here on the next loadRevenueSows()
+  // reload, same as Save always triggers.
+  const resourcesSection = document.getElementById("revenueEntryResourcesSection");
+  const resourcesHint = document.getElementById("revenueEntryResourcesHint");
+  const resourcesContainer = document.getElementById("revenueEntryResourcesContainer");
+  const addResourceBtn = document.getElementById("msAddResourceBtn");
+  function refreshResourcesSection() {
+    const selectedSowId = sowSelect.value ? parseInt(sowSelect.value, 10) : null;
+    if (selectedSowId) {
+      resourcesSection.hidden = false;
+      resourcesHint.hidden = true;
+      addResourceBtn.hidden = false;
+      renderMsResourceSubtable(resourcesContainer, selectedSowId, currentFiscalYear, applyResourceSums);
+    } else {
+      resourcesSection.hidden = true;
+      resourcesHint.hidden = false;
+      addResourceBtn.hidden = true;
+      resourcesContainer.innerHTML = "";
+      applyResourceSums([]);
+    }
+  }
+
+  // Excel upload/download for this popup's own Managed Services Resources
+  // subtable (see index.html's ms-resources-toolbar) - scoped to whichever
+  // SOW + fiscal year is currently selected, unlike the main grids'
+  // Export/Import which work off currentFiscalYear alone. Assigned via
+  // .onclick/.onchange (not addEventListener), same reasoning as
+  // customerSelect/sowSelect above - these elements persist across every
+  // open of this modal. Export/Import are only ever clickable while
+  // resourcesSection itself is visible (a SOW is selected), since the
+  // buttons live inside it - see refreshResourcesSection() above.
+  const msExportBtn = document.getElementById("msExportResourcesBtn");
+  const msImportBtn = document.getElementById("msImportResourcesBtn");
+  const msImportFile = document.getElementById("msResourcesImportFile");
+  msExportBtn.onclick = () => {
+    const selectedSowId = sowSelect.value ? parseInt(sowSelect.value, 10) : null;
+    if (!selectedSowId) return;
+    window.location.href = `${API}/revenue/ms-resources/export?sow_id=${selectedSowId}&fiscal_year=${currentFiscalYear}`;
+  };
+  msImportBtn.onclick = () => msImportFile.click();
+  // Unlike wireExcelImport()'s full loadRevenueTab() reload, a successful
+  // import here just re-renders this popup's own resource subtable (and, via
+  // its onResourcesChange callback, re-sums Revenue Projections and Monthly
+  // Breakdown) - refreshResourcesSection() already does exactly that.
+  msImportFile.onchange = async () => {
+    const file = msImportFile.files[0];
+    if (!file) return;
+    const selectedSowId = sowSelect.value ? parseInt(sowSelect.value, 10) : null;
+    if (!selectedSowId) { msImportFile.value = ""; return; }
+    msImportBtn.disabled = true;
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const resp = await fetch(
+        `${API}/revenue/ms-resources/import?sow_id=${selectedSowId}&fiscal_year=${currentFiscalYear}`,
+        { method: "POST", body: formData }
+      );
+      const result = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        alert(formatApiError(result, "Failed to import this file."));
+        return;
+      }
+      const errorLines = (result.errors || []).map((e) => `Row ${e.row}: ${e.message}`);
+      let message = `Imported ${result.imported || 0} row${result.imported === 1 ? "" : "s"}.`;
+      if (errorLines.length) {
+        message += `\n\n${errorLines.length} row${errorLines.length === 1 ? "" : "s"} skipped:\n${errorLines.join("\n")}`;
+      }
+      alert(message);
+      if (result.imported) refreshResourcesSection();
+    } finally {
+      msImportBtn.disabled = false;
+      msImportFile.value = "";
+    }
+  };
+
+  // Seeded from this row's own last-saved r.months first (or all zeros for a
+  // brand-new/copied row) so there's no flash to zero while the resources
+  // fetch triggered by refreshResourcesSection() below is still in flight -
+  // converges to the true resource sum as soon as it resolves.
+  const monthValues = {};
+  (r ? r.months : []).forEach((m) => { monthValues[m.fiscal_month] = m.projection; });
+  monthInputs.forEach((input) => {
+    const fm = parseInt(input.dataset.fiscalMonth, 10);
+    input.value = monthValues[fm] ?? 0;
+  });
+  refreshTotal();
+  refreshResourcesSection();
   // For an existing row, show its own already-known figures (from r) rather
   // than re-deriving them from the sows list - exactly what's on screen
   // right now, and correct even if this SOW is somehow missing from the
@@ -4596,24 +4684,7 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
     refreshSowDependentFields();
   }
 
-  onsiteInput.value = r ? (r.onsite_count ?? 0) : 0;
-  offshoreInput.value = r ? (r.offshore_count ?? 0) : 0;
-  nearshoreInput.value = r ? (r.nearshore_count ?? 0) : 0;
   notesInput.value = (r ? r.additional_info : "") || "";
-
-  const monthValues = {};
-  (r ? r.months : (prefill.months || [])).forEach((m) => { monthValues[m.fiscal_month] = m.projection; });
-  monthInputs.forEach((input) => {
-    const fm = parseInt(input.dataset.fiscalMonth, 10);
-    input.value = monthValues[fm] ?? 0;
-  });
-
-  function refreshTotal() {
-    const sum = Array.from(monthInputs).reduce((acc, input) => acc + (parseFloat(input.value) || 0), 0);
-    totalEl.textContent = fmtPlain(sum);
-  }
-  refreshTotal();
-  monthInputs.forEach((input) => { input.oninput = refreshTotal; });
 
   // Assigned via .onchange (not addEventListener) since these same <select>
   // elements persist across every open of this modal - addEventListener
@@ -4622,17 +4693,19 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
     revenueTypeSelect.value = "";
     refreshSowOptions();
     refreshSowDependentFields();
+    refreshResourcesSection();
   };
   sowSelect.onchange = () => {
     refreshSowDependentFields();
+    refreshResourcesSection();
     const selectedSow = sows.find((s) => String(s.id) === sowSelect.value);
     revenueTypeSelect.value = (selectedSow && selectedSow.revenue_type_id) ?? "";
   };
 
   // View mode disables/read-onlys every field that's otherwise editable for
-  // an existing row (Revenue Type, the 12 months, Additional Information -
-  // Customer/SOW are already always disabled for an existing row above, and
-  // Onsite #/Offshore #/Nearshore # are always readonly regardless of mode
+  // an existing row (Revenue Type, Additional Information - Customer/SOW are
+  // already always disabled for an existing row above, and the 12 months/
+  // Onsite #/Offshore #/Nearshore # are always readonly regardless of mode,
   // per explicit request) and swaps the Save button for an Edit button.
   // Clicking that Edit button re-enters this same function's edit mode in
   // place, without closing/reopening the popup. Not offered at all for a
@@ -4643,7 +4716,6 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
       : (isEditing ? "Edit Managed Services Entry" : "Add Managed Services Entry");
     revenueTypeSelect.disabled = isViewOnly;
     notesInput.readOnly = isViewOnly;
-    monthInputs.forEach((input) => { input.readOnly = isViewOnly; });
     editRevenueEntryBtnTop.hidden = !isViewOnly;
     editRevenueEntryBtn.hidden = !isViewOnly;
     saveRevenueEntryBtnTop.hidden = isViewOnly;
@@ -4812,7 +4884,7 @@ function renderTmAssignmentsTable() {
       allRows.length ? "No entries match the selected filter." : 'No entries yet. Click "Add Entry" to start tracking a Time and Material assignment.'
     }</td></tr>`;
   } else {
-    filteredRows.forEach((r) => tbody.appendChild(buildTmAssignmentRow(r, false)));
+    filteredRows.forEach((r) => tbody.appendChild(buildTmAssignmentRow(r)));
     renumberTmRows();
     highlightDuplicateTmEmployeeIds();
   }
@@ -4829,13 +4901,6 @@ function renumberTmRows() {
     const cell = tr.querySelector(".tm-sl-no");
     if (cell) { n += 1; cell.textContent = n; }
   });
-}
-
-function replaceTmRow(oldTr, newTr) {
-  const oldCell = oldTr.querySelector(".tm-sl-no");
-  const newCell = newTr.querySelector(".tm-sl-no");
-  if (oldCell && newCell) newCell.textContent = oldCell.textContent;
-  oldTr.replaceWith(newTr);
 }
 
 // Flags every row in the Time and Material grid whose Employee ID matches
@@ -4864,254 +4929,101 @@ function highlightDuplicateTmEmployeeIds() {
   });
 }
 
-function buildTmAssignmentRow(r, editing) {
+// Builds one <tr> for the Time and Material grid - always read-only now
+// (Add, Edit and View all open #tmEntryModal instead of toggling a row in
+// place; see openTmEntryModal()).
+function buildTmAssignmentRow(r) {
   const tr = document.createElement("tr");
-  if (editing) tr.classList.add("tm-editing-row");
   // Actions comes first (app-wide convention: wherever a table has both
   // Sl. No and Actions, Actions is column 1 and Sl. No is column 2). Sl. No
-  // itself is left blank here and filled in by renumberTmRows()-equivalent
-  // logic based on the row's actual position in the table.
-  let cells = editing
-    ? `<td class="row-actions">
-        <button type="button" class="ghost-btn btn-edit icon-btn tm-save-btn" title="Save">${icon("check")}</button>
-        <button type="button" class="ghost-btn icon-btn tm-cancel-btn" title="Cancel">${icon("x")}</button>
-      </td>`
-    : `<td class="row-actions">
+  // itself is left blank here and filled in by renumberTmRows() based on the
+  // row's actual position in the table.
+  let cells = `<td class="row-actions">
+        <button type="button" class="ghost-btn btn-edit icon-btn tm-view-btn" title="View">${icon("eye")}</button>
         <button type="button" class="ghost-btn btn-edit icon-btn tm-copy-btn" title="Copy">${icon("copy")}</button>
         <button type="button" class="ghost-btn btn-edit icon-btn tm-edit-btn" title="Edit">${icon("edit")}</button>
         <button type="button" class="ghost-btn btn-danger icon-btn tm-del-btn" title="Delete">${icon("trash")}</button>
       </td>`;
   cells += `<td class="tm-sl-no"></td>`;
 
-  if (editing) {
-    cells += `
-      <td><select class="tm-revenue-type-select"></select></td>
-      <td><select class="tm-customer-select"></select></td>
-      <td><select class="tm-sow-select"></select></td>
-      <td class="tm-employee-id-cell"><input type="text" class="tm-employee-id-input" value="${escapeHtml(r.employee_id || "")}" /></td>
-      <td><input type="text" class="tm-employee-name-input" value="${escapeHtml(r.employee_name || "")}" /></td>
-      <td><select class="tm-location-select"></select></td>
-      <td><select class="tm-practice-select"></select></td>
-      <td><input type="text" class="tm-sow-role-input" value="${escapeHtml(r.sow_role || "")}" /></td>
-      <td><input type="text" class="tm-wbs-input" value="${escapeHtml(r.wbs_id || "")}" /></td>
-      <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
-      <td><input type="number" step="0.01" min="0" class="tm-rate-card-input" value="${r.rate_card ?? ""}" /></td>
-      <td><input type="number" step="0.01" min="0" max="100" class="tm-discount-input" value="${r.discount_percent ?? ""}" /></td>
-      <td class="tm-final-rate-cell tm-final-rate">${r.final_rate_card != null ? fmt(r.final_rate_card) : "—"}</td>
-      <td><input type="date" class="tm-start-date-input" value="${r.start_date || ""}" /></td>
-      <td><input type="date" class="tm-end-date-input" value="${r.end_date || ""}" /></td>
-    `;
-  } else {
-    cells += `
-      <td>${escapeHtml(r.revenue_type_name) || "—"}</td>
-      <td>${escapeHtml(r.customer_name) || "—"}</td>
-      <td>${escapeHtml(r.sow_title) || "—"}</td>
-      <td class="tm-employee-id-cell">${escapeHtml(r.employee_id) || "—"}</td>
-      <td>${escapeHtml(r.employee_name) || "—"}${r.leave_details_missing ? `<span class="info-icon-wrap" tabindex="0">${icon("info")}<span class="info-tooltip-text">Leave details are missing</span></span>` : ""}</td>
-      <td>${escapeHtml(r.location_name) || "—"}</td>
-      <td>${escapeHtml(r.practice_name) || "—"}</td>
-      <td>${escapeHtml(r.sow_role) || "—"}</td>
-      <td>${escapeHtml(r.wbs_id) || "—"}</td>
-      <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
-      <td class="rev-tcv-cell">${r.rate_card != null ? fmt(r.rate_card) : "—"}</td>
-      <td>${r.discount_percent != null ? r.discount_percent + "%" : "—"}</td>
-      <td class="rev-tcv-cell tm-final-rate">${r.final_rate_card != null ? fmt(r.final_rate_card) : "—"}</td>
-      <td>${fmtDate(r.start_date)}</td>
-      <td>${fmtDate(r.end_date)}</td>
-    `;
-  }
+  cells += `
+    <td>${escapeHtml(r.revenue_type_name) || "—"}</td>
+    <td>${escapeHtml(r.customer_name) || "—"}</td>
+    <td>${escapeHtml(r.sow_title) || "—"}</td>
+    <td class="tm-employee-id-cell">${escapeHtml(r.employee_id) || "—"}</td>
+    <td>${escapeHtml(r.employee_name) || "—"}${r.leave_details_missing ? `<span class="info-icon-wrap" tabindex="0">${icon("info")}<span class="info-tooltip-text">Leave details are missing</span></span>` : ""}</td>
+    <td>${escapeHtml(r.location_name) || "—"}</td>
+    <td>${escapeHtml(r.practice_name) || "—"}</td>
+    <td>${escapeHtml(r.sow_role) || "—"}</td>
+    <td>${escapeHtml(r.wbs_id) || "—"}</td>
+    <td class="tm-billing-hours-cell">${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
+    <td class="rev-tcv-cell">${r.rate_card != null ? fmt(r.rate_card) : "—"}</td>
+    <td>${r.discount_percent != null ? r.discount_percent + "%" : "—"}</td>
+    <td class="rev-tcv-cell tm-final-rate">${r.final_rate_card != null ? fmt(r.final_rate_card) : "—"}</td>
+    <td>${fmtDate(r.start_date)}</td>
+    <td>${fmtDate(r.end_date)}</td>
+  `;
 
   // Total is always read-only (sum of the 12 months' Projections, Apr
-  // through Mar) in both read-only and editing mode - there's nothing to
-  // input, same reasoning as Projections itself just below.
+  // through Mar) - there's nothing to input, same reasoning as Projections
+  // itself just below.
   const totalProjection = r.months.reduce((sum, m) => sum + (m.projection || 0), 0);
   cells += `<td class="rev-tcv-cell tm-total-cell">${fmtPlain(totalProjection)}</td>`;
 
   // Projections is always auto-calculated (see _compute_tm_projections in
   // main.py - working days between Start/End Date minus Holiday Calendar
   // minus Leave Tracker, times Final Rate Card times Billing Hours per day)
-  // and never manually entered, in either read-only or editing mode - there
-  // is no manual monthly input anywhere in this grid. Projections shown
-  // while editing reflect the row's last-saved values; they recompute from
-  // the row's current fields (rate, discount, dates, location, ...) after
-  // Save reloads the grid.
+  // and never manually entered - there is no manual monthly input anywhere
+  // in this grid or its popup.
   r.months.forEach((m, i) => {
     const band = i % 2 === 0 ? "rev-band-a" : "rev-band-b";
     cells += `<td class="rev-readonly-cell ${band}">${fmtPlain(m.projection)}</td>`;
   });
 
-  cells += editing
-    ? `<td><textarea class="tm-notes-input" rows="2">${escapeHtml(r.additional_info || "")}</textarea></td>`
-    : `<td>${r.additional_info ? `<span class="notes-cell" title="${escapeHtml(r.additional_info)}">${escapeHtml(r.additional_info)}</span>` : "—"}</td>`;
+  cells += `<td>${r.additional_info ? `<span class="notes-cell" title="${escapeHtml(r.additional_info)}">${escapeHtml(r.additional_info)}</span>` : "—"}</td>`;
 
   tr.innerHTML = cells;
   // Feeds highlightDuplicateTmEmployeeIds() - a plain string comparison
   // against every other visible row's own data-employee-id, trimmed so
   // "E123" and "E123 " (a likely copy/paste artifact) still count as the
-  // same id. Kept on the <tr> rather than only the input's value so it
-  // stays readable in both editing and read-only mode without re-querying
-  // the DOM for it.
+  // same id.
   tr.dataset.employeeId = (r.employee_id || "").trim();
 
-  if (editing) {
-    // Keep the duplicate-Employee-ID highlight live while typing, not just
-    // on the next Save/reload - matters most here since editing is exactly
-    // when someone is likely to notice and fix a collision.
-    const employeeIdInput = tr.querySelector(".tm-employee-id-input");
-    employeeIdInput.addEventListener("input", () => {
-      tr.dataset.employeeId = employeeIdInput.value.trim();
-      highlightDuplicateTmEmployeeIds();
+  tr.querySelector(".tm-view-btn").addEventListener("click", () => {
+    openTmEntryModal(r, {}, true);
+  });
+  tr.querySelector(".tm-copy-btn").addEventListener("click", () => {
+    // Unlike the SoW Level grid, an assignment has no uniqueness rule -
+    // "Copy" opens the same Add Entry popup used below, pre-filled with
+    // every one of this row's descriptive fields but no assignment_id, so
+    // Save creates a brand-new assignment rather than touching this one.
+    // Months aren't copied - Projections is always freshly computed for
+    // whatever the new assignment's own fields turn out to be. See
+    // openTmEntryModal().
+    openTmEntryModal(null, {
+      customerId: r.customer_id, sowId: r.sow_id, revenueTypeId: r.revenue_type_id,
+      employeeId: r.employee_id, employeeName: r.employee_name, locationId: r.location_id,
+      practiceId: r.practice_id, wbsId: r.wbs_id, sowRole: r.sow_role, rateCard: r.rate_card,
+      discountPercent: r.discount_percent, startDate: r.start_date, endDate: r.end_date,
+      additionalInfo: r.additional_info,
     });
-
-    const rtSelect = tr.querySelector(".tm-revenue-type-select");
-    rtSelect.innerHTML = `<option value="">Select revenue type&hellip;</option>` +
-      currentRevenueTypes.map((rt) => `<option value="${rt.id}">${escapeHtml(rt.name)}</option>`).join("");
-    rtSelect.value = r.revenue_type_id ?? "";
-
-    const locSelect = tr.querySelector(".tm-location-select");
-    locSelect.innerHTML = `<option value="">Select location&hellip;</option>` +
-      currentLocations.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join("");
-    locSelect.value = r.location_id ?? "";
-
-    const practiceSelect = tr.querySelector(".tm-practice-select");
-    practiceSelect.innerHTML = `<option value="">Select practice&hellip;</option>` +
-      currentPractices.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
-    practiceSelect.value = r.practice_id ?? "";
-
-    const customerSelect = tr.querySelector(".tm-customer-select");
-    customerSelect.innerHTML = `<option value="">Select customer&hellip;</option>` +
-      currentTmCustomers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
-    customerSelect.value = r.customer_id ?? "";
-
-    // Live preview of Billing Hours per day as Customer/Location change -
-    // just a preview (see billingHoursFor()); the value that actually
-    // drives the Projections formula is looked up server-side on Save.
-    const billingHoursCell = tr.querySelector(".tm-billing-hours-cell");
-    function refreshBillingHours() {
-      const hours = billingHoursFor(customerSelect.value, locSelect.value);
-      billingHoursCell.textContent = hours != null ? fmtPlain(hours) : "—";
-    }
-    locSelect.addEventListener("change", refreshBillingHours);
-    customerSelect.addEventListener("change", refreshBillingHours);
-
-    const sowSelect = tr.querySelector(".tm-sow-select");
-    function refreshSowOptions(selectedSowId) {
-      const matching = tmSowsForCustomer(customerSelect.value);
-      if (!customerSelect.value) {
-        sowSelect.innerHTML = '<option value="">Select customer first&hellip;</option>';
-        sowSelect.disabled = true;
-      } else if (!matching.length) {
-        sowSelect.innerHTML = '<option value="">No Statements of Work for this customer</option>';
-        sowSelect.disabled = true;
-      } else {
-        sowSelect.disabled = false;
-        sowSelect.innerHTML = '<option value="">Select Statement of Work&hellip;</option>' +
-          matching.map((s) => `<option value="${s.id}">${escapeHtml(s.title)}</option>`).join("");
+  });
+  tr.querySelector(".tm-edit-btn").addEventListener("click", () => {
+    openTmEntryModal(r);
+  });
+  tr.querySelector(".tm-del-btn").addEventListener("click", async () => {
+    if (confirm(`Remove "${r.employee_name || "this assignment"}" (${r.customer_name}) from Time and Material for ${fyLabelText(currentFiscalYear)}? This deletes all of its months for this fiscal year.`)) {
+      const resp = await fetch(`${API}/tm/assignments/${r.assignment_id}/${currentFiscalYear}`, { method: "DELETE" });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert(formatApiError(err, "Failed to remove this assignment from Time and Material."));
+        return;
       }
-      sowSelect.value = selectedSowId ?? "";
+      loadTmAssignments();
     }
-    refreshSowOptions(r.sow_id);
-    customerSelect.addEventListener("change", () => refreshSowOptions(null));
+  });
 
-    const rateInput = tr.querySelector(".tm-rate-card-input");
-    const discountInput = tr.querySelector(".tm-discount-input");
-    const finalRateCell = tr.querySelector(".tm-final-rate-cell");
-    function refreshFinalRate() {
-      const final = computeFinalRate(rateInput.value, discountInput.value);
-      finalRateCell.textContent = final != null ? fmt(final) : "—";
-    }
-    rateInput.addEventListener("input", refreshFinalRate);
-    discountInput.addEventListener("input", refreshFinalRate);
-
-    tr.querySelector(".tm-save-btn").addEventListener("click", () => saveTmRow(r.assignment_id, tr));
-    tr.querySelector(".tm-cancel-btn").addEventListener("click", () => {
-      const cached = tmAssignmentsCache.get(r.assignment_id) || r;
-      replaceTmRow(tr, buildTmAssignmentRow(cached, false));
-      highlightDuplicateTmEmployeeIds();
-    });
-  } else {
-    tr.querySelector(".tm-copy-btn").addEventListener("click", () => {
-      // Unlike the SoW Level grid, an assignment has no uniqueness rule -
-      // "Copy" opens the same Add Entry draft used above, pre-filled with
-      // every one of this row's descriptive fields but no assignment_id, so
-      // Save creates a brand-new assignment rather than touching this one.
-      // Months aren't copied - Projections is always freshly computed for
-      // whatever the new assignment's own fields turn out to be. See
-      // openTmEntryDraft().
-      openTmEntryDraft({
-        customerId: r.customer_id, sowId: r.sow_id, revenueTypeId: r.revenue_type_id,
-        employeeId: r.employee_id, employeeName: r.employee_name, locationId: r.location_id,
-        practiceId: r.practice_id, wbsId: r.wbs_id, sowRole: r.sow_role, rateCard: r.rate_card,
-        discountPercent: r.discount_percent, startDate: r.start_date, endDate: r.end_date,
-        additionalInfo: r.additional_info,
-      });
-    });
-    tr.querySelector(".tm-edit-btn").addEventListener("click", () => {
-      replaceTmRow(tr, buildTmAssignmentRow(r, true));
-      highlightDuplicateTmEmployeeIds();
-    });
-    tr.querySelector(".tm-del-btn").addEventListener("click", async () => {
-      if (confirm(`Remove "${r.employee_name || "this assignment"}" (${r.customer_name}) from Time and Material for ${fyLabelText(currentFiscalYear)}? This deletes all of its months for this fiscal year.`)) {
-        const resp = await fetch(`${API}/tm/assignments/${r.assignment_id}/${currentFiscalYear}`, { method: "DELETE" });
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          alert(formatApiError(err, "Failed to remove this assignment from Time and Material."));
-          return;
-        }
-        loadTmAssignments();
-      }
-    });
-  }
   return tr;
-}
-
-async function saveTmRow(assignmentId, tr) {
-  const saveBtn = tr.querySelector(".tm-save-btn");
-  const cancelBtn = tr.querySelector(".tm-cancel-btn");
-  saveBtn.disabled = true;
-  cancelBtn.disabled = true;
-
-  // Projections is auto-calculated server-side (see buildTmAssignmentRow's
-  // comment) and there's no manual monthly input anywhere in this grid
-  // anymore, so there's nothing month-related to collect or save here -
-  // only the assignment's own descriptive fields below.
-  const customerVal = tr.querySelector(".tm-customer-select").value;
-  const sowVal = tr.querySelector(".tm-sow-select").value;
-  const revenueTypeVal = tr.querySelector(".tm-revenue-type-select").value;
-  const locationVal = tr.querySelector(".tm-location-select").value;
-  const practiceVal = tr.querySelector(".tm-practice-select").value;
-  const rateCardVal = tr.querySelector(".tm-rate-card-input").value;
-  const discountVal = tr.querySelector(".tm-discount-input").value;
-
-  const assignmentPayload = {
-    customer_id: customerVal ? parseInt(customerVal, 10) : null,
-    sow_id: sowVal ? parseInt(sowVal, 10) : null,
-    revenue_type_id: revenueTypeVal ? parseInt(revenueTypeVal, 10) : null,
-    employee_id: tr.querySelector(".tm-employee-id-input").value.trim() || null,
-    employee_name: tr.querySelector(".tm-employee-name-input").value.trim() || null,
-    location_id: locationVal ? parseInt(locationVal, 10) : null,
-    practice_id: practiceVal ? parseInt(practiceVal, 10) : null,
-    wbs_id: tr.querySelector(".tm-wbs-input").value.trim() || null,
-    sow_role: tr.querySelector(".tm-sow-role-input").value.trim() || null,
-    rate_card: rateCardVal !== "" ? parseFloat(rateCardVal) : null,
-    discount_percent: discountVal !== "" ? parseFloat(discountVal) : null,
-    start_date: tr.querySelector(".tm-start-date-input").value || null,
-    end_date: tr.querySelector(".tm-end-date-input").value || null,
-    additional_info: tr.querySelector(".tm-notes-input").value.trim() || null,
-  };
-
-  try {
-    const resp = await fetch(`${API}/tm/assignments/${assignmentId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(assignmentPayload) });
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      alert(formatApiError(err, "Failed to save this row."));
-      return;
-    }
-    await loadTmAssignments();
-  } finally {
-    saveBtn.disabled = false;
-    cancelBtn.disabled = false;
-  }
 }
 
 document.getElementById("exportTmBtn").addEventListener("click", () => {
@@ -5119,210 +5031,322 @@ document.getElementById("exportTmBtn").addEventListener("click", () => {
   window.location.href = `${API}/tm/assignments/export?fiscal_year=${currentFiscalYear}`;
 });
 
-function tmDraftMonthCellsHtml() {
-  // Projections has no input, editable or not - it's auto-calculated (see
-  // buildTmAssignmentRow's comment) and there's no assignment yet to
-  // compute it against until Save, so every month just shows a placeholder
-  // here and picks up its real computed value once the row reloads after
-  // creation. There is no other monthly figure to enter anymore.
-  let html = "";
-  for (let fm = 1; fm <= 12; fm++) {
-    const band = (fm - 1) % 2 === 0 ? "rev-band-a" : "rev-band-b";
-    html += `<td class="rev-readonly-cell ${band} tm-draft-month-cell">—</td>`;
-  }
-  return html;
-}
+// ---------- Time and Material Add/Edit/View popup (#tmEntryModal) ----------
+// Replaces the grid's previous inline "Add Entry" draft-row and inline
+// "Edit" row-toggle flows with one shared modal, mirroring the Managed
+// Services #revenueEntryModal/openRevenueEntryModal() pattern above. Unlike
+// Managed Services, Customer/Statement of Work/Revenue Type stay editable
+// even on an existing row here (matching the old inline-edit behavior
+// exactly - an assignment has no uniqueness rule tying it to one Customer/
+// SOW the way a Managed Services row does). Billing Hours (per day) and
+// Discounted Rate are always read-only previews (see billingHoursFor()/
+// computeFinalRate()) and the 12 months + Total are always read-only too -
+// Projections is auto-calculated server-side (see
+// buildTmAssignmentRow's comment) and there's no manual monthly input
+// anywhere, editable or not.
+const tmEntryModal = document.getElementById("tmEntryModal");
+wireModalCancel(tmEntryModal, "cancelTmEntryBtn", "cancelTmEntryBtnTop");
+const editTmEntryBtnTop = document.getElementById("editTmEntryBtnTop");
+const editTmEntryBtn = document.getElementById("editTmEntryBtn");
+const saveTmEntryBtnTop = document.getElementById("saveTmEntryBtnTop");
+const saveTmEntryBtn = document.getElementById("saveTmEntryBtn");
 
-// Add Entry - adds a new row directly in the datatable (no popup). Also the
-// basis for "Copy" on an existing row (see buildTmAssignmentRow's
-// tm-copy-btn handler above): prefill carries over every one of the source
-// row's descriptive fields (customerId/sowId/revenueTypeId/employeeId/
-// employeeName/locationId/practiceId/wbsId/rateCard/discountPercent/
-// startDate/endDate), all undefined for a plain "Add Entry" click, which behaves
-// exactly as before.
-async function openTmEntryDraft(prefill = {}) {
+// r is null for "Add Entry" (a POST/creation flow on Save), or the row's own
+// already-fetched summary object for "Edit"/"View" (a PUT on Save, or no
+// write at all for View). prefill mirrors the old openTmEntryDraft()'s own
+// prefill shape - used by "Copy" on an existing row (see
+// buildTmAssignmentRow's tm-copy-btn handler): every one of the source
+// row's descriptive fields, no assignment_id. Both undefined/null for a
+// plain "Add Entry" click, which opens a fully blank popup. viewOnly (see
+// buildTmAssignmentRow's tm-view-btn handler) opens an existing row
+// read-only, with Edit/Cancel instead of Save/Cancel - never true together
+// with a null r.
+function openTmEntryModal(r = null, prefill = {}, viewOnly = false) {
   if (currentFiscalYear === null) currentFiscalYear = fiscalYearForToday();
 
-  const existingDraft = document.querySelector(".tm-draft-row");
-  if (existingDraft) existingDraft.remove();
+  const isEditing = !!r;
+  const box = tmEntryModal;
+  box.dataset.editing = isEditing ? "true" : "";
+  box.dataset.assignmentId = (r && r.assignment_id != null) ? String(r.assignment_id) : "";
 
-  const tbody = document.getElementById("tmAssignmentsTableBody");
-  const emptyRow = tbody.querySelector(".empty-state");
-  if (emptyRow) emptyRow.closest("tr").remove();
+  const revenueTypeSelect = box.querySelector(".tm-f-revenue-type");
+  const customerSelect = box.querySelector(".tm-f-customer");
+  const sowSelect = box.querySelector(".tm-f-sow");
+  const employeeIdInput = box.querySelector(".tm-f-employee-id");
+  const employeeNameInput = box.querySelector(".tm-f-employee-name");
+  const locationSelect = box.querySelector(".tm-f-location");
+  const practiceSelect = box.querySelector(".tm-f-practice");
+  const sowRoleInput = box.querySelector(".tm-f-sow-role");
+  const wbsInput = box.querySelector(".tm-f-wbs");
+  const rateInput = box.querySelector(".tm-f-rate-card");
+  const discountInput = box.querySelector(".tm-f-discount");
+  const billingHoursInput = box.querySelector(".tm-f-billing-hours");
+  const finalRateInput = box.querySelector(".tm-f-final-rate");
+  const startDateInput = box.querySelector(".tm-f-start-date");
+  const endDateInput = box.querySelector(".tm-f-end-date");
+  const notesInput = box.querySelector(".tm-f-notes");
+  const monthInputs = box.querySelectorAll(".tm-f-month");
+  const totalEl = document.getElementById("tmEntryModalTotal");
 
-  const tr = document.createElement("tr");
-  tr.className = "tm-draft-row";
-  tr.innerHTML = `
-    <td class="row-actions">
-      <button type="button" class="ghost-btn btn-edit icon-btn tm-draft-save-btn" disabled title="Save">${icon("check")}</button>
-      <button type="button" class="ghost-btn icon-btn tm-draft-cancel-btn" title="Cancel">${icon("x")}</button>
-    </td>
-    <td></td>
-    <td><select class="tm-draft-revenue-type-select"></select></td>
-    <td><select class="tm-draft-customer-select"><option value="">Select customer&hellip;</option></select></td>
-    <td><select class="tm-draft-sow-select" disabled><option value="">Select customer first&hellip;</option></select></td>
-    <td><input type="text" class="tm-draft-employee-id-input" value="${escapeHtml(prefill.employeeId || "")}" /></td>
-    <td><input type="text" class="tm-draft-employee-name-input" value="${escapeHtml(prefill.employeeName || "")}" /></td>
-    <td><select class="tm-draft-location-select"></select></td>
-    <td><select class="tm-draft-practice-select"></select></td>
-    <td><input type="text" class="tm-draft-sow-role-input" value="${escapeHtml(prefill.sowRole || "")}" /></td>
-    <td><input type="text" class="tm-draft-wbs-input" value="${escapeHtml(prefill.wbsId || "")}" /></td>
-    <td class="tm-draft-billing-hours-cell">&mdash;</td>
-    <td><input type="number" step="0.01" min="0" class="tm-draft-rate-card-input" value="${prefill.rateCard ?? ""}" /></td>
-    <td><input type="number" step="0.01" min="0" max="100" class="tm-draft-discount-input" value="${prefill.discountPercent ?? ""}" /></td>
-    <td class="tm-draft-final-rate-cell tm-final-rate">&mdash;</td>
-    <td><input type="date" class="tm-draft-start-date-input" value="${prefill.startDate || ""}" /></td>
-    <td><input type="date" class="tm-draft-end-date-input" value="${prefill.endDate || ""}" /></td>
-    <td class="rev-tcv-cell tm-total-cell">&mdash;</td>
-    ${tmDraftMonthCellsHtml()}
-    <td><textarea class="tm-draft-notes-input" rows="2">${escapeHtml(prefill.additionalInfo || "")}</textarea></td>
-  `;
-  tbody.insertBefore(tr, tbody.firstChild);
-
-  const revenueTypeSelect = tr.querySelector(".tm-draft-revenue-type-select");
   revenueTypeSelect.innerHTML = `<option value="">Select revenue type&hellip;</option>` +
     currentRevenueTypes.map((rt) => `<option value="${rt.id}">${escapeHtml(rt.name)}</option>`).join("");
-  revenueTypeSelect.value = prefill.revenueTypeId ?? "";
+  revenueTypeSelect.value = r ? (r.revenue_type_id ?? "") : (prefill.revenueTypeId ?? "");
 
-  const locationSelect = tr.querySelector(".tm-draft-location-select");
-  locationSelect.innerHTML = `<option value="">Select location&hellip;</option>` +
-    currentLocations.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join("");
-  locationSelect.value = prefill.locationId ?? "";
-
-  const practiceSelect = tr.querySelector(".tm-draft-practice-select");
-  practiceSelect.innerHTML = `<option value="">Select practice&hellip;</option>` +
-    currentPractices.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
-  practiceSelect.value = prefill.practiceId ?? "";
-
-  const customerSelect = tr.querySelector(".tm-draft-customer-select");
   customerSelect.innerHTML = '<option value="">Select customer&hellip;</option>' +
     currentTmCustomers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
-  customerSelect.value = prefill.customerId ?? "";
+  customerSelect.value = r ? String(r.customer_id ?? "") : String(prefill.customerId ?? "");
 
-  const sowSelect = tr.querySelector(".tm-draft-sow-select");
-  const rateInput = tr.querySelector(".tm-draft-rate-card-input");
-  const discountInput = tr.querySelector(".tm-draft-discount-input");
-  const finalRateCell = tr.querySelector(".tm-draft-final-rate-cell");
-  const billingHoursCell = tr.querySelector(".tm-draft-billing-hours-cell");
-  const saveBtn = tr.querySelector(".tm-draft-save-btn");
-
-  function refreshFinalRate() {
-    const final = computeFinalRate(rateInput.value, discountInput.value);
-    finalRateCell.textContent = final != null ? fmt(final) : "—";
-  }
-  rateInput.addEventListener("input", refreshFinalRate);
-  discountInput.addEventListener("input", refreshFinalRate);
-
-  // Live preview of Billing Hours per day, same as the edit-row version -
-  // see billingHoursFor()'s comment.
-  function refreshBillingHours() {
-    const hours = billingHoursFor(customerSelect.value, locationSelect.value);
-    billingHoursCell.textContent = hours != null ? fmtPlain(hours) : "—";
-  }
-  locationSelect.addEventListener("change", refreshBillingHours);
-
-  function updateSaveEnabled() {
-    saveBtn.disabled = !tr.querySelector(".tm-draft-employee-name-input").value.trim() || !customerSelect.value;
-  }
-  tr.querySelector(".tm-draft-employee-name-input").addEventListener("input", updateSaveEnabled);
-
-  customerSelect.addEventListener("change", () => {
-    const val = customerSelect.value;
-    const matching = tmSowsForCustomer(val);
-    if (!val) {
-      sowSelect.disabled = true;
+  function refreshSowOptions(selectedSowId) {
+    const custVal = customerSelect.value;
+    const matching = tmSowsForCustomer(custVal);
+    if (!custVal) {
       sowSelect.innerHTML = '<option value="">Select customer first&hellip;</option>';
-    } else if (!matching.length) {
       sowSelect.disabled = true;
+    } else if (!matching.length) {
       sowSelect.innerHTML = '<option value="">No Statements of Work for this customer</option>';
+      sowSelect.disabled = true;
     } else {
       sowSelect.disabled = false;
       sowSelect.innerHTML = '<option value="">Select Statement of Work&hellip;</option>' +
         matching.map((s) => `<option value="${s.id}">${escapeHtml(s.title)}</option>`).join("");
     }
-    updateSaveEnabled();
-    refreshBillingHours();
-  });
+    sowSelect.value = selectedSowId ?? "";
+  }
+  refreshSowOptions(r ? r.sow_id : prefill.sowId);
 
-  tr.querySelector(".tm-draft-cancel-btn").addEventListener("click", () => {
-    tr.remove();
-    if (!tbody.querySelector("tr")) loadTmAssignments();
-  });
+  employeeIdInput.value = r ? (r.employee_id || "") : (prefill.employeeId || "");
+  employeeNameInput.value = r ? (r.employee_name || "") : (prefill.employeeName || "");
 
-  saveBtn.addEventListener("click", async () => {
-    const cancelBtn = tr.querySelector(".tm-draft-cancel-btn");
-    saveBtn.disabled = true;
-    cancelBtn.disabled = true;
+  locationSelect.innerHTML = `<option value="">Select location&hellip;</option>` +
+    currentLocations.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join("");
+  locationSelect.value = r ? (r.location_id ?? "") : (prefill.locationId ?? "");
 
-    const customerVal = customerSelect.value;
-    const sowVal = sowSelect.value;
-    const revenueTypeVal = revenueTypeSelect.value;
-    const locationVal = locationSelect.value;
-    const practiceVal = practiceSelect.value;
-    const rateCardVal = rateInput.value;
-    const discountVal = discountInput.value;
+  practiceSelect.innerHTML = `<option value="">Select practice&hellip;</option>` +
+    currentPractices.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+  practiceSelect.value = r ? (r.practice_id ?? "") : (prefill.practiceId ?? "");
 
-    const createPayload = {
-      customer_id: customerVal ? parseInt(customerVal, 10) : null,
-      sow_id: sowVal ? parseInt(sowVal, 10) : null,
-      revenue_type_id: revenueTypeVal ? parseInt(revenueTypeVal, 10) : null,
-      employee_id: tr.querySelector(".tm-draft-employee-id-input").value.trim() || null,
-      employee_name: tr.querySelector(".tm-draft-employee-name-input").value.trim() || null,
-      location_id: locationVal ? parseInt(locationVal, 10) : null,
-      practice_id: practiceVal ? parseInt(practiceVal, 10) : null,
-      wbs_id: tr.querySelector(".tm-draft-wbs-input").value.trim() || null,
-      sow_role: tr.querySelector(".tm-draft-sow-role-input").value.trim() || null,
-      rate_card: rateCardVal !== "" ? parseFloat(rateCardVal) : null,
-      discount_percent: discountVal !== "" ? parseFloat(discountVal) : null,
-      start_date: tr.querySelector(".tm-draft-start-date-input").value || null,
-      end_date: tr.querySelector(".tm-draft-end-date-input").value || null,
-      additional_info: tr.querySelector(".tm-draft-notes-input").value.trim() || null,
-      fiscal_year: currentFiscalYear,
-    };
+  sowRoleInput.value = r ? (r.sow_role || "") : (prefill.sowRole || "");
+  wbsInput.value = r ? (r.wbs_id || "") : (prefill.wbsId || "");
+  rateInput.value = r ? (r.rate_card ?? "") : (prefill.rateCard ?? "");
+  discountInput.value = r ? (r.discount_percent ?? "") : (prefill.discountPercent ?? "");
+  startDateInput.value = r ? (r.start_date || "") : (prefill.startDate || "");
+  endDateInput.value = r ? (r.end_date || "") : (prefill.endDate || "");
+  notesInput.value = r ? (r.additional_info || "") : (prefill.additionalInfo || "");
 
-    const createResp = await fetch(`${API}/tm/assignments`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(createPayload),
-    });
-    if (!createResp.ok) {
-      const err = await createResp.json().catch(() => ({}));
-      alert(formatApiError(err, "Failed to create this assignment."));
-      saveBtn.disabled = false;
-      cancelBtn.disabled = false;
-      return;
-    }
-    const created = await createResp.json();
+  // Live preview of Billing Hours per day as Customer/Location change - just
+  // a preview (see billingHoursFor()); the value that actually drives the
+  // Projections formula is looked up server-side on Save.
+  function refreshBillingHours() {
+    const hours = billingHoursFor(customerSelect.value, locationSelect.value);
+    billingHoursInput.value = hours != null ? fmtPlain(hours) : "—";
+  }
+  refreshBillingHours();
 
-    // created.months already carries the server's freshly computed
-    // Projections (from _tm_row_dict) - nothing else to merge in, since
-    // there's no other monthly figure to enter for Time and Material.
-    tmAssignmentsCache.set(created.assignment_id, created);
-    tr.replaceWith(buildTmAssignmentRow(created, false));
-    renumberTmRows();
-    highlightDuplicateTmEmployeeIds();
-    const currentlyFiltered = Array.from(tmAssignmentsCache.values()).filter(tmRowMatchesFilters);
-    renderRevenueTypeSummaryTable(currentlyFiltered, "tmRevenueTypeSummaryBody");
-  });
-
-  updateSaveEnabled();
-
-  // Copy: dispatching "change" runs customerSelect's own listener above
-  // (populating sowSelect's options and refreshing the Billing Hours
-  // preview) exactly as if the user had just picked this customer
-  // themselves; sowSelect's value is then set directly since its own
-  // options aren't tied to a change listener. refreshFinalRate() is called
-  // once explicitly since the Rate Card/Discount inputs were only prefilled
-  // via their initial value attribute, which doesn't fire the "input"
-  // event that normally keeps Discounted Rate Card in sync. Every piece
-  // here is a no-op for a plain "Add Entry" click (prefill fields all
-  // undefined).
-  if (prefill.customerId) {
-    customerSelect.dispatchEvent(new Event("change"));
-    if (prefill.sowId) sowSelect.value = String(prefill.sowId);
+  function refreshFinalRate() {
+    const final = computeFinalRate(rateInput.value, discountInput.value);
+    finalRateInput.value = final != null ? fmt(final) : "—";
   }
   refreshFinalRate();
+
+  // Seeded from this row's own last-saved r.months first (or "—" for a
+  // brand-new/copied row) so there's no flash to zero while the live preview
+  // fetch below is still in flight - refreshProjectionsPreview() then
+  // immediately re-derives the true current figures from whatever's in the
+  // fields right now, converging on the same numbers for an untouched
+  // existing row.
+  const monthValues = {};
+  (r ? r.months : []).forEach((m) => { monthValues[m.fiscal_month] = m.projection; });
+  let totalProjection = 0;
+  monthInputs.forEach((input) => {
+    const fm = parseInt(input.dataset.fiscalMonth, 10);
+    if (r) {
+      const v = monthValues[fm] ?? 0;
+      input.value = fmtPlain(v);
+      totalProjection += v;
+    } else {
+      input.value = "—";
+    }
+  });
+  totalEl.textContent = r ? fmtPlain(totalProjection) : "—";
+
+  // Live preview of Projections as soon as enough fields are filled in
+  // (Customer, Location, Rate Card, Start Date, End Date), per explicit
+  // request - previously this only updated after Save reloaded the grid.
+  // Calls the same _compute_tm_projections/_billing_hours_per_day the real
+  // Save uses (see POST /api/tm/assignments/preview in main.py), just
+  // against whatever the popup's fields currently hold rather than a saved
+  // row, so it always matches what Save is about to persist. previewSeq
+  // guards against an earlier, slower request overwriting a later one if two
+  // fire close together (e.g. typing Rate Card quickly).
+  let previewSeq = 0;
+  let previewDebounceTimer = null;
+  async function refreshProjectionsPreview() {
+    const seq = ++previewSeq;
+    const customerVal = customerSelect.value;
+    const locationVal = locationSelect.value;
+    const startVal = startDateInput.value;
+    const endVal = endDateInput.value;
+    const rateVal = rateInput.value;
+    if (!customerVal || !locationVal || !startVal || !endVal || rateVal === "") {
+      monthInputs.forEach((input) => { input.value = "—"; });
+      totalEl.textContent = "—";
+      return;
+    }
+    let data;
+    try {
+      const resp = await fetch(`${API}/tm/assignments/preview`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_id: parseInt(customerVal, 10),
+          location_id: parseInt(locationVal, 10),
+          employee_id: employeeIdInput.value.trim() || null,
+          rate_card: parseFloat(rateVal),
+          discount_percent: discountInput.value !== "" ? parseFloat(discountInput.value) : null,
+          start_date: startVal,
+          end_date: endVal,
+          fiscal_year: currentFiscalYear,
+        }),
+      });
+      if (!resp.ok) return;
+      data = await resp.json();
+    } catch {
+      return;
+    }
+    if (seq !== previewSeq) return; // a newer request has since started - discard this stale one
+    const previewValues = {};
+    data.months.forEach((m) => { previewValues[m.fiscal_month] = m.revenue; });
+    let total = 0;
+    monthInputs.forEach((input) => {
+      const fm = parseInt(input.dataset.fiscalMonth, 10);
+      const v = previewValues[fm] ?? 0;
+      input.value = fmtPlain(v);
+      total += v;
+    });
+    totalEl.textContent = fmtPlain(total);
+  }
+  function schedulePreviewRefresh() {
+    clearTimeout(previewDebounceTimer);
+    previewDebounceTimer = setTimeout(refreshProjectionsPreview, 250);
+  }
+  refreshProjectionsPreview();
+
+  // Assigned via .onchange/.oninput (not addEventListener) since these same
+  // elements persist across every open of this modal - addEventListener
+  // would stack a new listener on top of the last one each time.
+  customerSelect.onchange = () => {
+    refreshSowOptions(null);
+    refreshBillingHours();
+    schedulePreviewRefresh();
+  };
+  locationSelect.onchange = () => {
+    refreshBillingHours();
+    schedulePreviewRefresh();
+  };
+  rateInput.oninput = () => {
+    refreshFinalRate();
+    schedulePreviewRefresh();
+  };
+  discountInput.oninput = () => {
+    refreshFinalRate();
+    schedulePreviewRefresh();
+  };
+  startDateInput.onchange = schedulePreviewRefresh;
+  endDateInput.onchange = schedulePreviewRefresh;
+  employeeIdInput.onchange = schedulePreviewRefresh;
+
+  // View mode disables/read-onlys every field that's otherwise editable
+  // (Billing Hours (per day), Discounted Rate and the monthly breakdown are
+  // always read-only regardless of mode, per their own comments above) and
+  // swaps the Save button for an Edit button. Clicking that Edit button
+  // re-enters this same function's edit mode in place, without closing/
+  // reopening the popup. Not offered at all for a brand-new ("Add Entry")
+  // row, which has no view mode to begin with.
+  function setMode(isViewOnly) {
+    document.getElementById("tmEntryModalTitle").textContent = isViewOnly
+      ? "View Time and Material Entry"
+      : (isEditing ? "Edit Time and Material Entry" : "Add Time and Material Entry");
+    revenueTypeSelect.disabled = isViewOnly;
+    customerSelect.disabled = isViewOnly;
+    locationSelect.disabled = isViewOnly;
+    practiceSelect.disabled = isViewOnly;
+    employeeIdInput.readOnly = isViewOnly;
+    employeeNameInput.readOnly = isViewOnly;
+    sowRoleInput.readOnly = isViewOnly;
+    wbsInput.readOnly = isViewOnly;
+    rateInput.readOnly = isViewOnly;
+    discountInput.readOnly = isViewOnly;
+    startDateInput.readOnly = isViewOnly;
+    endDateInput.readOnly = isViewOnly;
+    notesInput.readOnly = isViewOnly;
+    refreshSowOptions(sowSelect.value || (r ? r.sow_id : prefill.sowId));
+    if (isViewOnly) sowSelect.disabled = true;
+    editTmEntryBtnTop.hidden = !isViewOnly;
+    editTmEntryBtn.hidden = !isViewOnly;
+    saveTmEntryBtnTop.hidden = isViewOnly;
+    saveTmEntryBtn.hidden = isViewOnly;
+  }
+  editTmEntryBtnTop.onclick = () => setMode(false);
+  editTmEntryBtn.onclick = () => setMode(false);
+  setMode(isEditing && viewOnly);
+
+  tmEntryModal.hidden = false;
 }
 
-document.getElementById("newTmEntryBtn").addEventListener("click", () => openTmEntryDraft());
+document.getElementById("tmEntryForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const box = tmEntryModal;
+  const isEditing = box.dataset.editing === "true";
+  const assignmentId = box.dataset.assignmentId ? parseInt(box.dataset.assignmentId, 10) : null;
+
+  const customerVal = box.querySelector(".tm-f-customer").value;
+  const employeeNameVal = box.querySelector(".tm-f-employee-name").value.trim();
+  if (!customerVal) { alert("Please select a customer."); return; }
+  if (!employeeNameVal) { alert("Please enter an employee name."); return; }
+
+  const sowVal = box.querySelector(".tm-f-sow").value;
+  const revenueTypeVal = box.querySelector(".tm-f-revenue-type").value;
+  const locationVal = box.querySelector(".tm-f-location").value;
+  const practiceVal = box.querySelector(".tm-f-practice").value;
+  const rateCardVal = box.querySelector(".tm-f-rate-card").value;
+  const discountVal = box.querySelector(".tm-f-discount").value;
+
+  const payload = {
+    customer_id: parseInt(customerVal, 10),
+    sow_id: sowVal ? parseInt(sowVal, 10) : null,
+    revenue_type_id: revenueTypeVal ? parseInt(revenueTypeVal, 10) : null,
+    employee_id: box.querySelector(".tm-f-employee-id").value.trim() || null,
+    employee_name: employeeNameVal,
+    location_id: locationVal ? parseInt(locationVal, 10) : null,
+    practice_id: practiceVal ? parseInt(practiceVal, 10) : null,
+    wbs_id: box.querySelector(".tm-f-wbs").value.trim() || null,
+    sow_role: box.querySelector(".tm-f-sow-role").value.trim() || null,
+    rate_card: rateCardVal !== "" ? parseFloat(rateCardVal) : null,
+    discount_percent: discountVal !== "" ? parseFloat(discountVal) : null,
+    start_date: box.querySelector(".tm-f-start-date").value || null,
+    end_date: box.querySelector(".tm-f-end-date").value || null,
+    additional_info: box.querySelector(".tm-f-notes").value.trim() || null,
+  };
+  if (!isEditing) payload.fiscal_year = currentFiscalYear;
+
+  const saveButtons = box.querySelectorAll('button[type="submit"]');
+  saveButtons.forEach((b) => (b.disabled = true));
+  try {
+    const url = isEditing ? `${API}/tm/assignments/${assignmentId}` : `${API}/tm/assignments`;
+    const method = isEditing ? "PUT" : "POST";
+    const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      alert(formatApiError(err, "Failed to save this entry."));
+      return;
+    }
+    tmEntryModal.hidden = true;
+    await loadTmAssignments();
+  } finally {
+    saveButtons.forEach((b) => (b.disabled = false));
+  }
+});
+
+document.getElementById("newTmEntryBtn").addEventListener("click", () => openTmEntryModal());
 
 // ---------- Configuration: generic simple-list helper (Locations, Billing
 // Models, Statuses, Employee Types, Bands, Opportunity Types) ----------

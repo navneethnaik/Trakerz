@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=116" />
+<link rel="stylesheet" href="style.css?v=118" />
 </head>
 <body>
 <header class="topbar">
@@ -599,7 +599,7 @@
             <th class="group-divider sortable-th" data-sort-key="billing_model_name">Billing Model<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="operating_model_name">Operating Model<span class="sort-arrow"></span></th>
             <th class="group-divider sortable-th" data-sort-key="start_date">Start Date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="end_date">End Date<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="duration_months">Months #<span class="sort-arrow"></span></th>
             <th class="group-divider sortable-th" data-sort-key="total_value">TCV ($)<span class="sort-arrow"></span></th><th class="sortable-th" data-sort-key="gm_percent">GM %<span class="sort-arrow"></span></th><th>PO#</th>
-            <th class="group-divider">Customer Code</th><th>Contract Code</th><th>Project Name</th><th>Project Code</th>
+            <th class="group-divider">Customer Code</th><th>Contract Code</th><th>Project Title</th><th>Project Code</th>
             <th class="group-divider">Statement of Work</th><th>Deal Sheet</th><th>Purchase Order</th>
           </tr>
         </thead>
@@ -1615,7 +1615,7 @@
       <div class="four-col">
         <label>Customer Code<input type="text" class="sow-f-customer-code form-field-readonly" readonly /></label>
         <label>Contract Code<input type="text" class="sow-f-contract-code" /></label>
-        <label>Project Name<input type="text" class="sow-f-project-title" /></label>
+        <label>Project Title<input type="text" class="sow-f-project-title" /></label>
         <label>Project Code<input type="text" class="sow-f-project-code" /></label>
       </div>
 
@@ -1684,41 +1684,82 @@
       </div>
     </div>
     <form id="revenueEntryForm">
-      <div class="two-col">
+      <div class="three-col">
         <label>Revenue Type<select class="rev-f-revenue-type"></select></label>
         <label>Customer Name<select class="rev-f-customer"></select></label>
+        <label>Statement of Work
+          <select class="rev-f-sow" disabled><option value="">Select customer first&hellip;</option></select>
+        </label>
       </div>
-      <label>Statement of Work
-        <select class="rev-f-sow" disabled><option value="">Select customer first&hellip;</option></select>
-      </label>
-      <div class="three-col">
+      <div class="four-col">
         <label>Start Date<input type="text" class="rev-f-start-date" readonly /></label>
         <label>End Date<input type="text" class="rev-f-end-date" readonly /></label>
         <label>Billing Model<input type="text" class="rev-f-billing-model" readonly /></label>
-      </div>
-      <div class="three-col">
         <label>TCV ($)<input type="text" class="rev-f-tcv" readonly /></label>
-        <label>Onsite #<input type="number" step="1" min="0" class="rev-f-onsite" value="0" readonly /></label>
-        <label>Offshore #<input type="number" step="1" min="0" class="rev-f-offshore" value="0" readonly /></label>
       </div>
-      <label>Nearshore #<input type="number" step="1" min="0" class="rev-f-nearshore" value="0" readonly /></label>
 
+      <!-- Always read-only now (see applyResourceSums() in app.js) - each
+           month is the sum of this SOW's Managed Services Resources' own
+           monthly revenue, per explicit request, not typed in here. -->
       <div class="form-section-title">Revenue Projections and Monthly Breakdown</div>
       <div class="rev-modal-months-grid">
-        <label>Apr<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="1" value="0" /></label>
-        <label>May<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="2" value="0" /></label>
-        <label>Jun<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="3" value="0" /></label>
-        <label>Jul<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="4" value="0" /></label>
-        <label>Aug<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="5" value="0" /></label>
-        <label>Sep<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="6" value="0" /></label>
-        <label>Oct<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="7" value="0" /></label>
-        <label>Nov<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="8" value="0" /></label>
-        <label>Dec<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="9" value="0" /></label>
-        <label>Jan<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="10" value="0" /></label>
-        <label>Feb<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="11" value="0" /></label>
-        <label>Mar<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="12" value="0" /></label>
+        <label>Apr<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="1" value="0" readonly /></label>
+        <label>May<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="2" value="0" readonly /></label>
+        <label>Jun<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="3" value="0" readonly /></label>
+        <label>Jul<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="4" value="0" readonly /></label>
+        <label>Aug<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="5" value="0" readonly /></label>
+        <label>Sep<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="6" value="0" readonly /></label>
+        <label>Oct<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="7" value="0" readonly /></label>
+        <label>Nov<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="8" value="0" readonly /></label>
+        <label>Dec<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="9" value="0" readonly /></label>
+        <label>Jan<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="10" value="0" readonly /></label>
+        <label>Feb<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="11" value="0" readonly /></label>
+        <label>Mar<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="12" value="0" readonly /></label>
       </div>
       <div class="rev-modal-total">Total: <span id="revenueEntryModalTotal">0.00</span></div>
+
+      <!-- Managed Services Resources - per explicit request, addable directly
+           from this popup (see renderMsResourceSubtable in app.js). SOW-
+           backed only (a resource is always tied to a specific sow_id) -
+           hidden with a hint until a Statement of Work is actually selected
+           above, which for "Add Entry" may not happen until the user picks
+           one. Onsite #/Offshore #/Nearshore # removed from this popup
+           entirely per explicit request - now purely computed from these
+           same resources (see _ms_location_counts_by_sow in main.py) and
+           shown read-only on the grid itself instead. "+ Add resource"
+           lives in this heading row, right-aligned, rather than below the
+           table (see renderMsResourceSubtable's addBtn wiring) - hidden
+           along with the rest of this section until a SOW is selected. -->
+      <div class="form-section-title form-section-title-row">
+        <span>Managed Services Resources</span>
+        <button type="button" id="msAddResourceBtn" class="ghost-btn" hidden>+ Add resource</button>
+      </div>
+      <p id="revenueEntryResourcesHint" class="empty-state empty-state-tight">Select a Statement of Work above to add resources.</p>
+      <!-- Excel upload/download for this one SOW+fiscal year's resource
+           list, scoped by sowResourcesFilters() in app.js (both are already
+           known whenever this section is visible, so unlike the main-grid
+           toolbars there's no separate fiscal-year picker here). Download
+           template is generic (no sow_id/fiscal_year in the file itself -
+           see ms_resources_import_template in main.py), so it's a plain
+           static link like the other Download template links on this page;
+           Import/Export need the popup's current SOW+fiscal year appended
+           as query params, so those are wired in JS instead of a static
+           href/download attribute. -->
+      <div id="revenueEntryResourcesSection" hidden>
+        <div class="toolbar subsection-toolbar ms-resources-toolbar">
+          <a id="msResourcesTemplateLink" class="template-link" href="/api/revenue/ms-resources/import-template">Download template</a>
+          <button type="button" id="msImportResourcesBtn" class="ghost-btn">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            Import from Excel
+          </button>
+          <input type="file" id="msResourcesImportFile" accept=".xlsx" hidden />
+          <button type="button" id="msExportResourcesBtn" class="ghost-btn">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Export to Excel
+          </button>
+        </div>
+        <div id="revenueEntryResourcesContainer"></div>
+      </div>
 
       <div class="form-section-title">Additional Information</div>
       <label>Additional Information<textarea class="rev-f-notes" rows="3"></textarea></label>
@@ -1732,6 +1773,92 @@
   </div>
 </div>
 
+<!-- Time and Material Add/Edit/View popup (#tmEntryModal) - mirrors
+     #revenueEntryModal's pattern (see openTmEntryModal in app.js): replaces
+     the grid's previous inline "Add Entry" draft-row and inline "Edit"
+     row-toggle flows with one shared modal. Unlike Managed Services,
+     Customer/Statement of Work/Revenue Type stay editable even on an
+     existing row here, matching the old inline-edit behavior exactly -
+     nothing about which fields can be changed has changed, only where
+     they're edited. Billing Hours (per day) and Discounted Rate stay
+     read-only always (computed, never typed) and so does the whole Revenue
+     Projections and Monthly Breakdown section below (auto-calculated
+     server-side from Start/End Date, Holiday Calendar, Leave Tracker,
+     Discounted Rate and Billing Hours per day - see
+     _compute_tm_projections in main.py) - same as before. -->
+<div id="tmEntryModal" class="modal" hidden>
+  <div class="modal-box modal-wide modal-xwide">
+    <div class="modal-header">
+      <h2><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span><span id="tmEntryModalTitle">Add Time and Material Entry</span></h2>
+      <div class="modal-header-actions">
+        <button type="button" id="cancelTmEntryBtnTop" class="ghost-btn">Cancel</button>
+        <button type="button" id="editTmEntryBtnTop" class="primary-btn" hidden>Edit</button>
+        <button type="submit" form="tmEntryForm" class="primary-btn" id="saveTmEntryBtnTop">Save</button>
+      </div>
+    </div>
+    <form id="tmEntryForm">
+      <!-- Section headings below match the Time and Material grid's own
+           grouped column headers verbatim (see the tm-table's group-header
+           row in this file) - per explicit request, so fields in the popup
+           map onto the same named groupings a user already knows from the
+           main table. -->
+      <div class="form-section-title">Revenue Type and Customer Information</div>
+      <div class="three-col">
+        <label>Revenue Type<select class="tm-f-revenue-type"></select></label>
+        <label>Customer Name<select class="tm-f-customer"></select></label>
+        <label>Statement of Work
+          <select class="tm-f-sow" disabled><option value="">Select customer first&hellip;</option></select>
+        </label>
+      </div>
+
+      <div class="form-section-title">Employee Details</div>
+      <div class="four-col">
+        <label>Employee ID<input type="text" class="tm-f-employee-id" /></label>
+        <label>Employee Name<input type="text" class="tm-f-employee-name" required /></label>
+        <label>Location<select class="tm-f-location"></select></label>
+        <label>Practice<select class="tm-f-practice"></select></label>
+      </div>
+      <div class="four-col">
+        <label>SoW Role<input type="text" class="tm-f-sow-role" /></label>
+        <label>WBS ID<input type="text" class="tm-f-wbs" /></label>
+        <label>Original Rate Card<input type="number" step="0.01" min="0" class="tm-f-rate-card" /></label>
+        <label>Discount (%)<input type="number" step="0.01" min="0" max="100" class="tm-f-discount" /></label>
+      </div>
+      <div class="four-col">
+        <label>Billing Hours (per day)<input type="text" class="tm-f-billing-hours" readonly /></label>
+        <label>Discounted Rate<input type="text" class="tm-f-final-rate" readonly /></label>
+        <label>Start Date<input type="date" class="tm-f-start-date" /></label>
+        <label>End Date<input type="date" class="tm-f-end-date" /></label>
+      </div>
+
+      <div class="form-section-title">Revenue Projections and Monthly Breakdown</div>
+      <div class="rev-modal-months-grid">
+        <label>Apr<input type="text" class="tm-f-month" data-fiscal-month="1" readonly /></label>
+        <label>May<input type="text" class="tm-f-month" data-fiscal-month="2" readonly /></label>
+        <label>Jun<input type="text" class="tm-f-month" data-fiscal-month="3" readonly /></label>
+        <label>Jul<input type="text" class="tm-f-month" data-fiscal-month="4" readonly /></label>
+        <label>Aug<input type="text" class="tm-f-month" data-fiscal-month="5" readonly /></label>
+        <label>Sep<input type="text" class="tm-f-month" data-fiscal-month="6" readonly /></label>
+        <label>Oct<input type="text" class="tm-f-month" data-fiscal-month="7" readonly /></label>
+        <label>Nov<input type="text" class="tm-f-month" data-fiscal-month="8" readonly /></label>
+        <label>Dec<input type="text" class="tm-f-month" data-fiscal-month="9" readonly /></label>
+        <label>Jan<input type="text" class="tm-f-month" data-fiscal-month="10" readonly /></label>
+        <label>Feb<input type="text" class="tm-f-month" data-fiscal-month="11" readonly /></label>
+        <label>Mar<input type="text" class="tm-f-month" data-fiscal-month="12" readonly /></label>
+      </div>
+      <div class="rev-modal-total">Total: <span id="tmEntryModalTotal">—</span></div>
+
+      <div class="form-section-title">Additional Information</div>
+      <label>Additional Information<textarea class="tm-f-notes" rows="3"></textarea></label>
+
+      <div class="modal-actions">
+        <button type="button" id="cancelTmEntryBtn" class="ghost-btn">Cancel</button>
+        <button type="button" id="editTmEntryBtn" class="primary-btn" hidden>Edit</button>
+        <button type="submit" class="primary-btn" id="saveTmEntryBtn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <!-- Resource form modal -->
 <div id="resourceModal" class="modal" hidden>
@@ -1855,6 +1982,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=142"></script>
+<script src="app.js?v=148"></script>
 </body>
 </html>

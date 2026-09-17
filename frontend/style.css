@@ -832,11 +832,12 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
   position: sticky; left: 0; z-index: 1; background: var(--surface);
 }
 .revenue-table > thead > tr > th:nth-child(4) { z-index: 2; background: var(--table-header-bg); }
-.rev-grid-table input[type=number] {
+.rev-grid-table input[type=number], .ms-resource-table input[type=number] {
   width: 90px; padding: 4px 6px; font-size: 12.5px; text-align: right;
   border: 1px solid var(--border); border-radius: 6px; font-family: inherit; color: var(--text); margin-top: 0;
 }
-.rev-grid-table input[type=number]:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(var(--primary-rgb), .3); }
+.rev-grid-table input[type=number]:focus, .ms-resource-table input[type=number]:focus { outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 2px rgba(var(--primary-rgb), .3); }
+.ms-resource-table td.rev-tcv-cell { text-align: right; padding-right: 12px; }
 .revenue-draft-row select,
 .tm-draft-row select,
 .tm-editing-row select {
@@ -899,13 +900,13 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
    difference; header cells keep their navy gradient background and instead
    pick up a thin accent underline in the same alternating color, so the
    grouping reads continuously from header down into the data. */
-.rev-grid-table tbody td.rev-band-a { background: rgba(var(--primary-rgb), .1); }
-.rev-grid-table tbody td.rev-band-b { background: transparent; }
+.rev-grid-table tbody td.rev-band-a, .ms-resource-table tbody td.rev-band-a { background: rgba(var(--primary-rgb), .1); }
+.rev-grid-table tbody td.rev-band-b, .ms-resource-table tbody td.rev-band-b { background: transparent; }
 /* The header's single row carries the accent on its bottom edge - that's
    the edge that actually touches the table body, so that's where the band
    grouping needs to visually continue from. */
-.rev-grid-table thead th.rev-band-a { box-shadow: inset 0 -3px 0 rgba(56, 189, 248, .55); }
-.rev-grid-table thead th.rev-band-b { box-shadow: inset 0 -3px 0 transparent; }
+.rev-grid-table thead th.rev-band-a, .ms-resource-table thead th.rev-band-a { box-shadow: inset 0 -3px 0 rgba(56, 189, 248, .55); }
+.rev-grid-table thead th.rev-band-b, .ms-resource-table thead th.rev-band-b { box-shadow: inset 0 -3px 0 transparent; }
 .revenue-editing-row td:not(:nth-child(1)),
 .tm-editing-row td:not(:nth-child(1)) { background: #fffbea; }
 /* Editing highlight always wins over the month band while a row is open
@@ -1010,15 +1011,22 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 .milestone-subtable th { color: #fff; font-weight: 700; font-size: 11.5px; background: var(--table-header-bg); }
 .milestone-subtable tbody tr:last-child td { border-bottom: none; }
 
-/* Managed Services grid's per-SOW Resources expand (Revenue Outlook >
-   Best Estimates > Managed Services) - same subrow convention as
-   .milestone-subrow above, just without its max-width since this subtable
-   has 12 month columns of its own and needs the full row width. */
-.ms-resource-subrow { cursor: default; background: var(--row-hover); }
-.ms-resource-subrow:hover { background: var(--row-hover); }
-.ms-resource-subrow td { padding: 12px 14px 16px 42px; white-space: normal; }
+/* Managed Services grid's Resources subtable, inside the Add/Edit/View
+   popup only now (see renderMsResourceSubtable in app.js - the grid's old
+   per-row expand-arrow was removed per explicit request). ID/Name/Location/
+   Practice widened per explicit request - otherwise these four columns
+   would be squeezed down to whatever's left after Rate Card/Total/the 12
+   month columns each claim their own space. */
 .ms-resource-table { margin-bottom: 8px; }
-.ms-add-resource-btn { margin: 4px 0 4px 42px; }
+.ms-resource-table th.ms-res-col-id, .ms-resource-table td:nth-child(2) { min-width: 110px; }
+.ms-resource-table th.ms-res-col-name, .ms-resource-table td:nth-child(3) { min-width: 170px; }
+.ms-resource-table th.ms-res-col-location, .ms-resource-table td:nth-child(4),
+.ms-resource-table th.ms-res-col-practice, .ms-resource-table td:nth-child(5) { min-width: 150px; }
+/* "Managed Services Resources" heading + its "+ Add resource" button, side
+   by side with the button right-aligned, per explicit request - the
+   .form-section-title's own border-bottom/spacing apply to this row as a
+   whole rather than to the bare heading text. */
+.form-section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 400; color: #fff; letter-spacing: .02em; background: var(--primary-hover); }
 .badge-draft { background: #94a3b8; }
@@ -1098,6 +1106,23 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 }
 .form-section-title:first-child { margin-top: 0; }
 .form-field-readonly { background: var(--bg) !important; color: var(--text-muted) !important; cursor: not-allowed; }
+
+/* Any read-only or disabled form field shows grey text app-wide (per
+   explicit request), so it's identifiable as non-editable at a glance
+   without depending on cursor or a subtle border difference alone. Applies
+   automatically via the readonly/disabled attribute itself - mirrors
+   .form-field-readonly's own look, but without needing that class added by
+   hand to every such field (select has no "readonly" attribute, only
+   "disabled" - a disabled select in this app is always either immutable-
+   once-saved or a real read-only view, never a plain "temporarily
+   unavailable" control, so styling every :disabled select this way is
+   correct everywhere it's used). */
+input[readonly], textarea[readonly],
+input:disabled, select:disabled, textarea:disabled {
+  color: var(--text-muted) !important;
+  background: var(--bg) !important;
+  cursor: not-allowed;
+}
 
 .doclink-row { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
 .doclink-row input { margin-top: 0; flex: 1; }
