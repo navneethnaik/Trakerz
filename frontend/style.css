@@ -426,8 +426,17 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
    columns), so they get the same tr:first-child/tr:last-child sticky-offset
    treatment - see the longer comment on #tab-sows above for why the second
    row's offset is a fixed pixel value. */
-#tab-revenue .rev-grid-table thead tr:first-child th { position: sticky; top: 0; z-index: 3; }
-#tab-revenue .rev-grid-table thead tr:last-child th { position: sticky; top: 29px; z-index: 2; }
+/* > combinators throughout, unlike the plain descendant selectors elsewhere
+   in this file, because .rev-grid-table now contains a genuinely nested
+   <table> (the Managed Services grid's per-SOW Resources subtable, added
+   inside one of this table's own <td>s via the Resources expand) - a plain
+   ".rev-grid-table thead tr:last-child th" would reach straight through
+   that nesting and wrongly stick that subtable's own single header row too,
+   at the same top offset as this table's real second header row, which is
+   exactly what caused ms-res-save-btn clicks to land on the wrong element
+   during QA. */
+#tab-revenue .rev-grid-table > thead > tr:first-child > th { position: sticky; top: 0; z-index: 3; }
+#tab-revenue .rev-grid-table > thead > tr:last-child > th { position: sticky; top: 29px; z-index: 2; }
 /* The Revenue Type summary table above it (see #tab-revenue in index.html)
    has its own short scroll container (.revenue-type-summary-scroll, capped
    at 220px), so it gets the same sticky-header treatment on its single
@@ -722,6 +731,12 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 }
 .primary-btn:hover { background: rgba(var(--primary-rgb), .3); border-color: rgba(var(--primary-rgb), .7); transform: translateY(-1px); }
 .primary-btn:active { background: rgba(var(--primary-rgb), .38); transform: translateY(0); }
+/* .primary-btn's own `display: inline-flex` above is an author rule, so it
+   beats the UA stylesheet's [hidden]{display:none} on specificity ties -
+   without this override, toggling .hidden on a .primary-btn (e.g. the
+   Managed Services popup's Edit/Save buttons swapping visibility - see
+   openRevenueEntryModal's setMode() in app.js) would leave it visible. */
+.primary-btn[hidden] { display: none; }
 
 .ghost-btn {
   background: rgba(91, 118, 134, .06); border: 1px solid var(--border); border-radius: 8px;
@@ -800,16 +815,23 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
    stays pinned while scrolling through the 12 month columns, so that
    sticky/left-align treatment is scoped to .revenue-table rather than
    shared. The header's th versions are scoped to thead's single row (one
-   plain <th> per month, now that Invoiced has been removed). */
-.rev-grid-table td:nth-child(2),
-.rev-grid-table thead th:nth-child(2) { color: var(--text-muted); width: 44px; }
-.revenue-table td:nth-child(4),
-.revenue-table thead th:nth-child(4) { text-align: left; padding: 7px 14px; }
-.revenue-table td:nth-child(4),
-.revenue-table thead th:nth-child(4) {
+   plain <th> per month, now that Invoiced has been removed). All four
+   selectors below use the > combinator down to tr so they only match THIS
+   table's own header/body rows, not a nested table's cells that happen to
+   land on the same nth-child position (e.g. the Managed Services grid's
+   per-SOW Resources subtable, a .rev-grid-table-free <table> nested inside
+   one of this table's own <td>s via the Resources expand - without that
+   scoping, a plain descendant selector would reach straight through the
+   nesting and wrongly pin/left-align that subtable's 4th column too). */
+.rev-grid-table > tbody > tr > td:nth-child(2),
+.rev-grid-table > thead > tr > th:nth-child(2) { color: var(--text-muted); width: 44px; }
+.revenue-table > tbody > tr > td:nth-child(4),
+.revenue-table > thead > tr > th:nth-child(4) { text-align: left; padding: 7px 14px; }
+.revenue-table > tbody > tr > td:nth-child(4),
+.revenue-table > thead > tr > th:nth-child(4) {
   position: sticky; left: 0; z-index: 1; background: var(--surface);
 }
-.revenue-table thead th:nth-child(4) { z-index: 2; background: var(--table-header-bg); }
+.revenue-table > thead > tr > th:nth-child(4) { z-index: 2; background: var(--table-header-bg); }
 .rev-grid-table input[type=number] {
   width: 90px; padding: 4px 6px; font-size: 12.5px; text-align: right;
   border: 1px solid var(--border); border-radius: 6px; font-family: inherit; color: var(--text); margin-top: 0;
@@ -965,6 +987,12 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 
 .truncate-cell { display: inline-block; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 
+.notes-cell {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+  overflow: hidden; max-width: 220px; white-space: pre-wrap; word-break: break-word;
+  vertical-align: middle;
+}
+
 .expand-btn {
   background: none; border: none; padding: 4px; cursor: pointer; color: var(--text-muted);
   display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
@@ -981,6 +1009,16 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 .milestone-subtable th, .milestone-subtable td { text-align: left; padding: 6px 10px; font-size: 12.5px; border: 1px solid var(--table-border); white-space: nowrap; }
 .milestone-subtable th { color: #fff; font-weight: 700; font-size: 11.5px; background: var(--table-header-bg); }
 .milestone-subtable tbody tr:last-child td { border-bottom: none; }
+
+/* Managed Services grid's per-SOW Resources expand (Revenue Outlook >
+   Best Estimates > Managed Services) - same subrow convention as
+   .milestone-subrow above, just without its max-width since this subtable
+   has 12 month columns of its own and needs the full row width. */
+.ms-resource-subrow { cursor: default; background: var(--row-hover); }
+.ms-resource-subrow:hover { background: var(--row-hover); }
+.ms-resource-subrow td { padding: 12px 14px 16px 42px; white-space: normal; }
+.ms-resource-table { margin-bottom: 8px; }
+.ms-add-resource-btn { margin: 4px 0 4px 42px; }
 
 .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 400; color: #fff; letter-spacing: .02em; background: var(--primary-hover); }
 .badge-draft { background: #94a3b8; }
@@ -1007,6 +1045,23 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 }
 .modal-box.modal-wide { width: 720px; }
 .modal-box.modal-wide .two-col { grid-template-columns: 1fr 1fr; }
+/* .modal-box.modal-xwide (960px, above) and .modal-box.modal-wide (720px,
+   just above) have equal specificity, so a modal combining both classes
+   (revenueEntryModal/sowDetailsModal/resourceRampModal - kept alongside
+   modal-wide for its .two-col rule above) was actually landing on 720px,
+   not the intended 960px "stacks on top of it" per modal-xwide's own
+   comment, since modal-wide is declared later in this file. This 3-class
+   selector's higher specificity settles that regardless of source order,
+   without changing sowFormModal's own modal-xwide-alone 960px. */
+.modal-box.modal-wide.modal-xwide { width: 960px; }
+/* Reports > Resources' Ramp Up/Down details popup (#resourceRampModal) -
+   its table now uses the same .sow-table format as the rest of the app
+   (border/header/banding), but per explicit request its data is shown a
+   size smaller than .sow-table's own 13px/12.5px default, since this
+   popup's own point is scanning a denser list at a glance rather than
+   editing it. */
+.modal-compact-table th, .modal-compact-table td { font-size: 11.5px; padding: 5px 10px; }
+.modal-compact-table th { font-size: 11px; }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px;
 }
@@ -1073,6 +1128,12 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 #sowMilestoneRows .milestone-row, #sowFormModal .milestone-row-header {
   grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr 34px;
 }
+
+/* Managed Services Add/Edit popup's 12-month grid (see #revenueEntryModal in
+   index.html/openRevenueEntryModal() in app.js) - 6 columns x 2 rows fits
+   comfortably in the modal-xwide (960px) box this popup uses. */
+.rev-modal-months-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 4px; }
+.rev-modal-total { text-align: right; font-weight: 700; margin: 4px 0 16px; }
 
 /* Same navy-header treatment as every other data table in the app
    (.sow-table / .milestone-subtable / .list-card table) - this one used to

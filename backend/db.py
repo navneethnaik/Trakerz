@@ -278,8 +278,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_revenue_entries_account_month ON revenue_e
 -- stays in sync; a SOW-less row has no Contract to hold those, so it gets
 -- its own copy here instead (see PUT /api/revenue/sows/{account_id}/
 -- account-classification in main.py). Onsite #/Offshore #/Nearshore # are
--- directly user-editable per row either way - see PUT
--- /api/revenue/sows/{account_id}/location-counts in main.py.
+-- NOT stored here (removed per explicit request) - they're computed
+-- read-only from that SOW's Managed Services Resources (ms_resources) -
+-- see _ms_location_counts_by_sow in main.py; a SOW-less row always shows
+-- zeros since the Resources subtable is SOW-backed only.
 -- additional_info is free text, shown as the Managed Services grid's last
 -- column ("Additional Information", after Mar) - optional for a SOW-backed
 -- row, but mandatory when saving a row with no SOW at all (per explicit
@@ -291,14 +293,52 @@ CREATE TABLE IF NOT EXISTS revenue_sow_accounts (
     sow_id INTEGER REFERENCES sows(id) ON DELETE CASCADE,
     customer_id INTEGER REFERENCES customers(id),
     fiscal_year INTEGER NOT NULL,
-    onsite_count INTEGER NOT NULL DEFAULT 0,
-    offshore_count INTEGER NOT NULL DEFAULT 0,
-    nearshore_count INTEGER NOT NULL DEFAULT 0,
     revenue_type_id INTEGER REFERENCES revenue_types(id),
-    practice_id INTEGER REFERENCES practices(id),
     additional_info TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(sow_id, fiscal_year)
+);
+
+-- Per-resource revenue breakdown for a Managed Services SOW row (Revenue
+-- Outlook > Best Estimates > Managed Services), per explicit request: a SOW
+-- row's Apr-Mar monthly numbers can optionally be built up from named
+-- resources (ID/Name/Location/Practice/Start/End date, each with its own
+-- Apr-Mar revenue) rather than just the one flat number per month on
+-- revenue_sow_accounts/revenue_entries above. This is scoped to SOW-backed
+-- rows only (sow_id NOT NULL) - not offered on the SOW-less "Account" rows -
+-- and, like revenue_entries, keyed by (sow_id, fiscal_year) directly rather
+-- than through revenue_sow_accounts.id, so a resource can be added even
+-- before that row's own INSERT OR IGNORE has ever fired for this fiscal
+-- year. Adding resources here does NOT alter revenue_entries.projection -
+-- the two are independent numbers on the row for now (see the frontend
+-- comment on renderMsResourceSubtable for why they're not auto-summed).
+CREATE TABLE IF NOT EXISTS ms_resources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sow_id INTEGER NOT NULL REFERENCES sows(id) ON DELETE CASCADE,
+    fiscal_year INTEGER NOT NULL,
+    employee_id TEXT,
+    employee_name TEXT NOT NULL,
+    location_id INTEGER REFERENCES locations(id),
+    practice_id INTEGER REFERENCES practices(id),
+    start_date TEXT,
+    end_date TEXT,
+    rate_card REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ms_resources_sow_fy ON ms_resources(sow_id, fiscal_year);
+
+-- One row per (resource, fiscal month) - mirrors revenue_entries' shape
+-- exactly (fiscal_month is the same 1=Apr...12=Mar position), just scoped to
+-- a resource instead of a SOW.
+CREATE TABLE IF NOT EXISTS ms_resource_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    resource_id INTEGER NOT NULL REFERENCES ms_resources(id) ON DELETE CASCADE,
+    fiscal_month INTEGER NOT NULL,
+    revenue REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(resource_id, fiscal_month)
 );
 
 -- Time and Material tracking (Financial > Projections > Time and
@@ -337,6 +377,7 @@ CREATE TABLE IF NOT EXISTS tm_assignments (
     discount_percent REAL,
     start_date TEXT,
     end_date TEXT,
+    additional_info TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -747,6 +788,51 @@ def _migrate(conn):
     # it blank).
     if _table_exists(conn, "revenue_sow_accounts") and not _column_exists(conn, "revenue_sow_accounts", "additional_info"):
         conn.execute("ALTER TABLE revenue_sow_accounts ADD COLUMN additional_info TEXT")
+
+    # Additive: Additional Information (free text) on Time and Material
+    # assignments - a new trailing column on the T&M grid, after Mar, same
+    # free-text convention as the Managed Services grid's own Additional
+    # Information column just above.
+    if _table_exists(conn, "tm_assignments") and not _column_exists(conn, "tm_assignments", "additional_info"):
+        conn.execute("ALTER TABLE tm_assignments ADD COLUMN additional_info TEXT")
+
+    # Additive: Rate Card ($) on Managed Services per-resource rows
+    # (ms_resources). Per explicit instruction, this is only an attribute of
+    # a resource - it has no bearing on that resource's existing month-by-month
+    # (Apr-Mar) revenue entries in ms_resource_entries, which stay untouched.
+    if _table_exists(conn, "ms_resources") and not _column_exists(conn, "ms_resources", "rate_card"):
+        conn.execute("ALTER TABLE ms_resources ADD COLUMN rate_card REAL")
+
+    # Practice removed (front end and back end) from the Managed Services
+    # grid's SOW-less rows per explicit instruction - unlike sows.practice_id
+    # (a Contract-level field also read elsewhere), revenue_sow_accounts'
+    # own practice_id only ever served this one grid's SOW-less-row
+    # classification, so it's dropped outright rather than just left unread.
+    if _table_exists(conn, "revenue_sow_accounts") and _column_exists(conn, "revenue_sow_accounts", "practice_id"):
+        try:
+            conn.execute("ALTER TABLE revenue_sow_accounts DROP COLUMN practice_id")
+        except sqlite3.OperationalError:
+            # Older SQLite (<3.35) doesn't support DROP COLUMN. Leaving the
+            # unused column in place is harmless; the app simply stops
+            # reading/writing it.
+            pass
+
+    # Onsite #/Offshore #/Nearshore # on the Managed Services grid switched
+    # from directly user-editable numbers back to a read-only computed sum -
+    # per explicit request, now derived from that SOW's Managed Services
+    # Resources (ms_resources) grouped by Location instead (see
+    # _ms_location_counts_by_sow in main.py). The stored columns are dropped
+    # outright rather than just left unread, same treatment as practice_id
+    # just above.
+    for _col in ("onsite_count", "offshore_count", "nearshore_count"):
+        if _table_exists(conn, "revenue_sow_accounts") and _column_exists(conn, "revenue_sow_accounts", _col):
+            try:
+                conn.execute(f"ALTER TABLE revenue_sow_accounts DROP COLUMN {_col}")
+            except sqlite3.OperationalError:
+                # Older SQLite (<3.35) doesn't support DROP COLUMN. Leaving
+                # the unused column in place is harmless; the app simply
+                # stops reading/writing it.
+                pass
 
 
 DEFAULT_STATUSES = ["draft", "active", "completed", "expired", "cancelled"]

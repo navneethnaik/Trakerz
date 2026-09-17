@@ -171,16 +171,6 @@ class RevenueSowIn(BaseModel):
     fiscal_year: int
 
 
-# Onsite #/Offshore #/Nearshore # on the Managed Services grid - directly
-# user-editable per (SOW, fiscal year), see upsert_revenue_sow_location_counts.
-class RevenueSowLocationCountsIn(BaseModel):
-    sow_id: int
-    fiscal_year: int
-    onsite_count: int = 0
-    offshore_count: int = 0
-    nearshore_count: int = 0
-
-
 # A row on the Managed Services grid can now be tracked against just a
 # Customer with no SOW picked at all, per explicit request (unlimited such
 # rows per Customer per fiscal year - see revenue_sow_accounts in db.py).
@@ -212,17 +202,11 @@ class RevenueAccountAdditionalInfoIn(BaseModel):
 
 
 class RevenueAccountClassificationIn(BaseModel):
-    """Revenue Type/Practice for a SOW-less revenue_sow_accounts row - mirrors
+    """Revenue Type for a SOW-less revenue_sow_accounts row - mirrors
     SowClassificationIn, but stored directly on the row itself since there's
-    no Contract here to hold it."""
+    no Contract here to hold it. (Practice removed per explicit instruction -
+    this grid's SOW-less rows no longer carry one; see db.py's _migrate.)"""
     revenue_type_id: Optional[int] = None
-    practice_id: Optional[int] = None
-
-
-class RevenueAccountLocationCountsIn(BaseModel):
-    onsite_count: int = 0
-    offshore_count: int = 0
-    nearshore_count: int = 0
 
 
 class RevenueAccountCellIn(BaseModel):
@@ -232,6 +216,32 @@ class RevenueAccountCellIn(BaseModel):
     account_id: int
     fiscal_month: int
     projection: float = 0
+
+
+# Per-resource revenue breakdown for a Managed Services SOW row (Revenue
+# Outlook > Best Estimates > Managed Services), per explicit request - see
+# ms_resources/ms_resource_entries in db.py. Scoped to SOW-backed rows only.
+class MsResourceIn(BaseModel):
+    employee_id: Optional[str] = None
+    employee_name: str
+    location_id: Optional[int] = None
+    practice_id: Optional[int] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    rate_card: Optional[float] = None
+
+
+class MsResourceCreateIn(MsResourceIn):
+    sow_id: int
+    fiscal_year: int
+
+
+class MsResourceCellIn(BaseModel):
+    """One (resource, fiscal month) revenue cell - mirrors RevenueCellIn's
+    per-cell upsert shape but keyed by resource_id instead of sow_id."""
+    resource_id: int
+    fiscal_month: int
+    revenue: float = 0
 
 
 # Time and Material tracking (Financial > Projections > Time and
@@ -251,6 +261,7 @@ class TmAssignmentIn(BaseModel):
     discount_percent: Optional[float] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    additional_info: Optional[str] = None
 
 
 class TmAssignmentCreateIn(TmAssignmentIn):
@@ -709,7 +720,8 @@ def list_sows(status: Optional[str] = None, customer_id: Optional[int] = None, b
         for s in sows:
             m_rows = conn.execute("SELECT * FROM milestones WHERE sow_id = ?", (s["id"],)).fetchall()
             milestones = [_row_to_dict(m) for m in m_rows]
-            result.append(_enrich_sow(s, milestones))
+            enriched = _enrich_sow(s, milestones)
+            result.append(enriched)
         return result
 
 
@@ -732,7 +744,8 @@ def create_sow(sow: SowIn):
         row = _get_sow_or_404(conn, new_id)
         customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices = _load_lookup_maps(conn)
         row = _attach_names(row, customers, billing_models, operating_models, opportunity_types, customer_codes, revenue_types, practices)
-        return _enrich_sow(row, [])
+        enriched = _enrich_sow(row, [])
+        return enriched
 
 
 @app.get("/api/sows/export")
@@ -1156,6 +1169,28 @@ def _fiscal_months(entries: Dict[int, dict]) -> List[dict]:
     return months
 
 
+def _ms_location_counts_by_sow(conn, fiscal_year: int) -> Dict[int, Dict[str, int]]:
+    """Onsite #/Offshore #/Nearshore # on the Managed Services grid - per
+    explicit request, no longer directly user-editable: each is the count of
+    that SOW's Managed Services Resources (ms_resources) added for this
+    fiscal year, grouped by Location (matching _location_slug's
+    LOWER(TRIM(name)) convention). Keyed by sow_id; a SOW-less row has no
+    entry here at all (the Resources subtable is SOW-backed only), so the
+    caller should treat a missing sow_id as all zeros."""
+    by_sow: Dict[int, Dict[str, int]] = {}
+    for r in conn.execute(
+        """SELECT mr.sow_id AS sow_id, LOWER(TRIM(l.name)) AS slug, COUNT(*) AS cnt
+           FROM ms_resources mr
+           LEFT JOIN locations l ON l.id = mr.location_id
+           WHERE mr.fiscal_year = ?
+           GROUP BY mr.sow_id, slug""",
+        (fiscal_year,),
+    ).fetchall():
+        if r["sow_id"] is not None:
+            by_sow.setdefault(r["sow_id"], {})[r["slug"]] = r["cnt"]
+    return by_sow
+
+
 @app.get("/api/revenue/sows")
 def list_revenue_sows(fiscal_year: Optional[int] = None):
     """SoW Level grid: one row per SOW - or, per explicit request, per bare
@@ -1164,16 +1199,20 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
     /api/revenue/accounts), each with all 12 fiscal months (Apr-Mar) - months
     with no entry yet default to 0 so the grid is ready to type into
     immediately after a row is added. Onsite #/Offshore #/Nearshore # are
-    read straight off the revenue_sow_accounts row - directly user-editable
-    (see upsert_revenue_sow_location_counts/upsert_revenue_account_location_counts),
-    not derived from anything else. Every row carries account_id (the
+    read-only, computed from that SOW's Managed Services Resources (see
+    _ms_location_counts_by_sow) rather than stored on revenue_sow_accounts -
+    a SOW-less row always shows zeros, since the Resources subtable only
+    exists for a SOW-backed row. Every row carries account_id (the
     revenue_sow_accounts row's own id) alongside sow_id (null for a SOW-less
     row) so the front end can key Edit/Copy/Delete/Save off account_id
     uniformly regardless of which kind of row it is. sows is LEFT JOINed
     (not JOINed) so a SOW-less row - which has no sows row to join to at all -
-    still shows up; its customer/revenue-type/practice come from
-    revenue_sow_accounts' own columns (via COALESCE) instead of the Contract's,
-    per the split described in db.py's schema comment."""
+    still shows up; its customer/revenue-type come from revenue_sow_accounts'
+    own columns (via COALESCE) instead of the Contract's, per the split
+    described in db.py's schema comment. Practice is read straight off the
+    Contract (sows.practice_id) only - removed from this grid's own SOW-less
+    rows per explicit instruction, so a SOW-less row's practice_name is
+    always null."""
     fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
     with db.get_db() as conn:
         tracked = conn.execute(
@@ -1184,9 +1223,9 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
                       s.total_value, s.duration_months, bm.name AS billing_model_name,
                       COALESCE(s.revenue_type_id, ra.revenue_type_id) AS revenue_type_id,
                       COALESCE(rt.name, art.name) AS revenue_type_name,
-                      COALESCE(s.practice_id, ra.practice_id) AS practice_id,
-                      COALESCE(p.name, ap.name) AS practice_name,
-                      ra.onsite_count, ra.offshore_count, ra.nearshore_count, ra.additional_info
+                      s.practice_id AS practice_id,
+                      p.name AS practice_name,
+                      ra.additional_info
                FROM revenue_sow_accounts ra
                LEFT JOIN sows s ON s.id = ra.sow_id
                LEFT JOIN customers c ON c.id = COALESCE(s.customer_id, ra.customer_id)
@@ -1194,7 +1233,6 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
                LEFT JOIN revenue_types rt ON rt.id = s.revenue_type_id
                LEFT JOIN practices p ON p.id = s.practice_id
                LEFT JOIN revenue_types art ON art.id = ra.revenue_type_id
-               LEFT JOIN practices ap ON ap.id = ra.practice_id
                WHERE ra.fiscal_year = ?
                ORDER BY c.customer_name COLLATE NOCASE, s.title COLLATE NOCASE""",
             (fy,),
@@ -1203,6 +1241,7 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
             "SELECT sow_id, account_id, fiscal_month, projection FROM revenue_entries WHERE fiscal_year = ?",
             (fy,),
         ).fetchall()
+        loc_counts = _ms_location_counts_by_sow(conn, fy)
 
         by_sow: Dict[int, Dict[int, dict]] = {}
         by_account: Dict[int, Dict[int, dict]] = {}
@@ -1212,8 +1251,10 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
             if e["account_id"] is not None:
                 by_account.setdefault(e["account_id"], {})[e["fiscal_month"]] = {"projection": e["projection"]}
 
-        rows = [
-            {
+        rows = []
+        for s in tracked:
+            lc = loc_counts.get(s["sow_id"], {}) if s["sow_id"] is not None else {}
+            rows.append({
                 "account_id": s["account_id"],
                 "sow_id": s["sow_id"],
                 "sow_title": s["sow_title"],
@@ -1229,16 +1270,14 @@ def list_revenue_sows(fiscal_year: Optional[int] = None):
                 "revenue_type_name": s["revenue_type_name"],
                 "practice_id": s["practice_id"],
                 "practice_name": s["practice_name"],
-                "onsite_count": s["onsite_count"] or 0,
-                "offshore_count": s["offshore_count"] or 0,
-                "nearshore_count": s["nearshore_count"] or 0,
+                "onsite_count": lc.get("onsite", 0),
+                "offshore_count": lc.get("offshore", 0),
+                "nearshore_count": lc.get("nearshore", 0),
                 "additional_info": s["additional_info"],
                 "months": _fiscal_months(
                     by_sow.get(s["sow_id"], {}) if s["sow_id"] is not None else by_account.get(s["account_id"], {})
                 ),
-            }
-            for s in tracked
-        ]
+            })
         return {"fiscal_year": fy, "rows": rows}
 
 
@@ -1409,24 +1448,20 @@ def update_revenue_account_classification(account_id: int, payload: RevenueAccou
             "SELECT 1 FROM revenue_types WHERE id = ?", (payload.revenue_type_id,)
         ).fetchone():
             raise HTTPException(status_code=400, detail="Selected revenue type does not exist")
-        if payload.practice_id is not None and not conn.execute(
-            "SELECT 1 FROM practices WHERE id = ?", (payload.practice_id,)
-        ).fetchone():
-            raise HTTPException(status_code=400, detail="Selected practice does not exist")
         conn.execute(
-            "UPDATE revenue_sow_accounts SET revenue_type_id=?, practice_id=? WHERE id=?",
-            (payload.revenue_type_id, payload.practice_id, account_id),
+            "UPDATE revenue_sow_accounts SET revenue_type_id=? WHERE id=?",
+            (payload.revenue_type_id, account_id),
         )
-        return {"account_id": account_id, "revenue_type_id": payload.revenue_type_id, "practice_id": payload.practice_id}
+        return {"account_id": account_id, "revenue_type_id": payload.revenue_type_id}
 
 
 @app.put("/api/revenue/accounts/{account_id}/additional-info")
 def update_revenue_account_additional_info(account_id: int, payload: RevenueAccountAdditionalInfoIn):
     """Additional Information (the grid's last column, after Mar) - unlike
-    classification/location-counts above, this one applies to any tracked
-    row, SOW-backed or not, since it has no Contract-level equivalent to
-    conflict with. Only enforced as mandatory here for a SOW-less row (per
-    explicit request); a SOW-backed row may clear or leave it blank."""
+    classification above, this one applies to any tracked row, SOW-backed or
+    not, since it has no Contract-level equivalent to conflict with. Only
+    enforced as mandatory here for a SOW-less row (per explicit request); a
+    SOW-backed row may clear or leave it blank."""
     with db.get_db() as conn:
         account = _get_revenue_account_or_404(conn, account_id)
         if account["sow_id"] is None and not (payload.additional_info or "").strip():
@@ -1439,27 +1474,6 @@ def update_revenue_account_additional_info(account_id: int, payload: RevenueAcco
             (payload.additional_info, account_id),
         )
         return {"account_id": account_id, "additional_info": payload.additional_info}
-
-
-@app.put("/api/revenue/accounts/{account_id}/location-counts")
-def upsert_revenue_account_location_counts(account_id: int, payload: RevenueAccountLocationCountsIn):
-    """Onsite #/Offshore #/Nearshore # for a SOW-less row - mirrors
-    upsert_revenue_sow_location_counts, but keyed directly by account_id
-    (already known - the row was created explicitly first via
-    create_revenue_account, unlike the SOW-backed path which still creates
-    its row implicitly via (sow_id, fiscal_year))."""
-    with db.get_db() as conn:
-        _get_revenue_account_or_404(conn, account_id)
-        conn.execute(
-            "UPDATE revenue_sow_accounts SET onsite_count=?, offshore_count=?, nearshore_count=? WHERE id=?",
-            (payload.onsite_count, payload.offshore_count, payload.nearshore_count, account_id),
-        )
-        return {
-            "account_id": account_id,
-            "onsite_count": payload.onsite_count,
-            "offshore_count": payload.offshore_count,
-            "nearshore_count": payload.nearshore_count,
-        }
 
 
 @app.put("/api/revenue/accounts/cell")
@@ -1557,23 +1571,23 @@ def export_revenue_sows(fiscal_year: Optional[int] = None):
     fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
     data = list_revenue_sows(fiscal_year=fy)
 
-    headers = ["Account Name", "Contract Title", "TCV (USD)", "Duration (Months)", "ACV (USD)", "Billing Model", "Revenue Type", "Practice"]
+    headers = ["Account Name", "Contract Title", "TCV (USD)", "Duration (Months)", "ACV (USD)", "Billing Model", "Revenue Type"]
     headers.extend(FISCAL_MONTH_LABELS)
 
     rows = []
     for r in data["rows"]:
-        row = [r["customer_name"], r["sow_title"], r["total_value"], r["duration_months"], r["acv"], r["billing_model_name"] or "", r["revenue_type_name"] or "", r["practice_name"] or ""]
+        row = [r["customer_name"], r["sow_title"], r["total_value"], r["duration_months"], r["acv"], r["billing_model_name"] or "", r["revenue_type_name"] or ""]
         for m in r["months"]:
             row.append(m["projection"])
         rows.append(row)
 
-    # TCV (USD)/ACV (USD) (columns 3, 5) and every month column (9 onward -
-    # Duration/Billing Model/Revenue Type/Practice at 4/6/7/8 are plain
-    # numbers/text) are currency-formatted; kept as one non-contiguous tuple
-    # rather than separate ranges since _build_workbook takes a single
-    # currency_cols argument.
-    currency_cols = (3, 5) + tuple(range(9, len(headers) + 1))
-    widths = [24, 28, 14, 16, 14, 18, 18, 18] + [14] * (len(headers) - 8)
+    # TCV (USD)/ACV (USD) (columns 3, 5) and every month column (8 onward -
+    # Duration/Billing Model/Revenue Type at 4/6/7 are plain numbers/text)
+    # are currency-formatted; kept as one non-contiguous tuple rather than
+    # separate ranges since _build_workbook takes a single currency_cols
+    # argument.
+    currency_cols = (3, 5) + tuple(range(8, len(headers) + 1))
+    widths = [24, 28, 14, 16, 14, 18, 18] + [14] * (len(headers) - 7)
     wb = _build_workbook(f"Revenue SoW Level FY{fy}", headers, rows, currency_cols=currency_cols, widths=widths)
     # A second sheet with the same Revenue Type x Month rollup shown on
     # screen right above this grid (see renderRevenueTypeSummaryTable in
@@ -1586,36 +1600,34 @@ def export_revenue_sows(fiscal_year: Optional[int] = None):
 @app.get("/api/revenue/sows/import-template")
 def revenue_sows_import_template():
     """Deliberately narrower than export_revenue_sows() - per explicit
-    request, Sheet 1 carries only Revenue Type, Customer Name, Practice,
-    Onsite #/Offshore #/Nearshore # and the 12 fiscal months (Apr-Mar);
-    Contract Title is no longer one of these columns, so a row is matched
-    to a SOW by Customer Name alone (see import_revenue_sows) - that only
-    works while the customer has exactly one SOW, otherwise the row is
-    rejected asking to disambiguate. Revenue Type, Practice and the three
-    location-count columns are shown here for context only and still
-    ignored on import (the main grid's own values aren't touched by an
-    import even though Onsite #/Offshore #/Nearshore # are directly
-    user-editable there - see upsert_revenue_sow_location_counts). A
-    "contract title" column is still
+    request, Sheet 1 carries only Revenue Type, Customer Name and the 12
+    fiscal months (Apr-Mar); Contract Title is no longer one of these
+    columns, so a row is matched to a SOW by Customer Name alone (see
+    import_revenue_sows) - that only works while the customer has exactly
+    one SOW, otherwise the row is rejected asking to disambiguate. Revenue
+    Type is shown here for context only and still ignored on import (the
+    main grid's own value isn't touched by an import). Onsite #/Offshore #/
+    Nearshore # are no longer editable anywhere - they're computed from
+    Managed Services Resources (see _ms_location_counts_by_sow) - so they're
+    left out of this template entirely. A "contract title" column is still
     honored if present (older template/export round-tripped back in), which
     resolves the SOW directly and skips the customer-only ambiguity check.
-    Sheet 2 is a plain reference list of the Revenue Types, Customers and
-    Practices already configured, so whoever is filling in Sheet 1 knows
-    which exact spellings will match on import (see _lookup_id_by_name/
+    Sheet 2 is a plain reference list of the Revenue Types and Customers
+    already configured, so whoever is filling in Sheet 1 knows which exact
+    spellings will match on import (see _lookup_id_by_name/
     _lookup_customer_id_by_name - both are case-insensitive but still need
-    an exact name match)."""
-    headers = ["Revenue Type", "Customer Name", "Practice", "Onsite #", "Offshore #", "Nearshore #"]
+    an exact name match). (Practice removed from this template per explicit
+    instruction - see db.py's _migrate for the corresponding column drop.)"""
+    headers = ["Revenue Type", "Customer Name"]
     headers.extend(FISCAL_MONTH_LABELS)
-    widths = [18, 22, 16, 12, 12, 12] + [12] * (len(headers) - 6)
+    widths = [18, 22] + [12] * (len(headers) - 2)
     wb = _build_workbook("Revenue SoW Level Template", headers, [], widths=widths)
     with db.get_db() as conn:
         revenue_types = [r["name"] for r in conn.execute("SELECT name FROM revenue_types ORDER BY name COLLATE NOCASE").fetchall()]
         customer_names = [r["customer_name"] for r in conn.execute("SELECT customer_name FROM customers ORDER BY customer_name COLLATE NOCASE").fetchall()]
-        practice_names = [r["name"] for r in conn.execute("SELECT name FROM practices ORDER BY name COLLATE NOCASE").fetchall()]
     _add_reference_sheet(wb, "Reference Lists", {
         "Available Revenue Types": revenue_types,
         "Available Customer Name": customer_names,
-        "Available Practice": practice_names,
     })
     return _xlsx_response(wb, "trakerz_revenue_sow_level_template.xlsx")
 
@@ -1744,34 +1756,137 @@ def upsert_revenue_cell(cell: RevenueCellIn):
         return _row_to_dict(row)
 
 
-@app.put("/api/revenue/sows/location-counts")
-def upsert_revenue_sow_location_counts(payload: RevenueSowLocationCountsIn):
-    """Upsert Onsite #/Offshore #/Nearshore # for one (SOW, fiscal year) row
-    on the Managed Services grid - directly user-editable per explicit
-    request (previously a read-only count of Time and Material assignments
-    tied to the SOW). Self-sufficient INSERT OR IGNORE first, same as
-    upsert_revenue_cell just above, so this can safely run concurrently with
-    (or before) the month-cell PUTs and classification PUT that a single
-    Save/Add Entry click fires together."""
+# ---------- Managed Services per-resource revenue (Revenue Outlook >
+# Best Estimates > Managed Services) ----------
+# Per explicit request, a SOW row on the grid above can optionally be broken
+# down into named resources (ID/Name/Location/Practice/Start/End date), each
+# with its own Apr-Mar revenue - see ms_resources/ms_resource_entries in
+# db.py. Scoped to SOW-backed rows only, same "must be added on purpose"
+# shape as the SOW-level rows themselves.
+
+def _get_ms_resource_or_404(conn, resource_id: int) -> dict:
+    row = conn.execute("SELECT * FROM ms_resources WHERE id = ?", (resource_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    return _row_to_dict(row)
+
+
+def _ms_resource_row_dict(conn, resource: dict, locations: Dict[int, str], practices: Dict[int, str]) -> dict:
+    entry_rows = conn.execute(
+        "SELECT fiscal_month, revenue FROM ms_resource_entries WHERE resource_id = ?",
+        (resource["id"],),
+    ).fetchall()
+    entries = {r["fiscal_month"]: r["revenue"] for r in entry_rows}
+    months = [
+        {"fiscal_month": fm, "month_label": FISCAL_MONTH_LABELS[fm - 1], "revenue": entries.get(fm, 0)}
+        for fm in range(1, 13)
+    ]
+    return {
+        **resource,
+        "location_name": locations.get(resource["location_id"]),
+        "practice_name": practices.get(resource["practice_id"]),
+        "months": months,
+        "total_revenue": sum(m["revenue"] for m in months),
+    }
+
+
+@app.get("/api/revenue/ms-resources")
+def list_ms_resources(sow_id: int, fiscal_year: int):
     with db.get_db() as conn:
-        if not conn.execute("SELECT 1 FROM sows WHERE id = ?", (payload.sow_id,)).fetchone():
+        if not conn.execute("SELECT 1 FROM sows WHERE id = ?", (sow_id,)).fetchone():
             raise HTTPException(status_code=400, detail="Selected SOW does not exist")
-        conn.execute(
-            "INSERT OR IGNORE INTO revenue_sow_accounts (sow_id, fiscal_year) VALUES (?, ?)",
-            (payload.sow_id, payload.fiscal_year),
+        rows = conn.execute(
+            """SELECT * FROM ms_resources WHERE sow_id = ? AND fiscal_year = ?
+               ORDER BY start_date IS NULL, start_date ASC""",
+            (sow_id, fiscal_year),
+        ).fetchall()
+        locations = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM locations")}
+        practices = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM practices")}
+        return [_ms_resource_row_dict(conn, _row_to_dict(r), locations, practices) for r in rows]
+
+
+@app.post("/api/revenue/ms-resources", status_code=201)
+def create_ms_resource(r: MsResourceCreateIn):
+    with db.get_db() as conn:
+        if not conn.execute("SELECT 1 FROM sows WHERE id = ?", (r.sow_id,)).fetchone():
+            raise HTTPException(status_code=400, detail="Selected SOW does not exist")
+        if r.location_id is not None and not conn.execute(
+            "SELECT 1 FROM locations WHERE id = ?", (r.location_id,)
+        ).fetchone():
+            raise HTTPException(status_code=400, detail="Selected location does not exist")
+        if r.practice_id is not None and not conn.execute(
+            "SELECT 1 FROM practices WHERE id = ?", (r.practice_id,)
+        ).fetchone():
+            raise HTTPException(status_code=400, detail="Selected practice does not exist")
+        cur = conn.execute(
+            """INSERT INTO ms_resources (sow_id, fiscal_year, employee_id, employee_name,
+               location_id, practice_id, start_date, end_date, rate_card, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (r.sow_id, r.fiscal_year, r.employee_id, r.employee_name, r.location_id,
+             r.practice_id, r.start_date, r.end_date, r.rate_card),
         )
+        new_id = cur.lastrowid
+        row = _get_ms_resource_or_404(conn, new_id)
+        locations = {loc["id"]: loc["name"] for loc in conn.execute("SELECT id, name FROM locations")}
+        practices = {p["id"]: p["name"] for p in conn.execute("SELECT id, name FROM practices")}
+        return _ms_resource_row_dict(conn, row, locations, practices)
+
+
+@app.put("/api/revenue/ms-resources/cell")
+def upsert_ms_resource_cell(cell: MsResourceCellIn):
+    """Upsert one (resource, fiscal month) revenue cell - mirrors
+    upsert_revenue_cell above, called once per cell on blur. Declared before
+    PUT /api/revenue/ms-resources/{resource_id} below - FastAPI matches
+    routes in registration order, so "cell" would otherwise be swallowed by
+    that dynamic {resource_id} segment (and fail trying to parse "cell" as
+    an int) if this came after it."""
+    if not 1 <= cell.fiscal_month <= 12:
+        raise HTTPException(status_code=400, detail="fiscal_month must be between 1 and 12")
+    with db.get_db() as conn:
+        _get_ms_resource_or_404(conn, cell.resource_id)
         conn.execute(
-            """UPDATE revenue_sow_accounts SET onsite_count=?, offshore_count=?, nearshore_count=?
-               WHERE sow_id=? AND fiscal_year=?""",
-            (payload.onsite_count, payload.offshore_count, payload.nearshore_count, payload.sow_id, payload.fiscal_year),
+            """INSERT INTO ms_resource_entries (resource_id, fiscal_month, revenue, updated_at)
+               VALUES (?, ?, ?, datetime('now'))
+               ON CONFLICT(resource_id, fiscal_month)
+               DO UPDATE SET revenue = excluded.revenue, updated_at = datetime('now')""",
+            (cell.resource_id, cell.fiscal_month, cell.revenue),
         )
-        return {
-            "sow_id": payload.sow_id,
-            "fiscal_year": payload.fiscal_year,
-            "onsite_count": payload.onsite_count,
-            "offshore_count": payload.offshore_count,
-            "nearshore_count": payload.nearshore_count,
-        }
+        row = conn.execute(
+            "SELECT resource_id, fiscal_month, revenue FROM ms_resource_entries WHERE resource_id=? AND fiscal_month=?",
+            (cell.resource_id, cell.fiscal_month),
+        ).fetchone()
+        return _row_to_dict(row)
+
+
+@app.put("/api/revenue/ms-resources/{resource_id}")
+def update_ms_resource(resource_id: int, r: MsResourceIn):
+    with db.get_db() as conn:
+        _get_ms_resource_or_404(conn, resource_id)
+        if r.location_id is not None and not conn.execute(
+            "SELECT 1 FROM locations WHERE id = ?", (r.location_id,)
+        ).fetchone():
+            raise HTTPException(status_code=400, detail="Selected location does not exist")
+        if r.practice_id is not None and not conn.execute(
+            "SELECT 1 FROM practices WHERE id = ?", (r.practice_id,)
+        ).fetchone():
+            raise HTTPException(status_code=400, detail="Selected practice does not exist")
+        conn.execute(
+            """UPDATE ms_resources SET employee_id=?, employee_name=?, location_id=?, practice_id=?,
+               start_date=?, end_date=?, rate_card=?, updated_at=datetime('now') WHERE id=?""",
+            (r.employee_id, r.employee_name, r.location_id, r.practice_id, r.start_date, r.end_date, r.rate_card, resource_id),
+        )
+        row = _get_ms_resource_or_404(conn, resource_id)
+        locations = {loc["id"]: loc["name"] for loc in conn.execute("SELECT id, name FROM locations")}
+        practices = {p["id"]: p["name"] for p in conn.execute("SELECT id, name FROM practices")}
+        return _ms_resource_row_dict(conn, row, locations, practices)
+
+
+@app.delete("/api/revenue/ms-resources/{resource_id}", status_code=204)
+def delete_ms_resource(resource_id: int):
+    with db.get_db() as conn:
+        _get_ms_resource_or_404(conn, resource_id)
+        _execute_delete(conn, "DELETE FROM ms_resources WHERE id = ?", (resource_id,), "resource")
+    return None
 
 
 # ---------- Time and Material tracking (Financial > Projections > Time and Material) ----------
@@ -1971,6 +2086,7 @@ def _tm_row_dict(conn, a, fiscal_year: int) -> dict:
         "billing_hours_per_day": billing_hours,
         "start_date": a["start_date"],
         "end_date": a["end_date"],
+        "additional_info": a["additional_info"],
         "months": months,
     }
 
@@ -1984,7 +2100,7 @@ _TM_ASSIGNMENT_SELECT = """
            a.location_id, l.name AS location_name,
            a.practice_id, p.name AS practice_name,
            a.wbs_id, a.sow_role, a.rate_card, a.discount_percent,
-           a.start_date, a.end_date
+           a.start_date, a.end_date, a.additional_info
     FROM tm_assignments a
     LEFT JOIN customers c ON c.id = a.customer_id
     LEFT JOIN sows s ON s.id = a.sow_id
@@ -2047,11 +2163,12 @@ def add_tm_assignment(payload: TmAssignmentCreateIn):
         _validate_tm_refs(conn, payload)
         cur = conn.execute(
             """INSERT INTO tm_assignments (customer_id, sow_id, revenue_type_id, employee_id, employee_name,
-               location_id, practice_id, wbs_id, sow_role, rate_card, discount_percent, start_date, end_date, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+               location_id, practice_id, wbs_id, sow_role, rate_card, discount_percent, start_date, end_date,
+               additional_info, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (payload.customer_id, payload.sow_id, payload.revenue_type_id, payload.employee_id, payload.employee_name,
              payload.location_id, payload.practice_id, payload.wbs_id, payload.sow_role, payload.rate_card, payload.discount_percent,
-             payload.start_date, payload.end_date),
+             payload.start_date, payload.end_date, payload.additional_info),
         )
         assignment_id = cur.lastrowid
         conn.execute(
@@ -2075,10 +2192,10 @@ def update_tm_assignment(assignment_id: int, payload: TmAssignmentIn):
         conn.execute(
             """UPDATE tm_assignments SET customer_id=?, sow_id=?, revenue_type_id=?, employee_id=?, employee_name=?,
                location_id=?, practice_id=?, wbs_id=?, sow_role=?, rate_card=?, discount_percent=?, start_date=?, end_date=?,
-               updated_at=datetime('now') WHERE id=?""",
+               additional_info=?, updated_at=datetime('now') WHERE id=?""",
             (payload.customer_id, payload.sow_id, payload.revenue_type_id, payload.employee_id, payload.employee_name,
              payload.location_id, payload.practice_id, payload.wbs_id, payload.sow_role, payload.rate_card, payload.discount_percent,
-             payload.start_date, payload.end_date, assignment_id),
+             payload.start_date, payload.end_date, payload.additional_info, assignment_id),
         )
         row = conn.execute(_TM_ASSIGNMENT_SELECT + "WHERE a.id = ?", (assignment_id,)).fetchone()
         # Note: the caller's currently-selected fiscal year isn't part of this
@@ -2115,6 +2232,7 @@ def export_tm_assignments(fiscal_year: Optional[int] = None):
                "Practice", "SoW Role", "WBS ID", "Rate Card", "Discount %", "Discounted Rate Card",
                "Start date", "End date"]
     headers.extend(FISCAL_MONTH_LABELS)
+    headers.append("Additional Information")
 
     rows = []
     for r in data["rows"]:
@@ -2128,12 +2246,13 @@ def export_tm_assignments(fiscal_year: Optional[int] = None):
         ]
         for m in r["months"]:
             row.append(m["projection"])
+        row.append(r.get("additional_info") or "")
         rows.append(row)
 
     date_cols = (14, 15)
-    currency_cols = (11, 13) + tuple(range(16, len(headers) + 1))
+    currency_cols = (11, 13) + tuple(range(16, len(headers)))
     percent_cols = (12,)
-    widths = [16, 22, 26, 14, 20, 16, 16, 18, 16, 14, 12, 10, 14, 13, 13] + [14] * (len(headers) - 15)
+    widths = [16, 22, 26, 14, 20, 16, 16, 18, 16, 14, 12, 10, 14, 13, 13] + [14] * (len(headers) - 16) + [24]
     wb = _build_workbook("T&M Projections", headers, rows, date_cols=date_cols,
                           currency_cols=currency_cols, percent_cols=percent_cols, widths=widths)
     # Same Revenue Type Summary sheet as the Managed Services export (see

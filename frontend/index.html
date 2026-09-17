@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=110" />
+<link rel="stylesheet" href="style.css?v=116" />
 </head>
 <body>
 <header class="topbar">
@@ -186,7 +186,7 @@
         </button>
         <button class="dropdown-item" data-tab="resource-hub">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-          Resource (Time and Material)
+          Resources
         </button>
         <button class="dropdown-item" data-tab="revenue-hub">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
@@ -751,6 +751,7 @@
     </div>
     <div class="list-card config-card">
       <div class="toolbar">
+        <input id="leaveSearchInput" type="search" placeholder="Search customer or employee..." />
         <select id="leaveCustomerFilter">
           <option value="">All customers</option>
         </select>
@@ -1125,7 +1126,7 @@
        distinct, separate page. -->
   <section id="tab-resource-hub" class="tab-panel">
     <div class="dash-header-row">
-      <h2 class="page-header-title">Resource (Time and Material)</h2>
+      <h2 class="page-header-title">Resources</h2>
       <div class="report-filters">
         <select id="resourceReportCustomerFilter" class="dash-customer-filter">
           <option value="">All customers</option>
@@ -1313,6 +1314,7 @@
     </div>
     <div class="rev-category-section ms-section">
       <div class="toolbar">
+        <input id="revenueSearchInput" type="search" placeholder="Search customer, contract or additional information..." />
         <select id="revenueCustomerFilter">
           <option value="">All customers</option>
         </select>
@@ -1321,9 +1323,6 @@
         </select>
         <select id="revenueRevenueTypeFilter">
           <option value="">All revenue types</option>
-        </select>
-        <select id="revenuePracticeFilter">
-          <option value="">All practices</option>
         </select>
         <div class="toolbar-spacer"></div>
         <button id="exportRevenueSowsBtn" type="button" class="ghost-btn">
@@ -1375,20 +1374,21 @@
            table above - see style.css for the sticky top:0/top:29px rule
            this requires (#tab-revenue .rev-grid-table thead tr:first-child/
            tr:last-child). ACV and Monthly Revenue were removed and Start
-           Date/End Date added per explicit request; Practice - not named in
-           that request - was kept (explicitly confirmed) as the last column
-           of the first group. -->
+           Date/End Date added per explicit request. Practice - previously
+           the last column of the first group - was removed (front end and
+           back end) per a later explicit request; see db.py/main.py for the
+           corresponding backend removal. -->
       <div class="table-scroll">
         <table class="sow-table revenue-table rev-grid-table">
           <thead>
             <tr class="group-header-row">
               <th class="rev-leading-th" rowspan="2">Actions</th>
               <th class="rev-leading-th" rowspan="2">Sl. No</th>
-              <th colspan="11" class="group-header">SoW and Resource Details</th>
+              <th colspan="10" class="group-header">SoW and Resource Details</th>
               <th colspan="13" class="group-header group-divider">Revenue Projections and Monthly Breakdown</th>
               <!-- Mandatory when saving a row with no SOW (per explicit
                    request) - optional/free text otherwise. See
-                   buildRevenueSowRow()/openRevenueEntryDraft() in app.js. -->
+                   buildRevenueSowRow()/openRevenueEntryModal() in app.js. -->
               <th class="rev-leading-th" rowspan="2">Additional Information</th>
             </tr>
             <tr>
@@ -1402,7 +1402,6 @@
               <th class="rev-leading-th">Onsite #</th>
               <th class="rev-leading-th">Offshore #</th>
               <th class="rev-leading-th">Nearshore #</th>
-              <th class="rev-leading-th">Practice</th>
               <th class="rev-leading-th group-divider">Total</th>
               <th class="rev-band-a rev-month-hdr">Apr</th>
               <th class="rev-band-b rev-month-hdr">May</th>
@@ -1498,6 +1497,7 @@
               <th colspan="3" class="group-header">Revenue Type and Customer Information</th>
               <th colspan="12" class="group-header group-divider">Employee Details</th>
               <th colspan="13" class="group-header group-divider">Revenue Projections and Monthly Breakdown</th>
+              <th class="rev-leading-th group-divider" rowspan="2">Additional Information</th>
             </tr>
             <tr>
               <th class="rev-leading-th">Revenue Type</th>
@@ -1643,7 +1643,7 @@
       </label>
 
       <div class="form-section-title">Additional Information</div>
-      <label>Additional Information<input type="text" class="sow-f-notes" /></label>
+      <label>Additional Information<textarea class="sow-f-notes" rows="3"></textarea></label>
 
       <div id="sowMilestonesSection" class="milestones-inline" hidden>
         <div class="form-section-title">Milestones</div>
@@ -1657,6 +1657,76 @@
       <div class="modal-actions">
         <button type="button" id="cancelSowBtn" class="ghost-btn">Cancel</button>
         <button type="submit" class="primary-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Managed Services Add/Edit popup - replaces the grid's previous inline
+     draft-row ("Add Entry") and inline-editable-row ("Edit") flows with one
+     shared modal, mirroring the SOW page's own #sowFormModal/openSowModal()
+     pattern (per explicit request - both Add and Edit now open this same
+     popup). Customer/Statement of Work can only be chosen when creating a
+     new row - same rule the old inline edit already followed (only Revenue
+     Type, Onsite #/Offshore #/Nearshore #, the 12 months and Additional
+     Information were ever editable on an existing row) - so both selects are
+     disabled once editing an existing row. Practice removed entirely per
+     explicit instruction (front end and back end - see db.py/main.py). See
+     openRevenueEntryModal() in app.js. -->
+<div id="revenueEntryModal" class="modal" hidden>
+  <div class="modal-box modal-wide modal-xwide">
+    <div class="modal-header">
+      <h2><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span><span id="revenueEntryModalTitle">Add Managed Services Entry</span></h2>
+      <div class="modal-header-actions">
+        <button type="button" id="cancelRevenueEntryBtnTop" class="ghost-btn">Cancel</button>
+        <button type="button" id="editRevenueEntryBtnTop" class="primary-btn" hidden>Edit</button>
+        <button type="submit" form="revenueEntryForm" class="primary-btn" id="saveRevenueEntryBtnTop">Save</button>
+      </div>
+    </div>
+    <form id="revenueEntryForm">
+      <div class="two-col">
+        <label>Revenue Type<select class="rev-f-revenue-type"></select></label>
+        <label>Customer Name<select class="rev-f-customer"></select></label>
+      </div>
+      <label>Statement of Work
+        <select class="rev-f-sow" disabled><option value="">Select customer first&hellip;</option></select>
+      </label>
+      <div class="three-col">
+        <label>Start Date<input type="text" class="rev-f-start-date" readonly /></label>
+        <label>End Date<input type="text" class="rev-f-end-date" readonly /></label>
+        <label>Billing Model<input type="text" class="rev-f-billing-model" readonly /></label>
+      </div>
+      <div class="three-col">
+        <label>TCV ($)<input type="text" class="rev-f-tcv" readonly /></label>
+        <label>Onsite #<input type="number" step="1" min="0" class="rev-f-onsite" value="0" readonly /></label>
+        <label>Offshore #<input type="number" step="1" min="0" class="rev-f-offshore" value="0" readonly /></label>
+      </div>
+      <label>Nearshore #<input type="number" step="1" min="0" class="rev-f-nearshore" value="0" readonly /></label>
+
+      <div class="form-section-title">Revenue Projections and Monthly Breakdown</div>
+      <div class="rev-modal-months-grid">
+        <label>Apr<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="1" value="0" /></label>
+        <label>May<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="2" value="0" /></label>
+        <label>Jun<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="3" value="0" /></label>
+        <label>Jul<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="4" value="0" /></label>
+        <label>Aug<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="5" value="0" /></label>
+        <label>Sep<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="6" value="0" /></label>
+        <label>Oct<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="7" value="0" /></label>
+        <label>Nov<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="8" value="0" /></label>
+        <label>Dec<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="9" value="0" /></label>
+        <label>Jan<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="10" value="0" /></label>
+        <label>Feb<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="11" value="0" /></label>
+        <label>Mar<input type="number" step="0.01" class="rev-f-month" data-fiscal-month="12" value="0" /></label>
+      </div>
+      <div class="rev-modal-total">Total: <span id="revenueEntryModalTotal">0.00</span></div>
+
+      <div class="form-section-title">Additional Information</div>
+      <label>Additional Information<textarea class="rev-f-notes" rows="3"></textarea></label>
+
+      <div class="modal-actions">
+        <button type="button" id="cancelRevenueEntryBtn" class="ghost-btn">Cancel</button>
+        <button type="button" id="editRevenueEntryBtn" class="primary-btn" hidden>Edit</button>
+        <button type="submit" class="primary-btn" id="saveRevenueEntryBtn">Save</button>
       </div>
     </form>
   </div>
@@ -1753,15 +1823,18 @@
      the same "click a count, see a details popup" pattern as the SOW
      Report's count-link stat cards (see openSowDetailsModal above) instead. -->
 <div id="resourceRampModal" class="modal" hidden>
-  <div class="modal-box modal-wide">
+  <div class="modal-box modal-wide modal-xwide">
     <div class="modal-header">
       <h2><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></span><span id="resourceRampModalTitle">Resources</span></h2>
       <div class="modal-header-actions">
-        <button type="button" id="closeResourceRampModalBtn" class="ghost-btn">Close</button>
+        <button type="button" id="closeResourceRampModalBtnTop" class="ghost-btn">Cancel</button>
       </div>
     </div>
+    <div class="toolbar">
+      <input id="resourceRampModalSearch" type="search" placeholder="Search employee, location, practice, customer or SOW..." />
+    </div>
     <div class="table-scroll">
-      <table>
+      <table class="sow-table modal-compact-table">
         <thead>
           <tr>
             <th>Employee Name</th>
@@ -1775,10 +1848,13 @@
         <tbody id="resourceRampModalTableBody"></tbody>
       </table>
     </div>
+    <div class="modal-actions">
+      <button type="button" id="closeResourceRampModalBtn" class="ghost-btn">Cancel</button>
+    </div>
   </div>
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=136"></script>
+<script src="app.js?v=142"></script>
 </body>
 </html>
