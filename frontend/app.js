@@ -1767,7 +1767,13 @@ async function loadBillingDaysReport() {
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/locations`).then((r) => r.json()),
   ]);
-  populateCustomerFilterSelect(customers, "billingDaysReportCustomerFilter");
+  // No "All customers" option here (each customer has its own Holiday
+  // Calendar, so there's no meaningful combined view) - populate always
+  // lands the select on a real customer, and this page's own filter
+  // variable is kept in sync with whatever it picked (including its very
+  // first auto-selected default).
+  populateCustomerFilterSelect(customers, "billingDaysReportCustomerFilter", { includeAll: false });
+  billingDaysReportCustomerFilter = document.getElementById("billingDaysReportCustomerFilter").value;
   renderBillingDaysReport(items, locations);
 }
 
@@ -1777,7 +1783,7 @@ function renderBillingDaysReport(items, locations) {
   tbody.innerHTML = "";
 
   if (!billingDaysReportCustomerFilter) {
-    tbody.innerHTML = `<tr><td colspan="18" class="empty-state">Select a customer above to see Working Days, Holidays and Billing Days by location for the current fiscal year.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="18" class="empty-state">No customers configured yet - add one under Global Settings.</td></tr>`;
     setFooterRowCount(null);
     return;
   }
@@ -2469,12 +2475,21 @@ document.getElementById("sowReportBillingModelFilter").addEventListener("change"
 // Dashboard's own filter and every Reports page's own Customer filter (each
 // page re-fetches customers and calls this on every load rather than once,
 // so a newly-added customer shows up without a full page refresh).
-function populateCustomerFilterSelect(customers, selectId) {
+function populateCustomerFilterSelect(customers, selectId, opts = {}) {
+  const { includeAll = true } = opts;
   const select = document.getElementById(selectId);
   const current = select.value;
-  select.innerHTML = '<option value="">All customers</option>' +
+  select.innerHTML = (includeAll ? '<option value="">All customers</option>' : "") +
     customers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
   select.value = current;
+  // Pages that opt out of "All customers" (there's no sensible "combined"
+  // view for them) always need exactly one customer selected - if nothing
+  // matched (blank/removed previous selection), selectedIndex lands on -1;
+  // fall back to the first customer rather than leaving the select showing
+  // nothing selected.
+  if (!includeAll && select.selectedIndex === -1) {
+    select.value = customers.length ? String(customers[0].id) : "";
+  }
 }
 
 // Same idea as populateCustomerFilterSelect, generalized for any lookup
@@ -2825,6 +2840,87 @@ async function loadResourceReport() {
   setFooterRowCount(resourceReportCustomerFilter || resourceReportLocationFilter ? filtered.length : null);
 
   renderResourceReportLocationMonthTable(filtered, locations, resourceReportFiscalYear, "resourceReportLocationMonthBody");
+  renderResourceRampTables(filtered, resourceReportFiscalYear);
+}
+
+// Ramp Up / Ramp Down: a single Apr-Mar row of counts (same horizontal
+// layout as the Location x Month table just above, rather than one row per
+// month - a 12-row table for what's usually a handful of small numbers
+// read as clumsy) built from the same Time and Material assignments
+// already loaded above (respecting the Customer/Location filters), split
+// by whether their start_date or end_date falls inside the selected fiscal
+// year - an assignment merely *tracked* for this fiscal year doesn't count
+// as onboarded/released in it unless the actual date lands here (e.g.
+// staff carried over from a prior fiscal year shouldn't show up as a fresh
+// ramp-up). A month with any activity is a count-link (same "click a
+// number, see a details popup" convention as the SOW Report's stat cards -
+// see openSowDetailsModal) that opens resourceRampModal with that month's
+// resources.
+function renderResourceRampTables(rows, fiscalYear) {
+  renderResourceRampMonthRow("resourceReportRampUpBody", rows, "start_date", fiscalYear, "Resources Onboarded");
+  renderResourceRampMonthRow("resourceReportRampDownBody", rows, "end_date", fiscalYear, "Resources Released");
+}
+
+function renderResourceRampMonthRow(tbodyId, rows, dateField, fiscalYear, rowLabel) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  const monthRowsByFm = [];
+  let total = 0;
+  for (let fm = 1; fm <= 12; fm++) {
+    const [monthFirst, monthLast] = fiscalMonthCalendarRange(fiscalYear, fm);
+    const monthRows = rows
+      .filter((r) => r[dateField] && r[dateField] >= monthFirst && r[dateField] <= monthLast)
+      .slice()
+      .sort((a, b) => a[dateField].localeCompare(b[dateField]));
+    monthRowsByFm.push(monthRows);
+    total += monthRows.length;
+  }
+
+  const cellsHtml = monthRowsByFm.map((monthRows, i) => {
+    if (!monthRows.length) return "<td>0</td>";
+    return `<td><button type="button" class="count-link ramp-month-count" data-fm="${i + 1}">${monthRows.length}</button></td>`;
+  }).join("");
+
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${escapeHtml(rowLabel)}</td>${cellsHtml}<td>${total}</td>`;
+  tbody.innerHTML = "";
+  tbody.appendChild(tr);
+
+  tr.querySelectorAll(".ramp-month-count").forEach((btn) => {
+    const fm = Number(btn.dataset.fm);
+    btn.addEventListener("click", () => {
+      const monthLabel = `${FY_MONTH_LABELS[fm - 1]} FY${fiscalYear}`;
+      openResourceRampModal(`${rowLabel} – ${monthLabel}`, monthRowsByFm[fm - 1], dateField);
+    });
+  });
+}
+
+// Details popup behind a Ramp Up/Ramp Down month's count-link - same
+// read-only "table in a modal" shape as openSowDetailsModal above, just for
+// resource rows instead of SOWs, and with its date column's header swapped
+// between Start Date/End Date depending on which of the two tables opened it.
+const resourceRampModal = document.getElementById("resourceRampModal");
+wireModalCancel(resourceRampModal, "closeResourceRampModalBtn");
+function openResourceRampModal(title, rows, dateField) {
+  document.getElementById("resourceRampModalTitle").textContent = title;
+  document.getElementById("resourceRampModalDateHeader").textContent = dateField === "start_date" ? "Start Date" : "End Date";
+  const tbody = document.getElementById("resourceRampModalTableBody");
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No resources to show.</td></tr>';
+  } else {
+    tbody.innerHTML = rows.map((r) => `
+      <tr>
+        <td>${escapeHtml(r.employee_name) || "—"}</td>
+        <td>${escapeHtml(r.location_name) || "—"}</td>
+        <td>${escapeHtml(r.practice_name) || "—"}</td>
+        <td>${escapeHtml(r.customer_name) || "—"}</td>
+        <td>${escapeHtml(r.sow_title) || "—"}</td>
+        <td>${fmtDate(r[dateField])}</td>
+      </tr>
+    `).join("");
+  }
+  resourceRampModal.hidden = false;
 }
 
 // Month-wise resource count by Location - every configured Location is shown
@@ -2894,37 +2990,58 @@ document.getElementById("revenueReportPracticeFilter").addEventListener("change"
 // exists and still drives which fiscal year's /api/revenue/sows and
 // /api/tm/assignments data this page fetches, it's just always
 // fiscalYearForToday() below rather than user-selectable right now.
+// Shared by the current and previous fiscal year's data (the QoQ table
+// below needs both, to compare this fiscal year's Q1 against the prior
+// year's Q4) so the same three filters never drift out of sync between them.
+function applyRevenueReportFilters(msRows, tmRows) {
+  let ms = msRows;
+  let tm = tmRows;
+  if (revenueReportCustomerFilter) {
+    ms = ms.filter((r) => String(r.customer_id) === revenueReportCustomerFilter);
+    tm = tm.filter((r) => String(r.customer_id) === revenueReportCustomerFilter);
+  }
+  if (revenueReportRevenueTypeFilter) {
+    ms = ms.filter((r) => String(r.revenue_type_id) === revenueReportRevenueTypeFilter);
+    tm = tm.filter((r) => String(r.revenue_type_id) === revenueReportRevenueTypeFilter);
+  }
+  if (revenueReportPracticeFilter) {
+    ms = ms.filter((r) => String(r.practice_id) === revenueReportPracticeFilter);
+    tm = tm.filter((r) => String(r.practice_id) === revenueReportPracticeFilter);
+  }
+  return [ms, tm];
+}
+
 async function loadRevenueReport() {
   if (revenueReportFiscalYear === null) revenueReportFiscalYear = fiscalYearForToday();
 
-  const [customers, revenueTypes, practices, msData, tmData] = await Promise.all([
+  const [customers, revenueTypes, practices, msData, tmData, locations, holidays] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/revenue-types`).then((r) => r.json()),
     fetch(`${API}/practices`).then((r) => r.json()),
     fetch(`${API}/revenue/sows?fiscal_year=${revenueReportFiscalYear}`).then((r) => r.json()),
     fetch(`${API}/tm/assignments?fiscal_year=${revenueReportFiscalYear}`).then((r) => r.json()),
+    fetch(`${API}/locations`).then((r) => r.json()),
+    fetch(`${API}/holidays`).then((r) => r.json()),
   ]);
   populateCustomerFilterSelect(customers, "revenueReportCustomerFilter");
   populateIdFilterSelect(revenueTypes, "revenueReportRevenueTypeFilter", "All Revenue Types");
   populateIdFilterSelect(practices, "revenueReportPracticeFilter", "All Practices");
   currentRevenueTypes = revenueTypes;
 
-  let msRows = msData.rows || [];
-  let tmRows = tmData.rows || [];
-  if (revenueReportCustomerFilter) {
-    msRows = msRows.filter((r) => String(r.customer_id) === revenueReportCustomerFilter);
-    tmRows = tmRows.filter((r) => String(r.customer_id) === revenueReportCustomerFilter);
-  }
-  if (revenueReportRevenueTypeFilter) {
-    msRows = msRows.filter((r) => String(r.revenue_type_id) === revenueReportRevenueTypeFilter);
-    tmRows = tmRows.filter((r) => String(r.revenue_type_id) === revenueReportRevenueTypeFilter);
-  }
-  if (revenueReportPracticeFilter) {
-    msRows = msRows.filter((r) => String(r.practice_id) === revenueReportPracticeFilter);
-    tmRows = tmRows.filter((r) => String(r.practice_id) === revenueReportPracticeFilter);
-  }
+  const [msRows, tmRows] = applyRevenueReportFilters(msData.rows || [], tmData.rows || []);
+  // Billing Days needs a holiday calendar - when a single customer is
+  // selected, use exactly that customer's calendar (same as Reports >
+  // Billing Days); with no customer filter, there's no one calendar to use
+  // for a report spanning every account, so fall back to the union of every
+  // customer's holidays (a date counts as a holiday for a location if any
+  // customer observes it there), deduplicated by date so multiple customers
+  // sharing a holiday don't get it subtracted twice.
+  const holidaysInScope = revenueReportCustomerFilter
+    ? holidays.filter((h) => String(h.customer_id) === revenueReportCustomerFilter)
+    : holidays;
 
   renderRevenueReportSummaryTable(msRows, tmRows, "revenueReportSummaryBody");
+  renderQoQRevenueTable(msRows, tmRows, revenueReportFiscalYear, locations, holidaysInScope);
   setFooterRowCount(
     revenueReportCustomerFilter || revenueReportRevenueTypeFilter || revenueReportPracticeFilter
       ? msRows.length + tmRows.length
@@ -3045,6 +3162,176 @@ function renderRevenueReportSummaryTable(msRows, tmRows, tbodyId) {
   totalTr.className = "table-total-row";
   totalTr.innerHTML = `<td>Total</td>${revenueReportRowCellsHtml(grandTotals)}`;
   tbody.appendChild(totalTr);
+}
+
+// QoQ Revenue & Variance - reuses revenueReportSumsByType (already summing
+// each source's rows into a 12-element fiscal-month array) to get one
+// combined Apr-Mar array, then buckets that into the four quarters of the
+// current fiscal year only (Q1's variance has nothing to compare against,
+// same as before a Fiscal Year picker existed anywhere else on this page -
+// showing the prior year's Q4 just for that one comparison wasn't worth
+// carrying an extra fiscal year of data for). Two "possible contributing
+// factors" are computed alongside every variance, per explicit request for
+// examples like working-day count and headcount changes: Billing Days is
+// the same Working Days-minus-Holidays calculation as Reports > Billing
+// Days, broken out per Location (Onsite/Offshore/Nearshore) since different
+// locations can have different holiday calendars; TM Resource Count is the
+// number of distinct Time and Material assignments active in any month of
+// that quarter (Managed Services has no per-resource data to count the
+// same way - see Reports > Resource's own TM-only scoping for the same
+// reason). These are offered as data points to help judge a likely driver,
+// not a definitive cause - the table says so in its own description, and
+// the Contributing Factors column spells them out as plain sentences
+// rather than the terser "label +N (a→b)" notation used in the Billing
+// Days/TM Resource Count cells themselves.
+function combinedMonthlyRevenueTotals(msRows, tmRows) {
+  const totals = new Array(12).fill(0);
+  const addAll = (sumsByType) => {
+    for (const arr of sumsByType.values()) arr.forEach((v, i) => { totals[i] += v; });
+  };
+  addAll(revenueReportSumsByType(msRows));
+  addAll(revenueReportSumsByType(tmRows));
+  return totals;
+}
+
+function qoqFiscalMonthsForQuarter(q) {
+  return [(q - 1) * 3 + 1, (q - 1) * 3 + 2, (q - 1) * 3 + 3];
+}
+
+function qoqQuarterRevenue(monthlyTotals, q) {
+  const [a, b, c] = qoqFiscalMonthsForQuarter(q);
+  return monthlyTotals[a - 1] + monthlyTotals[b - 1] + monthlyTotals[c - 1];
+}
+
+// Billing Days per Location for a quarter - Working Days (Mon-Fri) across
+// the quarter's three calendar months, minus that Location's distinct
+// holiday dates in scope (already deduplicated/filtered to the right
+// customer(s) by the caller - see loadRevenueReport). Same convention as
+// Reports > Billing Days' own per-month calculation, just summed over a
+// quarter instead of shown month by month.
+function qoqQuarterBillingDaysByLocation(fiscalYear, q, locations, holidaysInScope) {
+  const months = qoqFiscalMonthsForQuarter(q);
+  const [firstDay] = fiscalMonthCalendarRange(fiscalYear, months[0]);
+  const [, lastDay] = fiscalMonthCalendarRange(fiscalYear, months[2]);
+  const workingDays = countWeekdaysInRange(firstDay, lastDay);
+
+  const locationBySlug = {};
+  locations.forEach((loc) => { locationBySlug[(loc.name || "").trim().toLowerCase()] = loc; });
+
+  return HOLIDAY_LOCATION_FIELDS.map((slug) => {
+    const loc = locationBySlug[slug];
+    const displayName = loc ? loc.name : slug.charAt(0).toUpperCase() + slug.slice(1);
+    const holidayDates = new Set(
+      holidaysInScope
+        .filter((h) => h[slug] && h.holiday_date >= firstDay && h.holiday_date <= lastDay && isWeekdayIso(h.holiday_date))
+        .map((h) => h.holiday_date)
+    );
+    return { slug, name: displayName, billingDays: Math.max(workingDays - holidayDates.size, 0) };
+  });
+}
+
+function qoqQuarterHeadcount(tmRows, fiscalYear, q) {
+  const months = qoqFiscalMonthsForQuarter(q);
+  const activeIds = new Set();
+  tmRows.forEach((r) => {
+    if (months.some((fm) => tmAssignmentActiveInFiscalMonth(r, fiscalYear, fm))) activeIds.add(r.assignment_id);
+  });
+  return activeIds.size;
+}
+
+function qoqBillingDaysTotal(byLocation) {
+  return byLocation.reduce((sum, l) => sum + l.billingDays, 0);
+}
+
+function renderQoQRevenueTable(msRows, tmRows, fiscalYear, locations, holidaysInScope) {
+  const tbody = document.getElementById("revenueReportQoQBody");
+  if (!tbody) return;
+
+  const totals = combinedMonthlyRevenueTotals(msRows, tmRows);
+
+  const quarters = [1, 2, 3, 4].map((q) => ({
+    label: `Q${q} FY${fiscalYear}`,
+    revenue: qoqQuarterRevenue(totals, q),
+    billingDaysByLocation: qoqQuarterBillingDaysByLocation(fiscalYear, q, locations, holidaysInScope),
+    headcount: qoqQuarterHeadcount(tmRows, fiscalYear, q),
+  }));
+
+  const billingDaysCellHtml = (byLocation, total, deltaHtml) => `
+    <div>${total}${deltaHtml ? ` <span class="qoq-delta">${deltaHtml}</span>` : ""}</div>
+    <div class="qoq-location-breakdown">${byLocation.map((l) => `${escapeHtml(l.name)} ${l.billingDays}`).join(" &middot; ")}</div>
+  `;
+
+  tbody.innerHTML = quarters.map((cur, i) => {
+    const curTotal = qoqBillingDaysTotal(cur.billingDaysByLocation);
+
+    const prev = i > 0 ? quarters[i - 1] : null;
+    if (!prev) {
+      return `
+        <tr>
+          <td>${escapeHtml(cur.label)}</td>
+          <td>${fmtPlain(cur.revenue)}</td>
+          <td>—</td><td>—</td>
+          <td>${billingDaysCellHtml(cur.billingDaysByLocation, curTotal, "")}</td>
+          <td>${cur.headcount}</td>
+          <td>—</td>
+        </tr>
+      `;
+    }
+
+    const prevTotal = qoqBillingDaysTotal(prev.billingDaysByLocation);
+    const varAmount = cur.revenue - prev.revenue;
+    const varPct = prev.revenue !== 0 ? (varAmount / Math.abs(prev.revenue)) * 100 : null;
+    const bdDelta = curTotal - prevTotal;
+    const hcDelta = cur.headcount - prev.headcount;
+    const dirClass = varAmount > 0 ? "qoq-up" : varAmount < 0 ? "qoq-down" : "";
+
+    // Per-location Billing Days deltas, in plain sentences, folded into the
+    // same simple-text summary as the headcount factor below - only the
+    // locations that actually changed are named, so a quarter where just
+    // Offshore lost a holiday doesn't drag Onsite/Nearshore into the
+    // sentence too.
+    const changedLocations = cur.billingDaysByLocation
+      .map((l, idx) => ({ ...l, delta: l.billingDays - prev.billingDaysByLocation[idx].billingDays, prevDays: prev.billingDaysByLocation[idx].billingDays }))
+      .filter((l) => l.delta !== 0);
+
+    const sentences = [];
+    if (bdDelta !== 0) {
+      const direction = bdDelta > 0 ? "increased" : "decreased";
+      let sentence = `Billing days ${direction} by ${Math.abs(bdDelta)} (from ${prevTotal} to ${curTotal})`;
+      if (changedLocations.length) {
+        const detail = changedLocations
+          .map((l) => `${l.name} ${l.delta > 0 ? "up" : "down"} ${Math.abs(l.delta)} (${l.prevDays} to ${l.billingDays})`)
+          .join(", ");
+        sentence += `, driven by ${detail}`;
+      }
+      sentences.push(sentence + ".");
+    }
+    if (hcDelta !== 0) {
+      const direction = hcDelta > 0 ? "increased" : "decreased";
+      sentences.push(`Time and Material resource count ${direction} by ${Math.abs(hcDelta)} (from ${prev.headcount} to ${cur.headcount}).`);
+    }
+
+    let factorsHtml;
+    if (varAmount === 0) {
+      factorsHtml = "—";
+    } else if (!sentences.length) {
+      factorsHtml = "No change in billing days or Time and Material headcount &ndash; check rate cards, discounts or Managed Services billing.";
+    } else {
+      factorsHtml = escapeHtml(sentences.join(" "));
+    }
+
+    return `
+      <tr>
+        <td>${escapeHtml(cur.label)}</td>
+        <td>${fmtPlain(cur.revenue)}</td>
+        <td><span class="${dirClass}">${varAmount >= 0 ? "+" : ""}${fmtPlain(varAmount)}</span></td>
+        <td>${varPct === null ? "—" : `<span class="${dirClass}">${varPct >= 0 ? "+" : ""}${varPct.toFixed(1)}%</span>`}</td>
+        <td>${billingDaysCellHtml(cur.billingDaysByLocation, curTotal, `(${bdDelta >= 0 ? "+" : ""}${bdDelta})`)}</td>
+        <td>${cur.headcount} <span class="qoq-delta">(${hcDelta >= 0 ? "+" : ""}${hcDelta})</span></td>
+        <td>${factorsHtml}</td>
+      </tr>
+    `;
+  }).join("");
 }
 
 // SOW details popup - shows the full list of SOWs behind whichever count on

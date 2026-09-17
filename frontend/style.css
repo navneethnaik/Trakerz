@@ -275,6 +275,19 @@ main { padding: 14px 20px; max-width: none; margin: 0; flex: 1 0 auto; width: 10
 .page-header-title { margin: 0 0 4px; font-size: 20px; font-weight: 700; color: var(--text); }
 .page-header-desc { margin: 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-header-desc { margin-bottom: 16px; }
+/* Sub-heading for a second (or third) table stacked below a report's main
+   one on the same page (e.g. Reports > Resource's Ramp Up/Ramp Down
+   tables) - smaller than .page-header-title since it's not the page title,
+   but still bold enough to read as a section break. */
+.report-subsection-title { margin: 24px 0 4px; font-size: 15px; font-weight: 700; color: var(--text); }
+/* QoQ Revenue & Variance table (Reports > Revenue) - up/down coloring for
+   the variance columns, a muted parenthetical delta next to the raw
+   Billing Days/TM Resource Count figures, and a small muted line under the
+   Billing Days total breaking it out by Location. */
+.qoq-up { color: #2f7b45; font-weight: 600; }
+.qoq-down { color: var(--danger); font-weight: 600; }
+.qoq-delta { color: var(--text-muted); font-size: 11px; }
+.qoq-location-breakdown { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
 .tab-panel { display: none; }
 .tab-panel.active { display: flex; flex-direction: column; flex: 1 0 auto; }
 

@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=108" />
+<link rel="stylesheet" href="style.css?v=110" />
 </head>
 <body>
 <header class="topbar">
@@ -1149,6 +1149,38 @@
         <tbody id="resourceReportLocationMonthBody"></tbody>
       </table>
     </div>
+
+    <h3 class="report-subsection-title">Ramp Up &ndash; Resources Onboarded This Fiscal Year</h3>
+    <p class="page-header-desc dash-header-desc">Time and Material resources whose assignment started during the current fiscal year, by month &ndash; click a month's count to see who.</p>
+    <div class="table-scroll">
+      <table class="sow-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
+            <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody id="resourceReportRampUpBody"></tbody>
+      </table>
+    </div>
+
+    <h3 class="report-subsection-title">Ramp Down &ndash; Resources Released This Fiscal Year</h3>
+    <p class="page-header-desc dash-header-desc">Time and Material resources whose assignment ended during the current fiscal year, by month &ndash; click a month's count to see who.</p>
+    <div class="table-scroll">
+      <table class="sow-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
+            <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody id="resourceReportRampDownBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <section id="tab-revenue-hub" class="tab-panel">
@@ -1191,6 +1223,20 @@
         <tbody id="revenueReportSummaryBody"></tbody>
       </table>
     </div>
+
+    <h3 class="report-subsection-title">QoQ Revenue &amp; Variance</h3>
+    <p class="page-header-desc dash-header-desc">Quarter-over-quarter change in the combined revenue above, for the current fiscal year, alongside two measurable factors that often drive a swing &ndash; billing days by location and Time and Material resource headcount &ndash; shown as data points to help you judge the likely driver, not as a definitive cause.</p>
+    <div class="table-scroll">
+      <table class="sow-table">
+        <thead>
+          <tr>
+            <th>Quarter</th><th>Revenue</th><th>Variance ($)</th><th>Variance (%)</th>
+            <th>Billing Days (by Location)</th><th>TM Resource Count</th><th>Possible Contributing Factors</th>
+          </tr>
+        </thead>
+        <tbody id="revenueReportQoQBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- Reports > Billing Days - moved out of Configuration > Holiday Calendar
@@ -1203,9 +1249,7 @@
     <div class="dash-header-row">
       <h2 class="page-header-title">Working Billing Days</h2>
       <div class="report-filters">
-        <select id="billingDaysReportCustomerFilter" class="dash-customer-filter">
-          <option value="">All customers</option>
-        </select>
+        <select id="billingDaysReportCustomerFilter" class="dash-customer-filter"></select>
       </div>
     </div>
     <p class="page-header-desc dash-header-desc">Location-wise Working Days, Holidays and Billing Days by month for the current fiscal year, for the selected customer.</p>
@@ -1702,7 +1746,39 @@
   </div>
 </div>
 
+<!-- Reports > Resource's Ramp Up/Ramp Down tables are a single horizontal
+     Apr-Mar row (matching the Location x Month table above them) rather
+     than one row per month, so a month's own resource list can't live in
+     an inline subrow the way the SOW table's milestones do - this reuses
+     the same "click a count, see a details popup" pattern as the SOW
+     Report's count-link stat cards (see openSowDetailsModal above) instead. -->
+<div id="resourceRampModal" class="modal" hidden>
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></span><span id="resourceRampModalTitle">Resources</span></h2>
+      <div class="modal-header-actions">
+        <button type="button" id="closeResourceRampModalBtn" class="ghost-btn">Close</button>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Employee Name</th>
+            <th>Location</th>
+            <th>Practice</th>
+            <th>Customer</th>
+            <th>SOW</th>
+            <th id="resourceRampModalDateHeader">Date</th>
+          </tr>
+        </thead>
+        <tbody id="resourceRampModalTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=133"></script>
+<script src="app.js?v=136"></script>
 </body>
 </html>
