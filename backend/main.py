@@ -2212,6 +2212,28 @@ def _billing_hours_per_day(conn, customer_id: Optional[int], location_id: Option
     return row[f"{slug}_hours"] if row else None
 
 
+def _practice_id_for_employee(conn, customer_id: Optional[int], employee_id: Optional[str]) -> Optional[int]:
+    """Looked up from Best Estimates > Time and Material's own assignments
+    (tm_assignments), never stored anywhere else - Practice describes the
+    person doing the work for a Customer, so it's derived the same way for
+    every Realized Revenue > Time and Material entry path (Add/Edit popup,
+    Copy, bulk Import - see realized_tm_import_template()/
+    import_realized_tm() below and realizedTmPracticeFor() in app.js) rather
+    than hand-typed anywhere. None when Employee Id is blank or no
+    assignment exists for this Customer+Employee Id; the most recently
+    updated assignment wins when more than one matches (mirrors
+    list_tm_assignment_employee_practices' own ordering)."""
+    if not customer_id or not (employee_id or "").strip():
+        return None
+    row = conn.execute(
+        """SELECT practice_id FROM tm_assignments
+           WHERE customer_id = ? AND employee_id = ? COLLATE NOCASE AND practice_id IS NOT NULL
+           ORDER BY updated_at DESC LIMIT 1""",
+        (customer_id, employee_id.strip()),
+    ).fetchone()
+    return row["practice_id"] if row else None
+
+
 def _fiscal_month_calendar_range(fiscal_year: int, fiscal_month: int):
     """The (first_day, last_day) calendar-month range a fiscal_month falls
     in, for a fiscal year that runs Apr(fiscal_year)-Mar(fiscal_year+1) -
@@ -2942,35 +2964,37 @@ def realized_tm_import_template():
     """Sheet 1 carries every plain-input field on the grid except Final Bill
     Rate ($)/Network Days/Total Billable Days (all computed server-side on
     every read, never stored - see _realized_tm_row_dict) and Actions/Sl.No,
-    which aren't data. Practice is included here as a plain named column
-    (matched against the master list like Location, via
-    _lookup_id_by_name) even though the Add/Edit popup always auto-populates
-    it from Customer + Employee Id - a bulk import has no live popup to
-    derive it from, so the importer states it directly, same treatment as
-    Billing Hours (per day) above. Employee Name and Start Date are the only
-    two required (Start Date drives the fiscal month bucketing - see
-    _fiscal_year_month_of - so unlike Best Estimates > Time and Material it
-    can't be left blank). Sheet 2 is a plain reference list of the Customers,
-    Locations and Practices already configured, mirroring
-    tm_assignments_import_template."""
+    which aren't data. Practice and Billing Hours (per day) are deliberately
+    excluded too (per explicit request) even though both are real stored
+    columns - unlike Final Bill Rate/Network Days/Total Billable Days, they
+    can't be left for the importer to state, since both are meant to always
+    be auto-populated, the same way the Add/Edit popup always auto-populates
+    them (from Customer + Employee Id, and Customer + Location, respectively)
+    rather than hand-typed - see import_realized_tm(), which derives both
+    itself for every imported row using the exact same lookups (
+    _practice_id_for_employee/_billing_hours_per_day), ignoring anything a
+    caller's own spreadsheet might otherwise have in those columns. Employee
+    Name and Start Date are the only two required (Start Date drives the
+    fiscal month bucketing - see _fiscal_year_month_of - so unlike Best
+    Estimates > Time and Material it can't be left blank). Sheet 2 is a
+    plain reference list of the Customers and Locations already configured,
+    mirroring tm_assignments_import_template."""
     headers = ["Customer Name", "Customer Manager", "Project Name", "PO#", "SoW Role",
-               "Employee Id", "Employee Name", "Location", "Practice",
-               "Billing Hours (per day)", "Bill Rate ($)", "Discount (%)",
+               "Employee Id", "Employee Name", "Location",
+               "Bill Rate ($)", "Discount (%)",
                "Start Date (dd-mmm-yyyy)", "End Date (dd-mmm-yyyy)",
                "Total Billable Hours", "Billing Advice #",
                "Leaves", "Holidays",
                "Additional Information"]
-    date_cols = (13, 14)
-    widths = [22, 18, 22, 14, 16, 14, 20, 16, 16, 16, 14, 12, 24, 24, 16, 16, 10, 10, 30]
+    date_cols = (11, 12)
+    widths = [22, 18, 22, 14, 16, 14, 20, 16, 14, 12, 24, 24, 16, 16, 10, 10, 30]
     wb = _build_workbook("Realized T&M Template", headers, [], date_cols=date_cols, widths=widths)
     with db.get_db() as conn:
         customer_names = [r["customer_name"] for r in conn.execute("SELECT customer_name FROM customers ORDER BY customer_name COLLATE NOCASE").fetchall()]
         location_names = [r["name"] for r in conn.execute("SELECT name FROM locations ORDER BY name COLLATE NOCASE").fetchall()]
-        practice_names = [r["name"] for r in conn.execute("SELECT name FROM practices ORDER BY name COLLATE NOCASE").fetchall()]
     _add_reference_sheet(wb, "Reference Lists", {
         "Available Customer Name": customer_names,
         "Available Location": location_names,
-        "Available Practice": practice_names,
     })
     return _xlsx_response(wb, "trakerz_realized_tm_template.xlsx")
 
@@ -3005,9 +3029,17 @@ async def import_realized_tm(fiscal_year: Optional[int] = None, file: UploadFile
                     raise ValueError("Start Date is required")
                 customer_id = _lookup_customer_id_by_name(conn, _cell_str(rec.get("customer name")))
                 location_id = _lookup_id_by_name(conn, "locations", _cell_str(rec.get("location")))
-                practice_id = _lookup_id_by_name(conn, "practices", _cell_str(rec.get("practice")))
                 end_date = _cell_date(rec.get("end date (dd-mmm-yyyy)", rec.get("end date")))
                 fiscal_year_val, fiscal_month_val = _fiscal_year_month_of(start_date)
+                employee_id_val = _cell_str(rec.get("employee id"))
+                # Practice and Billing Hours (per day) are never read from the
+                # file (both are excluded from the template - see
+                # realized_tm_import_template()) - always auto-derived here
+                # instead, same lookups the Add/Edit popup's own live preview
+                # uses, so an imported row is auto-populated exactly like a
+                # manually added one.
+                practice_id = _practice_id_for_employee(conn, customer_id, employee_id_val)
+                billing_hours_per_day = _billing_hours_per_day(conn, customer_id, location_id)
 
                 conn.execute(
                     """INSERT INTO realized_tm_entries (customer_id, customer_manager, project_name, po_number, sow_role,
@@ -3016,8 +3048,8 @@ async def import_realized_tm(fiscal_year: Optional[int] = None, file: UploadFile
                        fiscal_year, fiscal_month, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
                     (customer_id, _cell_str(rec.get("customer manager")), _cell_str(rec.get("project name")),
-                     _cell_str(rec.get("po#")), _cell_str(rec.get("sow role")), _cell_str(rec.get("employee id")),
-                     employee_name, location_id, practice_id, _cell_float_or_none(rec.get("billing hours (per day)")),
+                     _cell_str(rec.get("po#")), _cell_str(rec.get("sow role")), employee_id_val,
+                     employee_name, location_id, practice_id, billing_hours_per_day,
                      _cell_float_or_none(rec.get("bill rate ($)")), _cell_float_or_none(rec.get("discount (%)")),
                      start_date, end_date,
                      _cell_float_or_none(rec.get("total billable hours")), _cell_float_or_none(rec.get("leaves")),

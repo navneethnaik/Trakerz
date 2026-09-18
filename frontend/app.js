@@ -5752,7 +5752,7 @@ function renderRealizedTmTable() {
   const tbody = document.getElementById("realizedTmTableBody");
   tbody.innerHTML = "";
   if (!filteredRows.length) {
-    tbody.innerHTML = `<tr><td colspan="21" class="empty-state">${
+    tbody.innerHTML = `<tr><td colspan="27" class="empty-state">${
       allRows.length ? "No entries match the selected filter." : 'No entries yet. Click "Add Entry" to start tracking realized Time and Material revenue.'
     }</td></tr>`;
   } else {
@@ -5853,6 +5853,23 @@ function buildRealizedTmRow(r) {
       </td>`;
   cells += `<td class="rtm-sl-no"></td>`;
 
+  // Total Billable Hours (calculated)/Expected Invoice Amount ($) - the same
+  // Billing Reconciliation figures #realizedTmEntryModal's own
+  // refreshReconciliation() computes live (Total Billable Days x Billing
+  // Hours (per day), then x Final Bill Rate) - neither is stored server-side
+  // (see _realized_tm_row_dict in main.py), so both are recomputed here from
+  // this row's own already-computed total_billable_days/final_bill_rate,
+  // same "preview vs. source of truth" split as the popup.
+  const calcHours = (r.total_billable_days != null && r.billing_hours_per_day != null)
+    ? r.total_billable_days * r.billing_hours_per_day
+    : null;
+  const expectedInvoice = calcHours != null ? calcHours * (r.final_bill_rate || 0) : null;
+
+  // Column order/grouping below is verbatim from #realizedTmEntryModal's own
+  // section titles and field order (per explicit request) - see the
+  // matching group-header-row in index.html. Additional Information sits
+  // between Billing Details and Billing Reconciliation here for the same
+  // reason it does in the popup.
   cells += `
     <td>${escapeHtml(r.customer_name) || "—"}</td>
     <td>${escapeHtml(r.customer_manager) || "—"}</td>
@@ -5865,14 +5882,20 @@ function buildRealizedTmRow(r) {
     <td>${escapeHtml(r.practice_name) || "—"}</td>
     <td>${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
     <td class="rev-tcv-cell">${r.bill_rate != null ? fmt(r.bill_rate) : "—"}</td>
+    <td>${r.discount_percent != null ? r.discount_percent + "%" : "—"}</td>
+    <td class="rev-tcv-cell">${r.final_bill_rate != null ? fmt(r.final_bill_rate) : "—"}</td>
     <td>${fmtDate(r.start_date)}</td>
     <td>${fmtDate(r.end_date)}</td>
     <td>${r.total_billable_hours != null ? fmtPlain(r.total_billable_hours) : "—"}</td>
     <td class="rev-tcv-cell">${fmt(r.total_invoice_amount || 0)}</td>
-    <td>${r.leaves != null ? fmtPlain(r.leaves) : "—"}</td>
-    <td>${r.holidays != null ? fmtPlain(r.holidays) : "—"}</td>
     <td>${escapeHtml(r.billing_advice_number) || "—"}</td>
     <td>${r.additional_info ? `<span class="notes-cell" title="${escapeHtml(r.additional_info)}">${escapeHtml(r.additional_info)}</span>` : "—"}</td>
+    <td>${r.network_days != null ? fmtPlain(r.network_days) : "—"}</td>
+    <td>${r.leaves != null ? fmtPlain(r.leaves) : "—"}</td>
+    <td>${r.holidays != null ? fmtPlain(r.holidays) : "—"}</td>
+    <td>${r.total_billable_days != null ? fmtPlain(r.total_billable_days) : "—"}</td>
+    <td>${calcHours != null ? fmtPlain(calcHours) : "—"}</td>
+    <td class="rev-tcv-cell">${expectedInvoice != null ? fmt(expectedInvoice) : "—"}</td>
   `;
 
   tr.innerHTML = cells;

@@ -415,13 +415,23 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
 #tab-config-leaves .sow-table thead th { position: sticky; top: 0; z-index: 2; }
 #tab-customers .sow-table thead th { position: sticky; top: 0; z-index: 2; }
 #tab-config-holidays .sow-table thead th { position: sticky; top: 0; z-index: 2; }
-/* Realized Revenue > Time and Material - both its tables (the "Location
-   wise Monthly Revenue" summary table and the resource-level grid below,
-   see index.html) use plain single-row headers, no group-header row, so
-   this one generic rule covers both (it also matches the
-   .revenue-type-summary-table class the summary table reuses, same as
-   #tab-revenue's own dedicated rule further below covers that table there). */
-#tab-realized-tm .sow-table thead th { position: sticky; top: 0; z-index: 2; }
+/* Realized Revenue > Time and Material's "Location wise Monthly Revenue"
+   summary table - plain single-row header, no group-header row (matches the
+   .revenue-type-summary-table class it reuses, same as #tab-revenue's own
+   dedicated rule further below covers that table there). The resource-level
+   grid below it has its own two-row grouped header instead - see the
+   .rtm-table rule just below, same shape as the Best Estimates > Time and
+   Material table's own two-row header further down this file. */
+#tab-realized-tm .revenue-type-summary-table thead th { position: sticky; top: 0; z-index: 2; }
+/* Resource-level grid's own two-row grouped header (Customer and Project
+   Information / Resource Details / Billing Details / Additional Information /
+   Billing Reconciliation - verbatim from #realizedTmEntryModal's own section
+   titles, per explicit request - see index.html). Both rows stick to the
+   top of the scroll container, the second offset by the first row's
+   rendered height, same "why" as the SOW table's own two-row header
+   comment above. */
+#tab-realized-tm .rtm-table thead tr:first-child th { position: sticky; top: 0; z-index: 3; }
+#tab-realized-tm .rtm-table thead tr:last-child th { position: sticky; top: 29px; z-index: 2; }
 /* The SOW table has a two-row header (a "Contract Details / BTP Information /
    Reference Documents / Additional Information" group row spanning the
    individual column-name row below it, same shape as the Revenue Management

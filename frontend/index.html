@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=133" />
+<link rel="stylesheet" href="style.css?v=134" />
 </head>
 <body>
 <header class="topbar">
@@ -1374,33 +1374,59 @@
       </button>
     </div>
 
-    <!-- Resource level monthly revenue - single flat header row (no grouped
-         sections), one row per resource per billing month. -->
+    <!-- Resource level monthly revenue - two-row grouped header (per
+         explicit request, verbatim from #realizedTmEntryModal's own section
+         titles and field order: Customer and Project Information / Resource
+         Details / Billing Details / Additional Information / Billing
+         Reconciliation), same group-header-row/group-header/group-divider
+         pattern as the Best Estimates > Time and Material table above (see
+         its own comment for the sticky top:0/top:29px rule this requires -
+         #tab-realized-tm's version is in style.css). Additional Information
+         is a single field (like Actions/Sl. No), so it gets rowspan="2"
+         instead of its own leaf row entry, same treatment as that table's
+         own trailing Additional Information column. Billing Details and
+         Billing Reconciliation each carry a "Total Billable Hours" column
+         because the popup itself has two same-named fields at those exact
+         positions (one manually entered, one calculated) - left identically
+         named here rather than invented apart, per explicit request to
+         match the popup exactly. One row per resource per billing month. -->
     <div class="table-scroll">
       <table class="sow-table rtm-table">
         <thead>
+          <tr class="group-header-row">
+            <th class="rev-leading-th" rowspan="2">Actions</th>
+            <th class="rev-leading-th" rowspan="2">Sl. No</th>
+            <th colspan="4" class="group-header">Customer and Project Information</th>
+            <th colspan="5" class="group-header group-divider">Resource Details</th>
+            <th colspan="9" class="group-header group-divider">Billing Details</th>
+            <th class="rev-leading-th group-divider" rowspan="2">Additional Information</th>
+            <th colspan="6" class="group-header group-divider">Billing Reconciliation</th>
+          </tr>
           <tr>
-            <th class="rev-leading-th">Actions</th>
-            <th class="rev-leading-th">Sl. No</th>
             <th class="rev-leading-th">Customer Name</th>
             <th class="rev-leading-th">Customer Manager</th>
             <th class="rev-leading-th">Project Name</th>
             <th class="rev-leading-th">PO#</th>
-            <th class="rev-leading-th">SoW Role</th>
+            <th class="rev-leading-th group-divider">SoW Role</th>
             <th class="rev-leading-th">Employee Id</th>
             <th class="rev-leading-th">Employee Name</th>
             <th class="rev-leading-th">Location</th>
             <th class="rev-leading-th">Practice</th>
-            <th class="rev-leading-th">Billing Hours (per day)</th>
+            <th class="rev-leading-th group-divider">Billing Hours (per day)</th>
             <th class="rev-leading-th">Bill Rate ($)</th>
+            <th class="rev-leading-th">Discount (%)</th>
+            <th class="rev-leading-th">Final Bill Rate ($)</th>
             <th class="rev-leading-th">Start Date</th>
             <th class="rev-leading-th">End Date</th>
             <th class="rev-leading-th">Total Billable Hours</th>
             <th class="rev-leading-th">Total Invoice Amount ($)</th>
+            <th class="rev-leading-th">Billing Advice #</th>
+            <th class="rev-leading-th group-divider">Network Days</th>
             <th class="rev-leading-th">Leaves</th>
             <th class="rev-leading-th">Holidays</th>
-            <th class="rev-leading-th">Billing Advice #</th>
-            <th class="rev-leading-th">Additional Information</th>
+            <th class="rev-leading-th">Total Billable Days</th>
+            <th class="rev-leading-th">Total Billable Hours</th>
+            <th class="rev-leading-th">Expected Invoice Amount ($)</th>
           </tr>
         </thead>
         <tbody id="realizedTmTableBody"></tbody>
@@ -2218,6 +2244,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=166"></script>
+<script src="app.js?v=167"></script>
 </body>
 </html>
