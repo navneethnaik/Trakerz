@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=130" />
+<link rel="stylesheet" href="style.css?v=133" />
 </head>
 <body>
 <header class="topbar">
@@ -1311,11 +1311,101 @@
   <!-- Placeholder pages for the "Time and Material" and "Managed Services"
        items under the new Realized Revenue menu - see the nav comment above
        that nav-dropdown for why they're empty for now. -->
+  <!-- Realized Revenue > Time and Material: a standalone actuals ledger
+       (no link to Statement of Work / Best Estimates, per explicit request)
+       - one row per resource per billing month (see realized_tm_entries in
+       db.py). Follows the same toolbar/summary-table/subsection-toolbar/grid
+       shape as Best Estimates above, but Download Template/Import/Export all
+       sit together above the bottom grid per explicit placement request
+       (Best Estimates instead puts Export in the top toolbar). -->
   <section id="tab-realized-tm" class="tab-panel">
     <div class="page-header">
       <h2 class="page-header-title">Realized Revenue &ndash; Time and Material</h2>
+      <p class="page-header-desc">Log and review actual monthly billing by resource &ndash; a standalone register, independent of Statement of Work / Best Estimates.</p>
     </div>
-    <p class="empty-state">This page hasn't been designed yet - check back soon.</p>
+
+    <div class="toolbar">
+      <input id="realizedTmSearchInput" type="search" placeholder="Search customer, employee or project..." />
+      <select id="realizedTmCustomerFilter">
+        <option value="">All customers</option>
+      </select>
+      <select id="realizedTmLocationFilter">
+        <option value="">All locations</option>
+      </select>
+    </div>
+
+    <!-- Location x Month summary - one row per Location (every location in
+         the master list, even ones with no data yet), summing Total Invoice
+         Amount for that fiscal month across every row currently visible
+         below, per the Customer/Location filters above. Built by
+         renderRealizedTmLocationSummary() in app.js. Reuses the exact same
+         .revenue-type-summary-table/.rts-highlight-col styling as Best
+         Estimates' Revenue Type Summary table (see style.css). -->
+    <div class="table-scroll location-revenue-summary-scroll">
+      <table class="sow-table revenue-type-summary-table">
+        <thead>
+          <tr id="locationRevenueSummaryHeaderRow">
+            <th>Location</th><th class="rts-highlight-col">Total</th>
+            <th>Apr</th><th>May</th><th>Jun</th><th class="rts-highlight-col">Q1</th>
+            <th>Jul</th><th>Aug</th><th>Sep</th><th class="rts-highlight-col">Q2</th>
+            <th>Oct</th><th>Nov</th><th>Dec</th><th class="rts-highlight-col">Q3</th>
+            <th>Jan</th><th>Feb</th><th>Mar</th><th class="rts-highlight-col">Q4</th>
+          </tr>
+        </thead>
+        <tbody id="locationRevenueSummaryBody"></tbody>
+      </table>
+    </div>
+
+    <div class="toolbar subsection-toolbar">
+      <div class="toolbar-spacer"></div>
+      <a id="realizedTmTemplateLink" class="template-link" href="/api/realized/tm/import-template">Download template</a>
+      <button id="importRealizedTmBtn" type="button" class="ghost-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        Import from Excel
+      </button>
+      <input type="file" id="realizedTmImportFile" accept=".xlsx" hidden />
+      <button id="exportRealizedTmBtn" type="button" class="ghost-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Export to Excel
+      </button>
+      <button id="newRealizedTmEntryBtn" type="button" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Entry
+      </button>
+    </div>
+
+    <!-- Resource level monthly revenue - single flat header row (no grouped
+         sections), one row per resource per billing month. -->
+    <div class="table-scroll">
+      <table class="sow-table rtm-table">
+        <thead>
+          <tr>
+            <th class="rev-leading-th">Actions</th>
+            <th class="rev-leading-th">Sl. No</th>
+            <th class="rev-leading-th">Customer Name</th>
+            <th class="rev-leading-th">Customer Manager</th>
+            <th class="rev-leading-th">Project Name</th>
+            <th class="rev-leading-th">PO#</th>
+            <th class="rev-leading-th">SoW Role</th>
+            <th class="rev-leading-th">Employee Id</th>
+            <th class="rev-leading-th">Employee Name</th>
+            <th class="rev-leading-th">Location</th>
+            <th class="rev-leading-th">Practice</th>
+            <th class="rev-leading-th">Billing Hours (per day)</th>
+            <th class="rev-leading-th">Bill Rate ($)</th>
+            <th class="rev-leading-th">Start Date</th>
+            <th class="rev-leading-th">End Date</th>
+            <th class="rev-leading-th">Total Billable Hours</th>
+            <th class="rev-leading-th">Total Invoice Amount ($)</th>
+            <th class="rev-leading-th">Leaves</th>
+            <th class="rev-leading-th">Holidays</th>
+            <th class="rev-leading-th">Billing Advice #</th>
+            <th class="rev-leading-th">Additional Information</th>
+          </tr>
+        </thead>
+        <tbody id="realizedTmTableBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <section id="tab-realized-ms" class="tab-panel">
@@ -1897,6 +1987,115 @@
   </div>
 </div>
 
+<!-- Realized Revenue > Time and Material Add/Edit/View popup
+     (#realizedTmEntryModal) - mirrors #tmEntryModal's View/Copy/Edit/Delete
+     popup pattern (see openRealizedTmEntryModal in app.js), simplified since
+     this is a standalone register: no Statement of Work/Revenue Type
+     linkage, and no server-computed Projections section - just plain inputs
+     plus one live-computed readonly Total Invoice Amount field. Practice
+     (unlike #tmEntryModal's own editable Practice dropdown) is always
+     read-only here, auto-populated from Customer + Employee Id against Best
+     Estimates > Time and Material's own assignments (see
+     realizedTmPracticeFor() in app.js)
+     (Bill Rate x Total Billable Hours, recalculated as either changes). -->
+<div id="realizedTmEntryModal" class="modal" hidden>
+  <div class="modal-box modal-wide modal-xwide">
+    <div class="modal-header">
+      <h2><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span><span id="realizedTmEntryModalTitle">Add Realized Revenue Entry</span></h2>
+      <div class="modal-header-actions">
+        <button type="button" id="cancelRealizedTmEntryBtnTop" class="ghost-btn">Cancel</button>
+        <button type="button" id="editRealizedTmEntryBtnTop" class="primary-btn" hidden>Edit</button>
+        <button type="submit" form="realizedTmEntryForm" class="primary-btn" id="saveRealizedTmEntryBtnTop">Save</button>
+      </div>
+    </div>
+    <form id="realizedTmEntryForm">
+      <div class="form-section-title">Customer and Project Information</div>
+      <div class="four-col">
+        <label>Customer Name<select class="rtm-f-customer"></select></label>
+        <label>Customer Manager<input type="text" class="rtm-f-customer-manager" /></label>
+        <label>Project Name<input type="text" class="rtm-f-project-name" /></label>
+        <label>PO#<input type="text" class="rtm-f-po" /></label>
+      </div>
+
+      <!-- Practice is always read-only - auto-populated from Customer +
+           Employee Id against Best Estimates > Time and Material's own
+           assignments (see realizedTmPracticeFor()/refreshPractice() in
+           app.js), never hand-picked here the way #tmEntryModal's own
+           Practice dropdown is. -->
+      <div class="form-section-title">Resource Details</div>
+      <div class="five-col">
+        <label>SoW Role<input type="text" class="rtm-f-sow-role" /></label>
+        <label>Employee Id<input type="text" class="rtm-f-employee-id" /></label>
+        <label>Employee Name<input type="text" class="rtm-f-employee-name" required /></label>
+        <label>Location<select class="rtm-f-location"></select></label>
+        <label>Practice<input type="text" class="rtm-f-practice" readonly /></label>
+      </div>
+
+      <!-- Billing Hours (per day) is auto-populated from the Customer/
+           Location combination (see refreshRealizedTmBillingHours() in
+           app.js, reusing the same billingHoursFor() lookup Best Estimates
+           previews with) - always read-only, same as Best Estimates' own
+           Billing Hours (per day)/Discounted Rate fields. Final Bill Rate
+           ($) is likewise always a live, read-only computation of Bill Rate
+           discounted by Discount (%) - same _final_rate_card-style formula
+           as Best Estimates' Discounted Rate - and Total Invoice Amount is
+           calculated from THIS discounted rate (Final Bill Rate x Total
+           Billable Hours), per explicit request. Total Billable Hours stays
+           a manually entered figure (per explicit request, this remains a
+           manual ledger of what was actually billed) - see the Billing
+           Reconciliation section below for the calendar-derived check
+           against it. -->
+      <div class="form-section-title">Billing Details</div>
+      <div class="four-col">
+        <label>Billing Hours (per day)<input type="text" class="rtm-f-billing-hours" readonly /></label>
+        <label>Bill Rate ($)<input type="number" step="0.01" min="0" class="rtm-f-bill-rate" /></label>
+        <label>Discount (%)<input type="number" step="0.01" min="0" max="100" class="rtm-f-discount" /></label>
+        <label>Final Bill Rate ($)<input type="text" class="rtm-f-final-rate" readonly /></label>
+      </div>
+      <div class="two-col">
+        <label>Start Date<input type="date" class="rtm-f-start-date" required /></label>
+        <label>End Date<input type="date" class="rtm-f-end-date" /></label>
+      </div>
+      <div class="three-col">
+        <label>Total Billable Hours<input type="number" step="0.01" min="0" class="rtm-f-total-hours" /></label>
+        <label>Total Invoice Amount ($)<input type="text" class="rtm-f-total-invoice" readonly /></label>
+        <label>Billing Advice #<input type="text" class="rtm-f-billing-advice" /></label>
+      </div>
+
+      <div class="form-section-title">Additional Information</div>
+      <label>Any additional Information<textarea class="rtm-f-notes" rows="3"></textarea></label>
+
+      <!-- Network Days/Leaves/Holidays/Total Billable Days moved down here
+           (per explicit request) - all four still feed only this
+           reconciliation block, never Total Billable Hours/Total Invoice
+           Amount above. The two new calculated fields below compare a
+           purely calendar-derived "Expected Invoice Amount" (Total Billable
+           Days x Billing Hours (per day) x Final Bill Rate) against the
+           manually entered Total Invoice Amount ($) above - a sanity check,
+           not a source of truth - flagged with a green (match) or red
+           (mismatch) dot beside Expected Invoice Amount (see
+           refreshReconciliation() in app.js). -->
+      <div class="form-section-title">Billing Reconciliation</div>
+      <div class="four-col">
+        <label>Network Days<input type="text" class="rtm-f-network-days" readonly /></label>
+        <label>Leaves<input type="number" step="0.01" min="0" class="rtm-f-leaves" /></label>
+        <label>Holidays<input type="number" step="0.01" min="0" class="rtm-f-holidays" /></label>
+        <label>Total Billable Days<input type="text" class="rtm-f-total-billable-days" readonly /></label>
+      </div>
+      <div class="two-col">
+        <label>Total Billable Hours<input type="text" class="rtm-f-expected-hours" readonly /></label>
+        <label>Expected Invoice Amount ($)<span class="info-icon-wrap rtm-match-indicator" id="rtmInvoiceMatchIndicator" tabindex="0"><span class="match-dot"></span><span class="info-tooltip-text" id="rtmInvoiceMatchTooltip"></span></span><input type="text" class="rtm-f-expected-invoice" readonly /></label>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" id="cancelRealizedTmEntryBtn" class="ghost-btn">Cancel</button>
+        <button type="button" id="editRealizedTmEntryBtn" class="primary-btn" hidden>Edit</button>
+        <button type="submit" class="primary-btn" id="saveRealizedTmEntryBtn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Resource form modal -->
 <div id="resourceModal" class="modal" hidden>
   <div class="modal-box modal-wide">
@@ -2019,6 +2218,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=162"></script>
+<script src="app.js?v=166"></script>
 </body>
 </html>

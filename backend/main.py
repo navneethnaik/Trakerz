@@ -280,6 +280,51 @@ class TmAssignmentCreateIn(TmAssignmentIn):
 FISCAL_MONTH_LABELS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
 
 
+# Realized Revenue > Time and Material (Revenue Outlook > Realized Revenue >
+# Time and Material) - a standalone actuals register, independent of
+# Statement of Work/Best Estimates per explicit request. Customer Name and
+# Location are the only two fields backed by a master list (dropdowns);
+# Billing Hours (per day) is auto-populated from the Customer/Location
+# combination the same way Best Estimates previews it (see
+# _billing_hours_per_day/billingHoursFor in app.js), and Total Billable
+# Hours/Leaves/Holidays stay plain user input (per explicit request, Total
+# Billable Hours is NOT derived from Total Billable Days below - this is
+# still a manual ledger of what was actually billed, not an auto-projection).
+# Practice is likewise auto-populated and read-only (per explicit request) -
+# looked up client-side from the Customer + Employee Id combination against
+# Best Estimates > Time and Material's own assignments (see
+# /api/tm/assignments/employee-practices and realizedTmPracticeFor() in
+# app.js), then saved as a plain value exactly like Billing Hours (per day).
+# Discount (%) feeds a computed, never-stored Final Bill Rate ($) - same
+# _final_rate_card-style formula as Best Estimates' own Discount %/Discounted
+# Rate. Total Invoice Amount is calculated from that discounted rate (per
+# explicit request) - final_bill_rate * total_billable_hours, never stored.
+# Network Days (working days between Start/End Date) and Total Billable Days
+# (Network Days minus Leaves minus Holidays) are likewise pure computed
+# reference numbers, never stored and never fed back into Total Billable
+# Hours - see _realized_tm_row_dict below for all of the above.
+class RealizedTmIn(BaseModel):
+    customer_id: Optional[int] = None
+    customer_manager: Optional[str] = None
+    project_name: Optional[str] = None
+    po_number: Optional[str] = None
+    sow_role: Optional[str] = None
+    employee_id: Optional[str] = None
+    employee_name: str
+    location_id: Optional[int] = None
+    practice_id: Optional[int] = None
+    billing_hours_per_day: Optional[float] = None
+    bill_rate: Optional[float] = None
+    discount_percent: Optional[float] = None
+    start_date: str
+    end_date: Optional[str] = None
+    total_billable_hours: Optional[float] = None
+    leaves: Optional[float] = None
+    holidays: Optional[float] = None
+    billing_advice_number: Optional[str] = None
+    additional_info: Optional[str] = None
+
+
 # ---------- helpers ----------
 
 def _row_to_dict(row):
@@ -1156,6 +1201,19 @@ def _current_fiscal_year() -> int:
     still fiscal_year 2026 (the FY that started Apr 2026)."""
     today = date.today()
     return today.year if today.month >= 4 else today.year - 1
+
+
+def _fiscal_year_month_of(iso_date: str) -> tuple:
+    """(fiscal_year, fiscal_month) a 'YYYY-MM-DD' date falls in, same Apr-start/
+    fiscal_month-1-is-Apr convention as _current_fiscal_year/FISCAL_MONTH_LABELS -
+    used by Realized Revenue > Time and Material to bucket each row (see
+    realized_tm_entries in db.py) by the fiscal month its Start Date falls
+    in, recomputed on every create/update rather than trusted from the
+    client."""
+    d = datetime.strptime(iso_date, "%Y-%m-%d").date()
+    if d.month >= 4:
+        return d.year, d.month - 3
+    return d.year - 1, d.month + 9
 
 
 def _fiscal_months(entries: Dict[int, dict]) -> List[dict]:
@@ -2370,6 +2428,31 @@ def list_tm_assignments(fiscal_year: Optional[int] = None):
         return {"fiscal_year": fy, "rows": rows}
 
 
+@app.get("/api/tm/assignments/employee-practices")
+def list_tm_assignment_employee_practices():
+    """Flat (Customer, Employee Id) -> Practice lookup drawn from every Best
+    Estimates > Time and Material assignment on file (tm_assignments) -
+    regardless of which fiscal year(s) it's registered to, since Practice
+    describes the person doing the work for that Customer, not a
+    fiscal-year-scoped fact. Used by Realized Revenue > Time and Material's
+    Add/Edit popup to auto-populate its own read-only Practice field the
+    same way Billing Hours (per day) is auto-populated from
+    /api/billing-hours (see realizedTmPracticeFor() in app.js). Ordered
+    most-recently-updated first so that lookup's first match wins on the
+    rare case an employee has more than one assignment on file for the same
+    Customer with a different Practice (e.g. they moved practices)."""
+    with db.get_db() as conn:
+        rows = conn.execute(
+            """SELECT a.customer_id, a.employee_id, a.practice_id, p.name AS practice_name
+               FROM tm_assignments a
+               LEFT JOIN practices p ON p.id = a.practice_id
+               WHERE a.customer_id IS NOT NULL AND a.employee_id IS NOT NULL
+                     AND TRIM(a.employee_id) <> '' AND a.practice_id IS NOT NULL
+               ORDER BY a.updated_at DESC"""
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
 @app.post("/api/tm/assignments", status_code=201)
 def add_tm_assignment(payload: TmAssignmentCreateIn):
     """Add Entry on the Time and Material grid: creates the assignment and
@@ -2612,6 +2695,334 @@ async def import_tm_assignments(fiscal_year: Optional[int] = None, file: UploadF
                 conn.execute(
                     "INSERT OR IGNORE INTO tm_assignment_fiscal_years (assignment_id, fiscal_year) VALUES (?, ?)",
                     (assignment_id, fy),
+                )
+                imported += 1
+            except Exception as e:
+                errors.append({"row": i, "message": str(e)})
+    return {"fiscal_year": fy, "imported": imported, "errors": errors}
+
+
+# ---------- Realized Revenue > Time and Material ----------
+# Standalone actuals ledger, independent of Statement of Work/Best Estimates
+# (see RealizedTmIn above). Customer Name and Location are the only two
+# fields backed by a master list; everything else is plain user input.
+
+def _realized_tm_row_dict(row) -> dict:
+    d = dict(row)
+    final_bill_rate = _final_rate_card(d.get("bill_rate"), d.get("discount_percent"))
+    d["final_bill_rate"] = final_bill_rate
+    # Per explicit request, Total Invoice Amount uses the discounted Final
+    # Bill Rate, not the plain Bill Rate - the discount actually affects what
+    # gets invoiced.
+    d["total_invoice_amount"] = round((final_bill_rate or 0) * (d.get("total_billable_hours") or 0), 2)
+
+    # Network Days/Total Billable Days are pure computed reference numbers
+    # (per explicit request, NOT fed into Total Billable Hours, which stays a
+    # manually entered figure) - both None (shown as "-" in the UI) unless
+    # both Start Date and End Date are present, same as Best Estimates'
+    # working-day calculation (_count_weekdays) but scoped to this one row's
+    # own date range instead of a fiscal month's.
+    start = _parse_iso_date(d.get("start_date"))
+    end = _parse_iso_date(d.get("end_date"))
+    if start and end:
+        network_days = _count_weekdays(start, end)
+        d["network_days"] = network_days
+        d["total_billable_days"] = round(max(network_days - (d.get("leaves") or 0) - (d.get("holidays") or 0), 0), 2)
+    else:
+        d["network_days"] = None
+        d["total_billable_days"] = None
+    return d
+
+
+_REALIZED_TM_SELECT = """
+    SELECT e.id, e.customer_id, c.customer_name, e.customer_manager, e.project_name, e.po_number,
+           e.sow_role, e.employee_id, e.employee_name, e.location_id, l.name AS location_name,
+           e.practice_id, pr.name AS practice_name,
+           e.billing_hours_per_day, e.bill_rate, e.discount_percent, e.start_date, e.end_date, e.total_billable_hours,
+           e.leaves, e.holidays, e.billing_advice_number, e.additional_info,
+           e.fiscal_year, e.fiscal_month
+    FROM realized_tm_entries e
+    LEFT JOIN customers c ON c.id = e.customer_id
+    LEFT JOIN locations l ON l.id = e.location_id
+    LEFT JOIN practices pr ON pr.id = e.practice_id
+"""
+
+
+def _validate_realized_tm_refs(conn, payload: RealizedTmIn):
+    if payload.customer_id is not None and not conn.execute(
+        "SELECT 1 FROM customers WHERE id = ?", (payload.customer_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected customer does not exist")
+    if payload.location_id is not None and not conn.execute(
+        "SELECT 1 FROM locations WHERE id = ?", (payload.location_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected location does not exist")
+    if payload.practice_id is not None and not conn.execute(
+        "SELECT 1 FROM practices WHERE id = ?", (payload.practice_id,)
+    ).fetchone():
+        raise HTTPException(status_code=400, detail="Selected practice does not exist")
+
+
+@app.get("/api/realized/tm")
+def list_realized_tm(fiscal_year: Optional[int] = None):
+    """Realized Revenue > Time and Material grid: one row per resource per
+    billing month (see realized_tm_entries) - unlike Best Estimates, this is a
+    standalone actuals ledger with no link to any SOW/assignment, so rows are
+    simply everything booked to this fiscal year, in Start Date order. The
+    "Location wise Monthly Revenue" summary table above the grid is built
+    client-side from these same rows (see renderRealizedTmLocationSummary in
+    app.js), the same way the Revenue Type Summary table is built from the
+    Best Estimates rows."""
+    fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
+    with db.get_db() as conn:
+        rows = conn.execute(
+            _REALIZED_TM_SELECT
+            + "WHERE e.fiscal_year = ? ORDER BY e.start_date, c.customer_name COLLATE NOCASE, e.employee_name COLLATE NOCASE",
+            (fy,),
+        ).fetchall()
+        return {"fiscal_year": fy, "rows": [_realized_tm_row_dict(r) for r in rows]}
+
+
+@app.post("/api/realized/tm", status_code=201)
+def add_realized_tm(payload: RealizedTmIn):
+    """Add Entry on the Realized T&M grid. fiscal_year/fiscal_month are
+    always derived from Start Date (see _fiscal_year_month_of), never taken
+    from the client, so the row lands in the right Apr-Mar bucket even if the
+    caller is looking at a different fiscal year's grid when they save it."""
+    with db.get_db() as conn:
+        _validate_realized_tm_refs(conn, payload)
+        fiscal_year, fiscal_month = _fiscal_year_month_of(payload.start_date)
+        cur = conn.execute(
+            """INSERT INTO realized_tm_entries (customer_id, customer_manager, project_name, po_number, sow_role,
+               employee_id, employee_name, location_id, practice_id, billing_hours_per_day, bill_rate, discount_percent, start_date, end_date,
+               total_billable_hours, leaves, holidays, billing_advice_number, additional_info,
+               fiscal_year, fiscal_month, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (payload.customer_id, payload.customer_manager, payload.project_name, payload.po_number, payload.sow_role,
+             payload.employee_id, payload.employee_name, payload.location_id, payload.practice_id, payload.billing_hours_per_day, payload.bill_rate,
+             payload.discount_percent, payload.start_date, payload.end_date, payload.total_billable_hours, payload.leaves, payload.holidays,
+             payload.billing_advice_number, payload.additional_info, fiscal_year, fiscal_month),
+        )
+        entry_id = cur.lastrowid
+        row = conn.execute(_REALIZED_TM_SELECT + "WHERE e.id = ?", (entry_id,)).fetchone()
+        return _realized_tm_row_dict(row)
+
+
+@app.put("/api/realized/tm/{entry_id}")
+def update_realized_tm(entry_id: int, payload: RealizedTmIn):
+    """Edits an entry in place - the grid's View/Copy/Edit/Delete Edit
+    action. Re-derives fiscal_year/fiscal_month from the (possibly changed)
+    Start Date every time, so moving a row's Start Date into another month
+    moves it to that month's bucket automatically."""
+    with db.get_db() as conn:
+        if not conn.execute("SELECT 1 FROM realized_tm_entries WHERE id = ?", (entry_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="Entry not found")
+        _validate_realized_tm_refs(conn, payload)
+        fiscal_year, fiscal_month = _fiscal_year_month_of(payload.start_date)
+        conn.execute(
+            """UPDATE realized_tm_entries SET customer_id=?, customer_manager=?, project_name=?, po_number=?, sow_role=?,
+               employee_id=?, employee_name=?, location_id=?, practice_id=?, billing_hours_per_day=?, bill_rate=?, discount_percent=?, start_date=?, end_date=?,
+               total_billable_hours=?, leaves=?, holidays=?, billing_advice_number=?, additional_info=?,
+               fiscal_year=?, fiscal_month=?, updated_at=datetime('now') WHERE id=?""",
+            (payload.customer_id, payload.customer_manager, payload.project_name, payload.po_number, payload.sow_role,
+             payload.employee_id, payload.employee_name, payload.location_id, payload.practice_id, payload.billing_hours_per_day, payload.bill_rate,
+             payload.discount_percent, payload.start_date, payload.end_date, payload.total_billable_hours, payload.leaves, payload.holidays,
+             payload.billing_advice_number, payload.additional_info, fiscal_year, fiscal_month, entry_id),
+        )
+        row = conn.execute(_REALIZED_TM_SELECT + "WHERE e.id = ?", (entry_id,)).fetchone()
+        return _realized_tm_row_dict(row)
+
+
+@app.delete("/api/realized/tm/{entry_id}", status_code=204)
+def delete_realized_tm(entry_id: int):
+    """Unlike Best Estimates > Time and Material, an entry here isn't
+    separately "registered" into a fiscal year (fiscal_year/fiscal_month are
+    baked into the row itself, derived from Start Date), so there's no
+    tm_assignment_fiscal_years-style unlink step - Delete just removes the
+    row outright."""
+    with db.get_db() as conn:
+        conn.execute("DELETE FROM realized_tm_entries WHERE id = ?", (entry_id,))
+    return None
+
+
+def _add_realized_tm_location_summary_sheet(wb: Workbook, rows: List[dict]) -> None:
+    """Appends a "Location wise Monthly Revenue" sheet, the same Location x
+    Month rollup (one row per Location in the master list, plus "Unassigned"
+    only if at least one row here has none) shown on screen directly above
+    the grid being exported - see renderRealizedTmLocationSummary in app.js,
+    which this mirrors exactly. Unlike _add_revenue_type_summary_sheet, each
+    exported row here belongs to exactly one fiscal month (see
+    realized_tm_entries.fiscal_month) rather than carrying all 12 months
+    itself, so the month buckets are built here from fiscal_month + Total
+    Invoice Amount instead of from a per-row "months" list."""
+    with db.get_db() as conn:
+        location_names = [
+            r["name"] for r in conn.execute("SELECT name FROM locations ORDER BY name COLLATE NOCASE").fetchall()
+        ]
+
+    sums_by_location: Dict[str, List[float]] = {}
+    for r in rows:
+        key = r.get("location_name") or ""
+        sums = sums_by_location.setdefault(key, [0.0] * 12)
+        fm = r.get("fiscal_month")
+        if fm:
+            sums[fm - 1] += r.get("total_invoice_amount") or 0
+
+    labels = list(location_names)
+    if "" in sums_by_location:
+        labels.append("Unassigned")
+
+    headers = ["Location", "Total", "Apr", "May", "Jun", "Q1", "Jul", "Aug", "Sep", "Q2",
+               "Oct", "Nov", "Dec", "Q3", "Jan", "Feb", "Mar", "Q4"]
+    summary_rows = []
+    for label in labels:
+        key = "" if label == "Unassigned" else label
+        sums = sums_by_location.get(key, [0.0] * 12)
+        q1, q2, q3, q4 = sum(sums[0:3]), sum(sums[3:6]), sum(sums[6:9]), sum(sums[9:12])
+        summary_rows.append([
+            label, q1 + q2 + q3 + q4,
+            sums[0], sums[1], sums[2], q1,
+            sums[3], sums[4], sums[5], q2,
+            sums[6], sums[7], sums[8], q3,
+            sums[9], sums[10], sums[11], q4,
+        ])
+
+    ws = wb.create_sheet("Location wise Monthly Revenue")
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for row in summary_rows:
+        ws.append(row)
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        for col in range(2, len(headers) + 1):
+            row[col - 1].number_format = "#,##0.00"
+    widths = [22] + [12] * (len(headers) - 1)
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+
+@app.get("/api/realized/tm/export")
+def export_realized_tm(fiscal_year: Optional[int] = None):
+    fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
+    data = list_realized_tm(fiscal_year=fy)
+
+    headers = ["Customer Name", "Customer Manager", "Project Name", "PO#", "SoW Role",
+               "Employee Id", "Employee Name", "Location", "Practice",
+               "Billing Hours (per day)", "Bill Rate ($)", "Discount (%)", "Final Bill Rate ($)",
+               "Start Date", "End Date",
+               "Total Billable Hours", "Total Invoice Amount ($)", "Billing Advice #",
+               "Network Days", "Leaves", "Holidays", "Total Billable Days",
+               "Additional Information"]
+    rows = []
+    for r in data["rows"]:
+        rows.append([
+            r["customer_name"] or "", r["customer_manager"] or "", r["project_name"] or "", r["po_number"] or "",
+            r["sow_role"] or "", r["employee_id"] or "", r["employee_name"] or "", r["location_name"] or "",
+            r["practice_name"] or "",
+            r["billing_hours_per_day"] or 0, r["bill_rate"] or 0, r["discount_percent"] or 0, r["final_bill_rate"] or 0,
+            _parse_iso_date(r.get("start_date")), _parse_iso_date(r.get("end_date")),
+            r["total_billable_hours"] or 0, r["total_invoice_amount"] or 0, r["billing_advice_number"] or "",
+            r["network_days"] if r.get("network_days") is not None else "", r["leaves"] or 0, r["holidays"] or 0,
+            r["total_billable_days"] if r.get("total_billable_days") is not None else "",
+            r.get("additional_info") or "",
+        ])
+
+    date_cols = (14, 15)
+    currency_cols = (11, 13, 17)
+    percent_cols = (12,)
+    widths = [22, 18, 22, 14, 16, 14, 20, 16, 16, 16, 12, 12, 16, 13, 13, 14, 16, 16, 12, 10, 10, 14, 30]
+    wb = _build_workbook("Realized T&M", headers, rows, date_cols=date_cols, currency_cols=currency_cols,
+                          percent_cols=percent_cols, widths=widths)
+    _add_realized_tm_location_summary_sheet(wb, data["rows"])
+    return _xlsx_response(wb, f"trakerz_realized_tm_fy{fy}_{date.today().isoformat()}.xlsx")
+
+
+@app.get("/api/realized/tm/import-template")
+def realized_tm_import_template():
+    """Sheet 1 carries every plain-input field on the grid except Final Bill
+    Rate ($)/Network Days/Total Billable Days (all computed server-side on
+    every read, never stored - see _realized_tm_row_dict) and Actions/Sl.No,
+    which aren't data. Practice is included here as a plain named column
+    (matched against the master list like Location, via
+    _lookup_id_by_name) even though the Add/Edit popup always auto-populates
+    it from Customer + Employee Id - a bulk import has no live popup to
+    derive it from, so the importer states it directly, same treatment as
+    Billing Hours (per day) above. Employee Name and Start Date are the only
+    two required (Start Date drives the fiscal month bucketing - see
+    _fiscal_year_month_of - so unlike Best Estimates > Time and Material it
+    can't be left blank). Sheet 2 is a plain reference list of the Customers,
+    Locations and Practices already configured, mirroring
+    tm_assignments_import_template."""
+    headers = ["Customer Name", "Customer Manager", "Project Name", "PO#", "SoW Role",
+               "Employee Id", "Employee Name", "Location", "Practice",
+               "Billing Hours (per day)", "Bill Rate ($)", "Discount (%)",
+               "Start Date (dd-mmm-yyyy)", "End Date (dd-mmm-yyyy)",
+               "Total Billable Hours", "Billing Advice #",
+               "Leaves", "Holidays",
+               "Additional Information"]
+    date_cols = (13, 14)
+    widths = [22, 18, 22, 14, 16, 14, 20, 16, 16, 16, 14, 12, 24, 24, 16, 16, 10, 10, 30]
+    wb = _build_workbook("Realized T&M Template", headers, [], date_cols=date_cols, widths=widths)
+    with db.get_db() as conn:
+        customer_names = [r["customer_name"] for r in conn.execute("SELECT customer_name FROM customers ORDER BY customer_name COLLATE NOCASE").fetchall()]
+        location_names = [r["name"] for r in conn.execute("SELECT name FROM locations ORDER BY name COLLATE NOCASE").fetchall()]
+        practice_names = [r["name"] for r in conn.execute("SELECT name FROM practices ORDER BY name COLLATE NOCASE").fetchall()]
+    _add_reference_sheet(wb, "Reference Lists", {
+        "Available Customer Name": customer_names,
+        "Available Location": location_names,
+        "Available Practice": practice_names,
+    })
+    return _xlsx_response(wb, "trakerz_realized_tm_template.xlsx")
+
+
+@app.post("/api/realized/tm/import")
+async def import_realized_tm(fiscal_year: Optional[int] = None, file: UploadFile = File(...)):
+    """Bulk version of "Add Entry" - like Best Estimates > Time and Material,
+    there's no uniqueness rule here (a resource can and normally does get a
+    new row every month), so every row in the file becomes a brand-new
+    realized_tm_entries row; there's no matching-existing-row/upsert case to
+    handle. fiscal_year/fiscal_month are always derived from each row's own
+    Start Date (see _fiscal_year_month_of), never taken from the fiscal_year
+    query parameter - that parameter only controls which fiscal year's grid
+    the caller reloads afterward."""
+    fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
+    content = await file.read()
+    try:
+        records = _read_import_rows(content, ["Employee Name", "Start Date (dd-mmm-yyyy)"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    imported = 0
+    errors = []
+    with db.get_db() as conn:
+        for i, rec in enumerate(records, start=2):  # row 1 is the header
+            try:
+                employee_name = _cell_str(rec.get("employee name"))
+                if not employee_name:
+                    raise ValueError("Employee Name is required")
+                start_date = _cell_date(rec.get("start date (dd-mmm-yyyy)", rec.get("start date")))
+                if not start_date:
+                    raise ValueError("Start Date is required")
+                customer_id = _lookup_customer_id_by_name(conn, _cell_str(rec.get("customer name")))
+                location_id = _lookup_id_by_name(conn, "locations", _cell_str(rec.get("location")))
+                practice_id = _lookup_id_by_name(conn, "practices", _cell_str(rec.get("practice")))
+                end_date = _cell_date(rec.get("end date (dd-mmm-yyyy)", rec.get("end date")))
+                fiscal_year_val, fiscal_month_val = _fiscal_year_month_of(start_date)
+
+                conn.execute(
+                    """INSERT INTO realized_tm_entries (customer_id, customer_manager, project_name, po_number, sow_role,
+                       employee_id, employee_name, location_id, practice_id, billing_hours_per_day, bill_rate, discount_percent, start_date, end_date,
+                       total_billable_hours, leaves, holidays, billing_advice_number, additional_info,
+                       fiscal_year, fiscal_month, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    (customer_id, _cell_str(rec.get("customer manager")), _cell_str(rec.get("project name")),
+                     _cell_str(rec.get("po#")), _cell_str(rec.get("sow role")), _cell_str(rec.get("employee id")),
+                     employee_name, location_id, practice_id, _cell_float_or_none(rec.get("billing hours (per day)")),
+                     _cell_float_or_none(rec.get("bill rate ($)")), _cell_float_or_none(rec.get("discount (%)")),
+                     start_date, end_date,
+                     _cell_float_or_none(rec.get("total billable hours")), _cell_float_or_none(rec.get("leaves")),
+                     _cell_float_or_none(rec.get("holidays")), _cell_str(rec.get("billing advice #")),
+                     _cell_str(rec.get("additional information")), fiscal_year_val, fiscal_month_val),
                 )
                 imported += 1
             except Exception as e:

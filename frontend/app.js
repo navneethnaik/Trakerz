@@ -225,7 +225,7 @@ function showTab(name) {
   // permanently so every other page keeps its normal whole-page scrolling.
   document.body.classList.toggle(
     "scroll-locked",
-    ["sows", "resources", "revenue", "config-leaves", "customers", "config-billing-hours", "config-holidays"].includes(name)
+    ["sows", "resources", "revenue", "realized-tm", "config-leaves", "customers", "config-billing-hours", "config-holidays"].includes(name)
   );
 
   if (name === "home") loadHome();
@@ -239,6 +239,7 @@ function showTab(name) {
   if (name === "config-leaves") loadLeaves();
   if (name === "resources") loadResources();
   if (name === "revenue") loadRevenueTab();
+  if (name === "realized-tm") loadRealizedTm();
   if (name === "config-locations") loadLocations();
   if (name === "config-billing-models") loadBillingModels();
   if (name === "config-operating-models") loadOperatingModels();
@@ -4595,7 +4596,7 @@ document.getElementById("exportRevenueSowsBtn").addEventListener("click", () => 
 // loadRevenueTab() reload afterward is simpler and safer than patching just
 // the grid that changed - it also keeps both grids' shared lookups/caches
 // (customers, billing hours, tracked-SOW ids, ...) in sync either way.
-function wireExcelImport(buttonId, fileInputId, importPath) {
+function wireExcelImport(buttonId, fileInputId, importPath, reloadFn = loadRevenueTab) {
   const button = document.getElementById(buttonId);
   const fileInput = document.getElementById(fileInputId);
   button.addEventListener("click", () => fileInput.click());
@@ -4619,7 +4620,7 @@ function wireExcelImport(buttonId, fileInputId, importPath) {
         message += `\n\n${errorLines.length} row${errorLines.length === 1 ? "" : "s"} skipped:\n${errorLines.join("\n")}`;
       }
       alert(message);
-      if (result.imported) await loadRevenueTab();
+      if (result.imported) await reloadFn();
     } finally {
       button.disabled = false;
       fileInput.value = "";
@@ -5584,6 +5585,637 @@ document.getElementById("tmEntryForm").addEventListener("submit", async (e) => {
 });
 
 document.getElementById("newTmEntryBtn").addEventListener("click", () => openTmEntryModal());
+
+// ---------- Realized Revenue > Time and Material ----------
+// Standalone actuals ledger, independent of Statement of Work / Best
+// Estimates (see RealizedTmIn/realized_tm_entries in main.py/db.py) - its
+// own Customer/Location dropdown data, cache and filters, entirely separate
+// from Best Estimates' currentTmCustomers/currentLocations/
+// tmAssignmentsCache above, even though the shapes look similar.
+let realizedTmCache = new Map();
+let currentRealizedTmCustomers = [];
+let currentRealizedTmLocations = [];
+// Its own Billing Hours config cache - kept separate from Best Estimates'
+// currentBillingHourConfigs (populated by loadRevenueTab) so Billing Hours
+// (per day) auto-populates correctly (see realizedTmBillingHoursFor() below)
+// even if the Revenue Outlook > Best Estimates tab was never visited this
+// session, matching this feature's standalone design.
+let currentRealizedTmBillingHourConfigs = [];
+// (Customer, Employee Id) -> Practice lookup drawn from Best Estimates >
+// Time and Material's own assignments (see /api/tm/assignments/
+// employee-practices) - fetched here for the exact same reason as the
+// Billing Hours config cache above (Practice must auto-populate correctly
+// even if Best Estimates was never visited this session). See
+// realizedTmPracticeFor() below.
+let currentRealizedTmEmployeePractices = [];
+
+let realizedTmSearchQuery = "";
+document.getElementById("realizedTmSearchInput").addEventListener("input", debounce(() => {
+  realizedTmSearchQuery = document.getElementById("realizedTmSearchInput").value.trim().toLowerCase();
+  renderRealizedTmTable();
+}, 250));
+
+let realizedTmCustomerFilter = "";
+document.getElementById("realizedTmCustomerFilter").addEventListener("change", (e) => {
+  realizedTmCustomerFilter = e.target.value;
+  renderRealizedTmTable();
+});
+
+let realizedTmLocationFilter = "";
+document.getElementById("realizedTmLocationFilter").addEventListener("change", (e) => {
+  realizedTmLocationFilter = e.target.value;
+  renderRealizedTmTable();
+});
+
+function populateRealizedTmCustomerFilter(customers) {
+  const select = document.getElementById("realizedTmCustomerFilter");
+  const current = realizedTmCustomerFilter;
+  select.innerHTML = '<option value="">All customers</option>' +
+    customers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
+  select.value = current;
+}
+
+function populateRealizedTmLocationFilter(locations) {
+  const select = document.getElementById("realizedTmLocationFilter");
+  const current = realizedTmLocationFilter;
+  select.innerHTML = '<option value="">All locations</option>' +
+    locations.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join("");
+  select.value = current;
+}
+
+function realizedTmRowMatchesFilters(r) {
+  return (
+    (!realizedTmCustomerFilter || String(r.customer_id) === realizedTmCustomerFilter) &&
+    (!realizedTmLocationFilter || String(r.location_id) === realizedTmLocationFilter) &&
+    realizedTmRowMatchesSearch(r)
+  );
+}
+
+// realizedTmSearchQuery is already lowercased when it's set (see the input
+// listener above), so this only needs to lowercase each row's own field
+// values - mirrors tmRowMatchesSearch() above.
+function realizedTmRowMatchesSearch(r) {
+  if (!realizedTmSearchQuery) return true;
+  return (
+    (r.customer_name || "").toLowerCase().includes(realizedTmSearchQuery) ||
+    (r.employee_name || "").toLowerCase().includes(realizedTmSearchQuery) ||
+    (r.employee_id || "").toLowerCase().includes(realizedTmSearchQuery) ||
+    (r.project_name || "").toLowerCase().includes(realizedTmSearchQuery)
+  );
+}
+
+function realizedTmFilterActive() {
+  return !!(realizedTmCustomerFilter || realizedTmLocationFilter || realizedTmSearchQuery);
+}
+
+async function loadRealizedTm() {
+  if (currentFiscalYear === null) currentFiscalYear = fiscalYearForToday();
+  const [customers, locations, billingHourConfigs, employeePractices, data] = await Promise.all([
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(`${API}/locations`).then((r) => r.json()),
+    fetch(`${API}/billing-hours`).then((r) => r.json()),
+    fetch(`${API}/tm/assignments/employee-practices`).then((r) => r.json()),
+    fetch(`${API}/realized/tm?fiscal_year=${currentFiscalYear}`).then((r) => r.json()),
+  ]);
+  populateRealizedTmCustomerFilter(customers);
+  populateRealizedTmLocationFilter(locations);
+  currentRealizedTmCustomers = customers;
+  currentRealizedTmLocations = locations;
+  currentRealizedTmBillingHourConfigs = billingHourConfigs;
+  currentRealizedTmEmployeePractices = employeePractices;
+  realizedTmCache = new Map(data.rows.map((r) => [r.id, r]));
+  renderRealizedTmTable();
+}
+
+// Looked up client-side purely for the Add/Edit popup's live "Billing Hours
+// (per day)" preview (per explicit request, auto-populated from the
+// Customer/Location combination) - mirrors billingHoursFor() above exactly,
+// just against this feature's own currentRealizedTmLocations/
+// currentRealizedTmBillingHourConfigs caches. The value that's actually
+// saved always comes from whatever this preview currently shows (see
+// openRealizedTmEntryModal()) since the field is read-only.
+function realizedTmBillingHoursFor(customerId, locationId) {
+  if (!customerId || !locationId) return null;
+  const location = currentRealizedTmLocations.find((l) => String(l.id) === String(locationId));
+  const slug = (location?.name || "").trim().toLowerCase();
+  if (!["onsite", "offshore", "nearshore"].includes(slug)) return null;
+  const match = currentRealizedTmBillingHourConfigs.find((b) => String(b.customer_id) === String(customerId));
+  return match ? match[`${slug}_hours`] : null;
+}
+
+// Looked up client-side purely for the Add/Edit popup's live, read-only
+// "Practice" field (per explicit request, auto-populated from the
+// Customer/Employee Id combination) - same "preview vs. source of truth"
+// split as realizedTmBillingHoursFor() just above, just matched against
+// currentRealizedTmEmployeePractices (Best Estimates > Time and Material's
+// own assignments) instead of a Billing Hours config. Employee Id is
+// free-typed text here (unlike Location, a dropdown), so the match is
+// case-insensitive and trims whitespace on both sides; when an employee has
+// more than one assignment on file for this Customer, the first match wins
+// (the lookup list is already ordered most-recently-updated first - see
+// list_tm_assignment_employee_practices in main.py). Returns null (shown as
+// "—") when no assignment matches, same as a Billing Hours miss.
+function realizedTmPracticeFor(customerId, employeeId) {
+  const empId = (employeeId || "").trim().toLowerCase();
+  if (!customerId || !empId) return null;
+  const match = currentRealizedTmEmployeePractices.find(
+    (p) => String(p.customer_id) === String(customerId) && (p.employee_id || "").trim().toLowerCase() === empId
+  );
+  return match ? { id: match.practice_id, name: match.practice_name } : null;
+}
+
+// Network Days (Mon-Fri weekdays between Start Date and End Date inclusive)
+// - client-side mirror of _count_weekdays() in main.py, used only for this
+// live preview; the true figure shown after Save comes from the server's
+// own computation (see _realized_tm_row_dict), same "preview vs. source of
+// truth" split as refreshBillingHours()/billingHoursFor() above.
+function countWeekdaysBetween(startStr, endStr) {
+  const start = new Date(startStr + "T00:00:00");
+  const end = new Date(endStr + "T00:00:00");
+  if (isNaN(start) || isNaN(end) || start > end) return null;
+  let count = 0;
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) count += 1;
+  }
+  return count;
+}
+
+// Re-renders the grid from the already-fetched realizedTmCache rather than
+// re-fetching - mirrors renderTmAssignmentsTable() above, needed here so the
+// free-text search can re-render on every keystroke without a network round
+// trip; the Customer/Location filters re-render the same way (no server-side
+// filtering on GET /api/realized/tm).
+function renderRealizedTmTable() {
+  const allRows = Array.from(realizedTmCache.values());
+  const filteredRows = allRows.filter(realizedTmRowMatchesFilters);
+  const tbody = document.getElementById("realizedTmTableBody");
+  tbody.innerHTML = "";
+  if (!filteredRows.length) {
+    tbody.innerHTML = `<tr><td colspan="21" class="empty-state">${
+      allRows.length ? "No entries match the selected filter." : 'No entries yet. Click "Add Entry" to start tracking realized Time and Material revenue.'
+    }</td></tr>`;
+  } else {
+    filteredRows.forEach((r) => tbody.appendChild(buildRealizedTmRow(r)));
+    renumberRealizedTmRows();
+  }
+  renderRealizedTmLocationSummary(filteredRows);
+  setFooterRowCount(realizedTmFilterActive() ? filteredRows.length : null);
+}
+
+function renumberRealizedTmRows() {
+  const tbody = document.getElementById("realizedTmTableBody");
+  let n = 0;
+  tbody.querySelectorAll("tr").forEach((tr) => {
+    const cell = tr.querySelector(".rtm-sl-no");
+    if (cell) { n += 1; cell.textContent = n; }
+  });
+}
+
+// Location x Month summary above the grid - one row per Location (every
+// location in the master list, even ones with no data yet), summing Total
+// Invoice Amount for the fiscal month each row's own Start Date falls in.
+// Unlike renderRevenueTypeSummaryTable (Best Estimates), each row here
+// belongs to exactly one fiscal month rather than carrying all 12 itself
+// (see realized_tm_entries.fiscal_month in db.py), so the month buckets are
+// built directly from fiscal_month + total_invoice_amount instead of from a
+// per-row "months" array. Reuses the exact same .revenue-type-summary-table/
+// .rts-highlight-col/.table-total-row markup and styling as
+// renderRevenueTypeSummaryTable().
+function renderRealizedTmLocationSummary(filteredRows) {
+  const tbody = document.getElementById("locationRevenueSummaryBody");
+  if (!tbody) return;
+
+  const sumsByLocation = new Map();
+  filteredRows.forEach((r) => {
+    const key = r.location_name || "";
+    if (!sumsByLocation.has(key)) sumsByLocation.set(key, new Array(12).fill(0));
+    const sums = sumsByLocation.get(key);
+    if (r.fiscal_month) sums[r.fiscal_month - 1] += r.total_invoice_amount || 0;
+  });
+
+  let labels = currentRealizedTmLocations.map((l) => l.name);
+  if (sumsByLocation.has("")) labels.push("Unassigned");
+
+  tbody.innerHTML = "";
+  if (!labels.length) {
+    tbody.innerHTML = `<tr class="revenue-type-empty-row"><td colspan="18" class="empty-state">No Locations configured yet - add some under Global Settings.</td></tr>`;
+    return;
+  }
+  labels.forEach((label) => {
+    const key = label === "Unassigned" ? "" : label;
+    const sums = sumsByLocation.get(key) || new Array(12).fill(0);
+    const total = sums.reduce((a, v) => a + v, 0);
+    const q1 = sums[0] + sums[1] + sums[2];
+    const q2 = sums[3] + sums[4] + sums[5];
+    const q3 = sums[6] + sums[7] + sums[8];
+    const q4 = sums[9] + sums[10] + sums[11];
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${escapeHtml(label)}</td><td class="rts-highlight-col">${fmtPlain(total)}</td>` +
+      `<td>${fmtPlain(sums[0])}</td><td>${fmtPlain(sums[1])}</td><td>${fmtPlain(sums[2])}</td><td class="rts-highlight-col">${fmtPlain(q1)}</td>` +
+      `<td>${fmtPlain(sums[3])}</td><td>${fmtPlain(sums[4])}</td><td>${fmtPlain(sums[5])}</td><td class="rts-highlight-col">${fmtPlain(q2)}</td>` +
+      `<td>${fmtPlain(sums[6])}</td><td>${fmtPlain(sums[7])}</td><td>${fmtPlain(sums[8])}</td><td class="rts-highlight-col">${fmtPlain(q3)}</td>` +
+      `<td>${fmtPlain(sums[9])}</td><td>${fmtPlain(sums[10])}</td><td>${fmtPlain(sums[11])}</td><td class="rts-highlight-col">${fmtPlain(q4)}</td>`;
+    tbody.appendChild(tr);
+  });
+  const colTotals = new Array(17).fill(0); // Total, Apr..Mar(12), Q1..Q4
+  labels.forEach((label) => {
+    const key = label === "Unassigned" ? "" : label;
+    const sums = sumsByLocation.get(key) || new Array(12).fill(0);
+    const total = sums.reduce((a, v) => a + v, 0);
+    const q1 = sums[0] + sums[1] + sums[2];
+    const q2 = sums[3] + sums[4] + sums[5];
+    const q3 = sums[6] + sums[7] + sums[8];
+    const q4 = sums[9] + sums[10] + sums[11];
+    const rowValues = [total, ...sums, q1, q2, q3, q4];
+    rowValues.forEach((v, i) => { colTotals[i] += v; });
+  });
+  const totalTr = document.createElement("tr");
+  totalTr.className = "table-total-row";
+  totalTr.innerHTML = `<td>Total</td><td class="rts-highlight-col">${fmtPlain(colTotals[0])}</td>` +
+    `<td>${fmtPlain(colTotals[1])}</td><td>${fmtPlain(colTotals[2])}</td><td>${fmtPlain(colTotals[3])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[13])}</td>` +
+    `<td>${fmtPlain(colTotals[4])}</td><td>${fmtPlain(colTotals[5])}</td><td>${fmtPlain(colTotals[6])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[14])}</td>` +
+    `<td>${fmtPlain(colTotals[7])}</td><td>${fmtPlain(colTotals[8])}</td><td>${fmtPlain(colTotals[9])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[15])}</td>` +
+    `<td>${fmtPlain(colTotals[10])}</td><td>${fmtPlain(colTotals[11])}</td><td>${fmtPlain(colTotals[12])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[16])}</td>`;
+  tbody.appendChild(totalTr);
+}
+
+// Builds one <tr> for the Realized T&M grid - always read-only (Add, Copy,
+// Edit and View all open #realizedTmEntryModal, same View/Copy/Edit/Delete
+// convention as buildTmAssignmentRow() above).
+function buildRealizedTmRow(r) {
+  const tr = document.createElement("tr");
+  let cells = `<td class="row-actions">
+        <button type="button" class="ghost-btn btn-edit icon-btn rtm-view-btn" title="View">${icon("eye")}</button>
+        <button type="button" class="ghost-btn btn-edit icon-btn rtm-copy-btn" title="Copy">${icon("copy")}</button>
+        <button type="button" class="ghost-btn btn-edit icon-btn rtm-edit-btn" title="Edit">${icon("edit")}</button>
+        <button type="button" class="ghost-btn btn-danger icon-btn rtm-del-btn" title="Delete">${icon("trash")}</button>
+      </td>`;
+  cells += `<td class="rtm-sl-no"></td>`;
+
+  cells += `
+    <td>${escapeHtml(r.customer_name) || "—"}</td>
+    <td>${escapeHtml(r.customer_manager) || "—"}</td>
+    <td>${escapeHtml(r.project_name) || "—"}</td>
+    <td>${escapeHtml(r.po_number) || "—"}</td>
+    <td>${escapeHtml(r.sow_role) || "—"}</td>
+    <td>${escapeHtml(r.employee_id) || "—"}</td>
+    <td>${escapeHtml(r.employee_name) || "—"}</td>
+    <td>${escapeHtml(r.location_name) || "—"}</td>
+    <td>${escapeHtml(r.practice_name) || "—"}</td>
+    <td>${r.billing_hours_per_day != null ? fmtPlain(r.billing_hours_per_day) : "—"}</td>
+    <td class="rev-tcv-cell">${r.bill_rate != null ? fmt(r.bill_rate) : "—"}</td>
+    <td>${fmtDate(r.start_date)}</td>
+    <td>${fmtDate(r.end_date)}</td>
+    <td>${r.total_billable_hours != null ? fmtPlain(r.total_billable_hours) : "—"}</td>
+    <td class="rev-tcv-cell">${fmt(r.total_invoice_amount || 0)}</td>
+    <td>${r.leaves != null ? fmtPlain(r.leaves) : "—"}</td>
+    <td>${r.holidays != null ? fmtPlain(r.holidays) : "—"}</td>
+    <td>${escapeHtml(r.billing_advice_number) || "—"}</td>
+    <td>${r.additional_info ? `<span class="notes-cell" title="${escapeHtml(r.additional_info)}">${escapeHtml(r.additional_info)}</span>` : "—"}</td>
+  `;
+
+  tr.innerHTML = cells;
+
+  tr.querySelector(".rtm-view-btn").addEventListener("click", () => {
+    openRealizedTmEntryModal(r, {}, true);
+  });
+  tr.querySelector(".rtm-copy-btn").addEventListener("click", () => {
+    // No uniqueness rule here (same as Best Estimates > Time and Material) -
+    // "Copy" opens the same Add Entry popup, pre-filled with every one of
+    // this row's fields but no entry id, so Save creates a brand-new row.
+    openRealizedTmEntryModal(null, {
+      customerId: r.customer_id, customerManager: r.customer_manager, projectName: r.project_name,
+      poNumber: r.po_number, sowRole: r.sow_role, employeeId: r.employee_id, employeeName: r.employee_name,
+      locationId: r.location_id, billRate: r.bill_rate, discountPercent: r.discount_percent,
+      startDate: r.start_date, endDate: r.end_date, totalBillableHours: r.total_billable_hours,
+      leaves: r.leaves, holidays: r.holidays, billingAdviceNumber: r.billing_advice_number,
+      additionalInfo: r.additional_info,
+    });
+  });
+  tr.querySelector(".rtm-edit-btn").addEventListener("click", () => {
+    openRealizedTmEntryModal(r);
+  });
+  tr.querySelector(".rtm-del-btn").addEventListener("click", async () => {
+    if (confirm(`Remove this entry for "${r.employee_name || "this resource"}" (${r.customer_name || "—"})?`)) {
+      const resp = await fetch(`${API}/realized/tm/${r.id}`, { method: "DELETE" });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert(formatApiError(err, "Failed to remove this entry."));
+        return;
+      }
+      loadRealizedTm();
+    }
+  });
+
+  return tr;
+}
+
+document.getElementById("exportRealizedTmBtn").addEventListener("click", () => {
+  if (currentFiscalYear === null) currentFiscalYear = fiscalYearForToday();
+  window.location.href = `${API}/realized/tm/export?fiscal_year=${currentFiscalYear}`;
+});
+
+// ---------- Realized Revenue > Time and Material Add/Edit/View popup
+// (#realizedTmEntryModal) ----------
+// Mirrors #tmEntryModal's View/Copy/Edit/Delete popup pattern, simplified
+// since this is a standalone register: no Statement of Work/Revenue Type/
+// Practice linkage, and no server-computed Projections section - just plain
+// inputs plus one live-computed readonly Total Invoice Amount field (Bill
+// Rate x Total Billable Hours, recalculated as either changes; the same
+// formula _realized_tm_row_dict applies server-side on every save).
+const realizedTmEntryModal = document.getElementById("realizedTmEntryModal");
+wireModalCancel(realizedTmEntryModal, "cancelRealizedTmEntryBtn", "cancelRealizedTmEntryBtnTop");
+const editRealizedTmEntryBtnTop = document.getElementById("editRealizedTmEntryBtnTop");
+const editRealizedTmEntryBtn = document.getElementById("editRealizedTmEntryBtn");
+const saveRealizedTmEntryBtnTop = document.getElementById("saveRealizedTmEntryBtnTop");
+const saveRealizedTmEntryBtn = document.getElementById("saveRealizedTmEntryBtn");
+
+function openRealizedTmEntryModal(r = null, prefill = {}, viewOnly = false) {
+  const isEditing = !!r;
+  const box = realizedTmEntryModal;
+  box.dataset.editing = isEditing ? "true" : "";
+  box.dataset.entryId = (r && r.id != null) ? String(r.id) : "";
+
+  const customerSelect = box.querySelector(".rtm-f-customer");
+  const customerManagerInput = box.querySelector(".rtm-f-customer-manager");
+  const projectNameInput = box.querySelector(".rtm-f-project-name");
+  const poInput = box.querySelector(".rtm-f-po");
+  const sowRoleInput = box.querySelector(".rtm-f-sow-role");
+  const employeeIdInput = box.querySelector(".rtm-f-employee-id");
+  const employeeNameInput = box.querySelector(".rtm-f-employee-name");
+  const locationSelect = box.querySelector(".rtm-f-location");
+  const practiceInput = box.querySelector(".rtm-f-practice");
+  const billingHoursInput = box.querySelector(".rtm-f-billing-hours");
+  const billRateInput = box.querySelector(".rtm-f-bill-rate");
+  const discountInput = box.querySelector(".rtm-f-discount");
+  const finalRateInput = box.querySelector(".rtm-f-final-rate");
+  const startDateInput = box.querySelector(".rtm-f-start-date");
+  const endDateInput = box.querySelector(".rtm-f-end-date");
+  const totalHoursInput = box.querySelector(".rtm-f-total-hours");
+  const totalInvoiceInput = box.querySelector(".rtm-f-total-invoice");
+  const billingAdviceInput = box.querySelector(".rtm-f-billing-advice");
+  const notesInput = box.querySelector(".rtm-f-notes");
+  const networkDaysInput = box.querySelector(".rtm-f-network-days");
+  const leavesInput = box.querySelector(".rtm-f-leaves");
+  const holidaysInput = box.querySelector(".rtm-f-holidays");
+  const totalBillableDaysInput = box.querySelector(".rtm-f-total-billable-days");
+  const expectedHoursInput = box.querySelector(".rtm-f-expected-hours");
+  const expectedInvoiceInput = box.querySelector(".rtm-f-expected-invoice");
+  const matchIndicator = box.querySelector("#rtmInvoiceMatchIndicator");
+  const matchTooltip = box.querySelector("#rtmInvoiceMatchTooltip");
+
+  customerSelect.innerHTML = '<option value="">Select customer&hellip;</option>' +
+    currentRealizedTmCustomers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
+  customerSelect.value = r ? String(r.customer_id ?? "") : String(prefill.customerId ?? "");
+
+  customerManagerInput.value = r ? (r.customer_manager || "") : (prefill.customerManager || "");
+  projectNameInput.value = r ? (r.project_name || "") : (prefill.projectName || "");
+  poInput.value = r ? (r.po_number || "") : (prefill.poNumber || "");
+  sowRoleInput.value = r ? (r.sow_role || "") : (prefill.sowRole || "");
+  employeeIdInput.value = r ? (r.employee_id || "") : (prefill.employeeId || "");
+  employeeNameInput.value = r ? (r.employee_name || "") : (prefill.employeeName || "");
+
+  locationSelect.innerHTML = `<option value="">Select location&hellip;</option>` +
+    currentRealizedTmLocations.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join("");
+  locationSelect.value = r ? (r.location_id ?? "") : (prefill.locationId ?? "");
+
+  billRateInput.value = r ? (r.bill_rate ?? "") : (prefill.billRate ?? "");
+  discountInput.value = r ? (r.discount_percent ?? "") : (prefill.discountPercent ?? "");
+  startDateInput.value = r ? (r.start_date || "") : (prefill.startDate || "");
+  endDateInput.value = r ? (r.end_date || "") : (prefill.endDate || "");
+  totalHoursInput.value = r ? (r.total_billable_hours ?? "") : (prefill.totalBillableHours ?? "");
+  leavesInput.value = r ? (r.leaves ?? "") : (prefill.leaves ?? "");
+  holidaysInput.value = r ? (r.holidays ?? "") : (prefill.holidays ?? "");
+  billingAdviceInput.value = r ? (r.billing_advice_number || "") : (prefill.billingAdviceNumber || "");
+  notesInput.value = r ? (r.additional_info || "") : (prefill.additionalInfo || "");
+
+  // rtmCurrentBillingHours/rtmCurrentTotalBillableDays hold the two other
+  // computed fields' latest numeric values (not their formatted display
+  // strings) so refreshReconciliation() below can combine them without
+  // re-parsing "8.50"/"—" back out of an input - same reasoning as
+  // computeFinalRate() being called fresh from the raw fields rather than
+  // parsed back out of Final Bill Rate's own "$..." display.
+  let rtmCurrentBillingHours = null;
+  let rtmCurrentTotalBillableDays = null;
+
+  // Billing Hours (per day) is always a live preview auto-populated from the
+  // Customer/Location combination (per explicit request) - never taken from
+  // a saved row or a Copy's prefill, so it always reflects the Billing Hours
+  // configuration as it stands right now, same "preview vs. source of truth"
+  // split as Best Estimates' own refreshBillingHours().
+  function refreshBillingHours() {
+    rtmCurrentBillingHours = realizedTmBillingHoursFor(customerSelect.value, locationSelect.value);
+    billingHoursInput.value = rtmCurrentBillingHours != null ? fmtPlain(rtmCurrentBillingHours) : "—";
+    refreshReconciliation();
+  }
+
+  // Practice is always a live preview auto-populated from the Customer/
+  // Employee Id combination (per explicit request) - never taken from a
+  // saved row or a Copy's prefill, so it always reflects Best Estimates'
+  // Time and Material assignments as they stand right now, same "preview
+  // vs. source of truth" split as refreshBillingHours() above.
+  function refreshPractice() {
+    const practice = realizedTmPracticeFor(customerSelect.value, employeeIdInput.value);
+    practiceInput.value = practice ? practice.name : "—";
+  }
+
+  // Final Bill Rate ($) is always a live, read-only computation of Bill Rate
+  // discounted by Discount (%) (see computeFinalRate() above) - and Total
+  // Invoice Amount is calculated from THIS discounted rate, per explicit
+  // request, not the plain Bill Rate.
+  function refreshFinalRate() {
+    const final = computeFinalRate(billRateInput.value, discountInput.value);
+    finalRateInput.value = final != null ? fmt(final) : "—";
+  }
+  function refreshTotalInvoice() {
+    const final = computeFinalRate(billRateInput.value, discountInput.value);
+    const hours = parseFloat(totalHoursInput.value);
+    const total = (final != null ? final : 0) * (isFinite(hours) ? hours : 0);
+    totalInvoiceInput.value = fmt(total);
+  }
+
+  // Network Days (Mon-Fri weekdays between Start Date and End Date) and
+  // Total Billable Days (Network Days minus Leaves minus Holidays) are pure
+  // computed reference numbers (per explicit request) - shown alongside but
+  // never fed back into Total Billable Hours, which stays a manually
+  // entered figure.
+  function refreshNetworkDays() {
+    const networkDays = countWeekdaysBetween(startDateInput.value, endDateInput.value);
+    networkDaysInput.value = networkDays != null ? fmtPlain(networkDays) : "—";
+    if (networkDays != null) {
+      const leaves = parseFloat(leavesInput.value) || 0;
+      const holidays = parseFloat(holidaysInput.value) || 0;
+      rtmCurrentTotalBillableDays = Math.max(networkDays - leaves - holidays, 0);
+      totalBillableDaysInput.value = fmtPlain(rtmCurrentTotalBillableDays);
+    } else {
+      rtmCurrentTotalBillableDays = null;
+      totalBillableDaysInput.value = "—";
+    }
+    refreshReconciliation();
+  }
+
+  // Billing Reconciliation: Total Billable Hours (calculated) = Total
+  // Billable Days x Billing Hours (per day) - a purely calendar-derived
+  // figure, separate from the manually-typed Total Billable Hours field in
+  // Billing Details above. Expected Invoice Amount ($) = that calculated
+  // figure x Final Bill Rate, compared against the manually entered Total
+  // Invoice Amount ($) above (same Final Bill Rate x Total Billable Hours
+  // calc as refreshTotalInvoice()) - green dot when they match, red when
+  // they don't, with a tooltip on hover either way.
+  function refreshReconciliation() {
+    let expectedHours = null;
+    if (rtmCurrentTotalBillableDays != null && rtmCurrentBillingHours != null) {
+      expectedHours = rtmCurrentTotalBillableDays * rtmCurrentBillingHours;
+    }
+    expectedHoursInput.value = expectedHours != null ? fmtPlain(expectedHours) : "—";
+
+    const finalRate = computeFinalRate(billRateInput.value, discountInput.value);
+    const expectedInvoice = expectedHours != null ? (finalRate != null ? finalRate : 0) * expectedHours : null;
+    expectedInvoiceInput.value = expectedInvoice != null ? fmt(expectedInvoice) : "—";
+
+    if (expectedInvoice == null) {
+      matchIndicator.classList.remove("match-ok", "match-bad");
+      matchTooltip.textContent = "";
+      return;
+    }
+    const hours = parseFloat(totalHoursInput.value);
+    const actualInvoice = (finalRate != null ? finalRate : 0) * (isFinite(hours) ? hours : 0);
+    const matches = Math.abs(expectedInvoice - actualInvoice) < 0.01;
+    matchIndicator.classList.toggle("match-ok", matches);
+    matchIndicator.classList.toggle("match-bad", !matches);
+    matchTooltip.textContent = matches
+      ? 'Total Invoice Amount ($) matches "Expected Invoice Amount"'
+      : 'Total Invoice Amount ($) does not match with "Expected Invoice Amount"';
+  }
+
+  refreshBillingHours();
+  refreshPractice();
+  refreshFinalRate();
+  refreshTotalInvoice();
+  refreshNetworkDays();
+  billRateInput.oninput = () => { refreshFinalRate(); refreshTotalInvoice(); refreshReconciliation(); };
+  discountInput.oninput = () => { refreshFinalRate(); refreshTotalInvoice(); refreshReconciliation(); };
+  totalHoursInput.oninput = () => { refreshTotalInvoice(); refreshReconciliation(); };
+  startDateInput.onchange = refreshNetworkDays;
+  endDateInput.onchange = refreshNetworkDays;
+  leavesInput.oninput = refreshNetworkDays;
+  holidaysInput.oninput = refreshNetworkDays;
+  customerSelect.onchange = () => { refreshBillingHours(); refreshPractice(); };
+  locationSelect.onchange = refreshBillingHours;
+  employeeIdInput.oninput = refreshPractice;
+
+  // View mode disables/read-onlys every editable field and swaps the Save
+  // button for an Edit button, same convention as openTmEntryModal()'s own
+  // setMode() above. Not offered for a brand-new ("Add Entry") row. Billing
+  // Hours (per day), Final Bill Rate ($), Total Invoice Amount ($), Network
+  // Days and Total Billable Days are always read-only regardless of mode
+  // (they carry the readonly attribute in index.html and are never toggled
+  // here), same as Best Estimates' own computed fields.
+  function setMode(isViewOnly) {
+    document.getElementById("realizedTmEntryModalTitle").textContent = isViewOnly
+      ? "View Realized Revenue Entry"
+      : (isEditing ? "Edit Realized Revenue Entry" : "Add Realized Revenue Entry");
+    customerSelect.disabled = isViewOnly;
+    customerManagerInput.readOnly = isViewOnly;
+    projectNameInput.readOnly = isViewOnly;
+    poInput.readOnly = isViewOnly;
+    sowRoleInput.readOnly = isViewOnly;
+    employeeIdInput.readOnly = isViewOnly;
+    employeeNameInput.readOnly = isViewOnly;
+    locationSelect.disabled = isViewOnly;
+    billRateInput.readOnly = isViewOnly;
+    discountInput.readOnly = isViewOnly;
+    startDateInput.readOnly = isViewOnly;
+    endDateInput.readOnly = isViewOnly;
+    totalHoursInput.readOnly = isViewOnly;
+    leavesInput.readOnly = isViewOnly;
+    holidaysInput.readOnly = isViewOnly;
+    billingAdviceInput.readOnly = isViewOnly;
+    notesInput.readOnly = isViewOnly;
+    editRealizedTmEntryBtnTop.hidden = !isViewOnly;
+    editRealizedTmEntryBtn.hidden = !isViewOnly;
+    saveRealizedTmEntryBtnTop.hidden = isViewOnly;
+    saveRealizedTmEntryBtn.hidden = isViewOnly;
+  }
+  editRealizedTmEntryBtnTop.onclick = () => setMode(false);
+  editRealizedTmEntryBtn.onclick = () => setMode(false);
+  setMode(isEditing && viewOnly);
+
+  realizedTmEntryModal.hidden = false;
+}
+
+document.getElementById("realizedTmEntryForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const box = realizedTmEntryModal;
+  const isEditing = box.dataset.editing === "true";
+  const entryId = box.dataset.entryId ? parseInt(box.dataset.entryId, 10) : null;
+
+  const employeeNameVal = box.querySelector(".rtm-f-employee-name").value.trim();
+  const startDateVal = box.querySelector(".rtm-f-start-date").value;
+  if (!employeeNameVal) { alert("Please enter an employee name."); return; }
+  if (!startDateVal) { alert("Please select a start date."); return; }
+
+  const customerVal = box.querySelector(".rtm-f-customer").value;
+  const locationVal = box.querySelector(".rtm-f-location").value;
+  const employeeIdVal = box.querySelector(".rtm-f-employee-id").value.trim();
+  const billRateVal = box.querySelector(".rtm-f-bill-rate").value;
+  const discountVal = box.querySelector(".rtm-f-discount").value;
+  const totalHoursVal = box.querySelector(".rtm-f-total-hours").value;
+  const leavesVal = box.querySelector(".rtm-f-leaves").value;
+  const holidaysVal = box.querySelector(".rtm-f-holidays").value;
+  const practiceMatch = realizedTmPracticeFor(customerVal, employeeIdVal);
+
+  const payload = {
+    customer_id: customerVal ? parseInt(customerVal, 10) : null,
+    customer_manager: box.querySelector(".rtm-f-customer-manager").value.trim() || null,
+    project_name: box.querySelector(".rtm-f-project-name").value.trim() || null,
+    po_number: box.querySelector(".rtm-f-po").value.trim() || null,
+    sow_role: box.querySelector(".rtm-f-sow-role").value.trim() || null,
+    employee_id: employeeIdVal || null,
+    employee_name: employeeNameVal,
+    location_id: locationVal ? parseInt(locationVal, 10) : null,
+    // Practice is never read from its own (always read-only, auto-populated)
+    // input - recomputed here the same way the live preview was, so what's
+    // saved always matches what was shown on screen (same treatment as
+    // Billing Hours (per day) just below).
+    practice_id: practiceMatch ? practiceMatch.id : null,
+    // Billing Hours (per day) is never read from its own (always read-only,
+    // auto-populated) input - recomputed here the same way the live preview
+    // was, so what's saved always matches what was shown on screen.
+    billing_hours_per_day: realizedTmBillingHoursFor(customerVal, locationVal),
+    bill_rate: billRateVal !== "" ? parseFloat(billRateVal) : null,
+    discount_percent: discountVal !== "" ? parseFloat(discountVal) : null,
+    start_date: startDateVal,
+    end_date: box.querySelector(".rtm-f-end-date").value || null,
+    total_billable_hours: totalHoursVal !== "" ? parseFloat(totalHoursVal) : null,
+    leaves: leavesVal !== "" ? parseFloat(leavesVal) : null,
+    holidays: holidaysVal !== "" ? parseFloat(holidaysVal) : null,
+    billing_advice_number: box.querySelector(".rtm-f-billing-advice").value.trim() || null,
+    additional_info: box.querySelector(".rtm-f-notes").value.trim() || null,
+  };
+
+  const saveButtons = box.querySelectorAll('button[type="submit"]');
+  saveButtons.forEach((b) => (b.disabled = true));
+  try {
+    const url = isEditing ? `${API}/realized/tm/${entryId}` : `${API}/realized/tm`;
+    const method = isEditing ? "PUT" : "POST";
+    const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      alert(formatApiError(err, "Failed to save this entry."));
+      return;
+    }
+    realizedTmEntryModal.hidden = true;
+    await loadRealizedTm();
+  } finally {
+    saveButtons.forEach((b) => (b.disabled = false));
+  }
+});
+
+document.getElementById("newRealizedTmEntryBtn").addEventListener("click", () => openRealizedTmEntryModal());
+
+wireExcelImport("importRealizedTmBtn", "realizedTmImportFile", "/realized/tm/import", loadRealizedTm);
 
 // ---------- Configuration: generic simple-list helper (Locations, Billing
 // Models, Statuses, Employee Types, Bands, Opportunity Types) ----------

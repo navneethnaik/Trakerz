@@ -344,6 +344,7 @@ body.scroll-locked main { flex: 1 1 auto; min-height: 0; overflow: hidden; }
 body.scroll-locked #tab-sows,
 body.scroll-locked #tab-resources,
 body.scroll-locked #tab-revenue,
+body.scroll-locked #tab-realized-tm,
 body.scroll-locked #tab-config-leaves,
 body.scroll-locked #tab-customers,
 body.scroll-locked #tab-config-billing-hours,
@@ -381,6 +382,7 @@ body.scroll-locked #tab-revenue > .rev-category-section:not([hidden]) {
 body.scroll-locked #tab-sows .table-scroll,
 body.scroll-locked #tab-resources .table-scroll,
 body.scroll-locked #tab-revenue .table-scroll:not(.revenue-type-summary-scroll),
+body.scroll-locked #tab-realized-tm .table-scroll:not(.location-revenue-summary-scroll),
 body.scroll-locked #tab-config-leaves .table-scroll,
 body.scroll-locked #tab-customers .table-scroll,
 body.scroll-locked #tab-config-billing-hours .table-scroll,
@@ -397,6 +399,12 @@ body.scroll-locked #tab-config-holidays .table-scroll {
 body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
   flex: 0 0 auto; max-height: 220px; overflow-y: auto; margin-bottom: 4px;
 }
+/* Realized Revenue > Time and Material's own "Location wise Monthly
+   Revenue" summary table above its grid - same reasoning/treatment as
+   #tab-revenue's .revenue-type-summary-scroll just above. */
+body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
+  flex: 0 0 auto; max-height: 220px; overflow-y: auto; margin-bottom: 4px;
+}
 /* Location (Billing Days) row on Reports > Billing Days (see
    renderBillingDaysReport() in app.js) - bolded to read as a subtotal
    heading over its own indented Working Days/Holidays rows below (which
@@ -407,6 +415,13 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 #tab-config-leaves .sow-table thead th { position: sticky; top: 0; z-index: 2; }
 #tab-customers .sow-table thead th { position: sticky; top: 0; z-index: 2; }
 #tab-config-holidays .sow-table thead th { position: sticky; top: 0; z-index: 2; }
+/* Realized Revenue > Time and Material - both its tables (the "Location
+   wise Monthly Revenue" summary table and the resource-level grid below,
+   see index.html) use plain single-row headers, no group-header row, so
+   this one generic rule covers both (it also matches the
+   .revenue-type-summary-table class the summary table reuses, same as
+   #tab-revenue's own dedicated rule further below covers that table there). */
+#tab-realized-tm .sow-table thead th { position: sticky; top: 0; z-index: 2; }
 /* The SOW table has a two-row header (a "Contract Details / BTP Information /
    Reference Documents / Additional Information" group row spanning the
    individual column-name row below it, same shape as the Revenue Management
@@ -454,6 +469,7 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 #tab-sows .sow-table,
 #tab-resources .sow-table,
 #tab-revenue .sow-table,
+#tab-realized-tm .sow-table,
 #tab-config-leaves .sow-table,
 #tab-customers .sow-table,
 #tab-config-billing-hours .sow-table,
@@ -526,6 +542,20 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 .info-icon-wrap:hover .info-tooltip-text,
 .info-icon-wrap:focus .info-tooltip-text,
 .info-icon-wrap:focus-visible .info-tooltip-text { opacity: 1; visibility: visible; }
+
+/* Realized Revenue > Time and Material's Expected Invoice Amount match/
+   mismatch dot (see refreshReconciliation() in app.js) - reuses
+   .info-icon-wrap/.info-tooltip-text's hover-tooltip mechanics above
+   wholesale, just with a small colored circle in place of the usual info
+   icon, colored green when Expected Invoice Amount matches the manually
+   entered Total Invoice Amount ($) and red when it doesn't. */
+.rtm-match-indicator { color: inherit; }
+.rtm-match-indicator .match-dot {
+  width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+  background: var(--border);
+}
+.rtm-match-indicator.match-ok .match-dot { background: #16a34a; }
+.rtm-match-indicator.match-bad .match-dot { background: #dc2626; }
 
 /* ---------- Charts / lists ---------- */
 .chart-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
@@ -1140,6 +1170,11 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .four-col { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+/* Realized Revenue > Time and Material's "Resource Details" row only - fits
+   its new read-only Practice field alongside SoW Role/Employee Id/Employee
+   Name/Location without wrapping to a second row, in the 960px-wide popup
+   (.modal-wide.modal-xwide) that row already lives in. */
+.five-col { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
 /* Lets one field claim two tracks of the grid it sits in (e.g. the SOW
    title next to Customer Name in a .three-col row) instead of every field
    being forced to the same width regardless of what it holds. */

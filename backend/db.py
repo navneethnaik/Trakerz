@@ -394,6 +394,58 @@ CREATE TABLE IF NOT EXISTS tm_assignment_fiscal_years (
     UNIQUE(assignment_id, fiscal_year)
 );
 
+-- Realized Revenue > Time and Material: a standalone actuals register (no
+-- link to Statement of Work or Best Estimates), one row per resource per
+-- billing period - per explicit request, a row's Start Date/End Date is
+-- expected to fall within a single calendar month (a new row is added each
+-- month for a continuing resource), so fiscal_year/fiscal_month are derived
+-- from start_date and stored here (see _fiscal_year_month_of in main.py) so
+-- the Location wise Monthly Revenue summary table above the grid can group
+-- by them without recomputing on every read. discount_percent (like
+-- tm_assignments' own Discount %) feeds a computed, never-stored Final Bill
+-- Rate ($) - bill_rate discounted by discount_percent, same
+-- _final_rate_card-style formula used elsewhere in this file - and
+-- total_invoice_amount is likewise never stored: always final_bill_rate *
+-- total_billable_hours (per explicit request, using the discounted rate, not
+-- the plain bill_rate), computed fresh on every read (see
+-- _realized_tm_row_dict in main.py). Network Days/Total Billable Days are
+-- also never stored - pure computed reference numbers (working days between
+-- start_date/end_date, minus leaves/holidays) shown alongside the still-
+-- manually-entered total_billable_hours, not fed into it. practice_id is
+-- likewise auto-populated (per explicit request) rather than hand-picked -
+-- looked up client-side from this row's Customer + Employee Id against
+-- Best Estimates > Time and Material's own assignments (tm_assignments,
+-- which already carries an Employee Practice per customer+employee - see
+-- /api/tm/assignments/employee-practices and realizedTmPracticeFor() in
+-- app.js), then saved here as a plain read-only value the same way
+-- billing_hours_per_day already is.
+CREATE TABLE IF NOT EXISTS realized_tm_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER REFERENCES customers(id),
+    customer_manager TEXT,
+    project_name TEXT,
+    po_number TEXT,
+    sow_role TEXT,
+    employee_id TEXT,
+    employee_name TEXT NOT NULL,
+    location_id INTEGER REFERENCES locations(id),
+    practice_id INTEGER REFERENCES practices(id),
+    billing_hours_per_day REAL,
+    bill_rate REAL,
+    discount_percent REAL,
+    start_date TEXT,
+    end_date TEXT,
+    total_billable_hours REAL,
+    leaves REAL,
+    holidays REAL,
+    billing_advice_number TEXT,
+    additional_info TEXT,
+    fiscal_year INTEGER NOT NULL,
+    fiscal_month INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_milestones_sow_id ON milestones(sow_id);
 CREATE INDEX IF NOT EXISTS idx_customers_code ON customers(customer_code);
 CREATE INDEX IF NOT EXISTS idx_sows_customer_id ON sows(customer_id);
@@ -402,6 +454,8 @@ CREATE INDEX IF NOT EXISTS idx_revenue_entries_sow_fy ON revenue_entries(sow_id,
 CREATE INDEX IF NOT EXISTS idx_revenue_sow_accounts_fy ON revenue_sow_accounts(fiscal_year);
 CREATE INDEX IF NOT EXISTS idx_tm_assignment_fiscal_years_fy ON tm_assignment_fiscal_years(fiscal_year);
 CREATE INDEX IF NOT EXISTS idx_leave_management_customer_employee ON leave_management(customer_id, employee_id);
+CREATE INDEX IF NOT EXISTS idx_realized_tm_fy_fm ON realized_tm_entries(fiscal_year, fiscal_month);
+CREATE INDEX IF NOT EXISTS idx_realized_tm_customer ON realized_tm_entries(customer_id);
 """
 
 
@@ -839,6 +893,24 @@ def _migrate(conn):
                 # the unused column in place is harmless; the app simply
                 # stops reading/writing it.
                 pass
+
+    # Realized Revenue > Time and Material: Discount (%) added alongside Bill
+    # Rate per explicit request, so the popup can show a computed Final Bill
+    # Rate ($) - see _final_bill_rate/_realized_tm_row_dict in main.py. Network
+    # Days/Total Billable Days (also newly added) are pure computed reference
+    # numbers derived from start_date/end_date/leaves/holidays on every read,
+    # same treatment as total_invoice_amount - nothing new stored for those.
+    if _table_exists(conn, "realized_tm_entries") and not _column_exists(conn, "realized_tm_entries", "discount_percent"):
+        conn.execute("ALTER TABLE realized_tm_entries ADD COLUMN discount_percent REAL")
+
+    # Additive: Practice, auto-populated (per explicit request) from this
+    # row's Customer + Employee Id against Best Estimates > Time and
+    # Material's own assignments - see the realized_tm_entries schema
+    # comment above and realizedTmPracticeFor()/refreshPractice() in app.js.
+    # Saved as a plain column exactly like billing_hours_per_day, not
+    # recomputed server-side on read.
+    if _table_exists(conn, "realized_tm_entries") and not _column_exists(conn, "realized_tm_entries", "practice_id"):
+        conn.execute("ALTER TABLE realized_tm_entries ADD COLUMN practice_id INTEGER REFERENCES practices(id)")
 
 
 DEFAULT_STATUSES = ["draft", "active", "completed", "expired", "cancelled"]
