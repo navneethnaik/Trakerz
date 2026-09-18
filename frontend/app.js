@@ -5627,6 +5627,22 @@ document.getElementById("realizedTmLocationFilter").addEventListener("change", (
   renderRealizedTmTable();
 });
 
+let realizedTmPracticeFilter = "";
+document.getElementById("realizedTmPracticeFilter").addEventListener("change", (e) => {
+  realizedTmPracticeFilter = e.target.value;
+  renderRealizedTmTable();
+});
+
+// Month here is fiscal_month (1=Apr...12=Mar) - its <option>s are static in
+// index.html (the list never changes, unlike Customer/Location/Practice
+// above), so this just reads the value straight off the select, no populate
+// function needed.
+let realizedTmMonthFilter = "";
+document.getElementById("realizedTmMonthFilter").addEventListener("change", (e) => {
+  realizedTmMonthFilter = e.target.value;
+  renderRealizedTmTable();
+});
+
 function populateRealizedTmCustomerFilter(customers) {
   const select = document.getElementById("realizedTmCustomerFilter");
   const current = realizedTmCustomerFilter;
@@ -5643,10 +5659,20 @@ function populateRealizedTmLocationFilter(locations) {
   select.value = current;
 }
 
+function populateRealizedTmPracticeFilter(practices) {
+  const select = document.getElementById("realizedTmPracticeFilter");
+  const current = realizedTmPracticeFilter;
+  select.innerHTML = '<option value="">All practices</option>' +
+    practices.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+  select.value = current;
+}
+
 function realizedTmRowMatchesFilters(r) {
   return (
     (!realizedTmCustomerFilter || String(r.customer_id) === realizedTmCustomerFilter) &&
     (!realizedTmLocationFilter || String(r.location_id) === realizedTmLocationFilter) &&
+    (!realizedTmPracticeFilter || String(r.practice_id) === realizedTmPracticeFilter) &&
+    (!realizedTmMonthFilter || String(r.fiscal_month) === realizedTmMonthFilter) &&
     realizedTmRowMatchesSearch(r)
   );
 }
@@ -5665,20 +5691,22 @@ function realizedTmRowMatchesSearch(r) {
 }
 
 function realizedTmFilterActive() {
-  return !!(realizedTmCustomerFilter || realizedTmLocationFilter || realizedTmSearchQuery);
+  return !!(realizedTmCustomerFilter || realizedTmLocationFilter || realizedTmPracticeFilter || realizedTmMonthFilter || realizedTmSearchQuery);
 }
 
 async function loadRealizedTm() {
   if (currentFiscalYear === null) currentFiscalYear = fiscalYearForToday();
-  const [customers, locations, billingHourConfigs, employeePractices, data] = await Promise.all([
+  const [customers, locations, practices, billingHourConfigs, employeePractices, data] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/locations`).then((r) => r.json()),
+    fetch(`${API}/practices`).then((r) => r.json()),
     fetch(`${API}/billing-hours`).then((r) => r.json()),
     fetch(`${API}/tm/assignments/employee-practices`).then((r) => r.json()),
     fetch(`${API}/realized/tm?fiscal_year=${currentFiscalYear}`).then((r) => r.json()),
   ]);
   populateRealizedTmCustomerFilter(customers);
   populateRealizedTmLocationFilter(locations);
+  populateRealizedTmPracticeFilter(practices);
   currentRealizedTmCustomers = customers;
   currentRealizedTmLocations = locations;
   currentRealizedTmBillingHourConfigs = billingHourConfigs;

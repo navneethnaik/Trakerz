@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=134" />
+<link rel="stylesheet" href="style.css?v=135" />
 </head>
 <body>
 <header class="topbar">
@@ -1332,6 +1332,31 @@
       <select id="realizedTmLocationFilter">
         <option value="">All locations</option>
       </select>
+      <select id="realizedTmPracticeFilter">
+        <option value="">All practices</option>
+      </select>
+      <!-- Month here is fiscal_month (1=Apr...12=Mar, see realized_tm_entries
+           in db.py) - a row's Start Date is expected to fall within a single
+           calendar month per explicit request, so this doubles as filtering
+           by the row's actual billing month. Options are static (unlike the
+           Customer/Location/Practice filters above, this list never
+           changes), so no populate function is needed - see
+           realizedTmRowMatchesFilters() in app.js. -->
+      <select id="realizedTmMonthFilter">
+        <option value="">All months</option>
+        <option value="1">Apr</option>
+        <option value="2">May</option>
+        <option value="3">Jun</option>
+        <option value="4">Jul</option>
+        <option value="5">Aug</option>
+        <option value="6">Sep</option>
+        <option value="7">Oct</option>
+        <option value="8">Nov</option>
+        <option value="9">Dec</option>
+        <option value="10">Jan</option>
+        <option value="11">Feb</option>
+        <option value="12">Mar</option>
+      </select>
     </div>
 
     <!-- Location x Month summary - one row per Location (every location in
@@ -2244,6 +2269,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=167"></script>
+<script src="app.js?v=168"></script>
 </body>
 </html>

@@ -432,6 +432,19 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
    comment above. */
 #tab-realized-tm .rtm-table thead tr:first-child th { position: sticky; top: 0; z-index: 3; }
 #tab-realized-tm .rtm-table thead tr:last-child th { position: sticky; top: 29px; z-index: 2; }
+/* Per explicit request, this grid's many columns (see its two-row grouped
+   header above) stay on one line rather than wrapping - same treatment as
+   the SOW table's own #tab-sows rule further below and Best Estimates >
+   Time and Material's .rev-grid-table rule (both already single-line, wide
+   tables). table-layout stays the browser default (auto), so each column's
+   width grows to fit its own longest single-line value/header rather than
+   an even split - the .table-scroll wrapper (overflow-x: auto, set
+   app-wide) already handles the resulting horizontal scroll, same as it
+   does for those two tables. Additional Information's own .notes-cell span
+   keeps its own explicit white-space: pre-wrap (see style.css), which wins
+   over this on that one column, so it still wraps/clamps in place instead
+   of stretching the whole table to its length. */
+#tab-realized-tm .rtm-table th, #tab-realized-tm .rtm-table td { white-space: nowrap; }
 /* The SOW table has a two-row header (a "Contract Details / BTP Information /
    Reference Documents / Additional Information" group row spanning the
    individual column-name row below it, same shape as the Revenue Management
