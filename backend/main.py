@@ -2213,23 +2213,39 @@ def _billing_hours_per_day(conn, customer_id: Optional[int], location_id: Option
 
 
 def _practice_id_for_employee(conn, customer_id: Optional[int], employee_id: Optional[str]) -> Optional[int]:
-    """Looked up from Best Estimates > Time and Material's own assignments
-    (tm_assignments), never stored anywhere else - Practice describes the
-    person doing the work for a Customer, so it's derived the same way for
-    every Realized Revenue > Time and Material entry path (Add/Edit popup,
-    Copy, bulk Import - see realized_tm_import_template()/
-    import_realized_tm() below and realizedTmPracticeFor() in app.js) rather
-    than hand-typed anywhere. None when Employee Id is blank or no
-    assignment exists for this Customer+Employee Id; the most recently
-    updated assignment wins when more than one matches (mirrors
+    """Looked up first from Best Estimates > Time and Material's own
+    assignments (tm_assignments) - Practice describes the person doing the
+    work for a Customer, so it's derived the same way for every Realized
+    Revenue > Time and Material entry path (Add/Edit popup, Copy, bulk
+    Import - see realized_tm_import_template()/import_realized_tm() below
+    and realizedTmPracticeFor() in app.js) rather than hand-typed anywhere.
+    When no assignment matches (per explicit request, since a bulk import
+    can bring in a whole set of employees who were never entered in Best
+    Estimates), falls back to this same Customer+Employee Id's own most
+    recent Realized Revenue > Time and Material entry that already has a
+    Practice - so once any entry for that person picks one up (from a Best
+    Estimates match, now or later), every other entry for them reuses it
+    instead of coming up empty again. Still None when Employee Id is blank
+    or neither source has anything for this Customer+Employee Id yet (nothing
+    to copy from); the most recently updated row wins when more than one
+    matches in whichever source is used (mirrors
     list_tm_assignment_employee_practices' own ordering)."""
     if not customer_id or not (employee_id or "").strip():
         return None
+    emp = employee_id.strip()
     row = conn.execute(
         """SELECT practice_id FROM tm_assignments
            WHERE customer_id = ? AND employee_id = ? COLLATE NOCASE AND practice_id IS NOT NULL
            ORDER BY updated_at DESC LIMIT 1""",
-        (customer_id, employee_id.strip()),
+        (customer_id, emp),
+    ).fetchone()
+    if row:
+        return row["practice_id"]
+    row = conn.execute(
+        """SELECT practice_id FROM realized_tm_entries
+           WHERE customer_id = ? AND employee_id = ? COLLATE NOCASE AND practice_id IS NOT NULL
+           ORDER BY updated_at DESC LIMIT 1""",
+        (customer_id, emp),
     ).fetchone()
     return row["practice_id"] if row else None
 
@@ -2803,6 +2819,30 @@ def list_realized_tm(fiscal_year: Optional[int] = None):
             (fy,),
         ).fetchall()
         return {"fiscal_year": fy, "rows": [_realized_tm_row_dict(r) for r in rows]}
+
+
+@app.get("/api/realized/tm/employee-practices")
+def list_realized_tm_employee_practices():
+    """Flat (Customer, Employee Id) -> Practice lookup drawn from every
+    Realized Revenue > Time and Material entry already on file (across every
+    fiscal year, same reasoning as list_tm_assignment_employee_practices) -
+    the fallback source realizedTmPracticeFor() in app.js and
+    _practice_id_for_employee() above use when no Best Estimates > Time and
+    Material assignment matches, per explicit request (a bulk import can
+    bring in employees who were never entered in Best Estimates at all, so
+    that source alone left Practice empty for every one of their rows).
+    Ordered most-recently-updated first, same "first match wins" convention
+    as that other lookup."""
+    with db.get_db() as conn:
+        rows = conn.execute(
+            """SELECT e.customer_id, e.employee_id, e.practice_id, p.name AS practice_name
+               FROM realized_tm_entries e
+               LEFT JOIN practices p ON p.id = e.practice_id
+               WHERE e.customer_id IS NOT NULL AND e.employee_id IS NOT NULL
+                     AND TRIM(e.employee_id) <> '' AND e.practice_id IS NOT NULL
+               ORDER BY e.updated_at DESC"""
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
 
 
 @app.post("/api/realized/tm", status_code=201)

@@ -5608,6 +5608,14 @@ let currentRealizedTmBillingHourConfigs = [];
 // even if Best Estimates was never visited this session). See
 // realizedTmPracticeFor() below.
 let currentRealizedTmEmployeePractices = [];
+// Same (Customer, Employee Id) -> Practice shape, but drawn from Realized
+// Revenue > Time and Material's own entries instead (see /api/realized/tm/
+// employee-practices) - the fallback source realizedTmPracticeFor() below
+// checks when no Best Estimates assignment matches, per explicit request (a
+// bulk import can bring in employees who were never entered in Best
+// Estimates at all, so that source alone left Practice empty for every one
+// of their rows).
+let currentRealizedTmOwnPractices = [];
 
 let realizedTmSearchQuery = "";
 document.getElementById("realizedTmSearchInput").addEventListener("input", debounce(() => {
@@ -5696,12 +5704,13 @@ function realizedTmFilterActive() {
 
 async function loadRealizedTm() {
   if (currentFiscalYear === null) currentFiscalYear = fiscalYearForToday();
-  const [customers, locations, practices, billingHourConfigs, employeePractices, data] = await Promise.all([
+  const [customers, locations, practices, billingHourConfigs, employeePractices, ownPractices, data] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/locations`).then((r) => r.json()),
     fetch(`${API}/practices`).then((r) => r.json()),
     fetch(`${API}/billing-hours`).then((r) => r.json()),
     fetch(`${API}/tm/assignments/employee-practices`).then((r) => r.json()),
+    fetch(`${API}/realized/tm/employee-practices`).then((r) => r.json()),
     fetch(`${API}/realized/tm?fiscal_year=${currentFiscalYear}`).then((r) => r.json()),
   ]);
   populateRealizedTmCustomerFilter(customers);
@@ -5711,6 +5720,7 @@ async function loadRealizedTm() {
   currentRealizedTmLocations = locations;
   currentRealizedTmBillingHourConfigs = billingHourConfigs;
   currentRealizedTmEmployeePractices = employeePractices;
+  currentRealizedTmOwnPractices = ownPractices;
   realizedTmCache = new Map(data.rows.map((r) => [r.id, r]));
   renderRealizedTmTable();
 }
@@ -5741,14 +5751,23 @@ function realizedTmBillingHoursFor(customerId, locationId) {
 // case-insensitive and trims whitespace on both sides; when an employee has
 // more than one assignment on file for this Customer, the first match wins
 // (the lookup list is already ordered most-recently-updated first - see
-// list_tm_assignment_employee_practices in main.py). Returns null (shown as
-// "—") when no assignment matches, same as a Billing Hours miss.
+// list_tm_assignment_employee_practices in main.py). When no Best Estimates
+// assignment matches, falls back to currentRealizedTmOwnPractices (this
+// same Customer+Employee Id's own most recent Realized T&M entry that
+// already has a Practice, if any) - per explicit request, since a bulk
+// import can bring in a whole set of employees who were never entered in
+// Best Estimates at all, and the first source alone left Practice empty for
+// every one of their rows (mirrors _practice_id_for_employee's own
+// two-source fallback in main.py, used by import_realized_tm). Returns null
+// (shown as "—") only when neither source has anything for this
+// Customer+Employee Id yet.
 function realizedTmPracticeFor(customerId, employeeId) {
   const empId = (employeeId || "").trim().toLowerCase();
   if (!customerId || !empId) return null;
-  const match = currentRealizedTmEmployeePractices.find(
+  const matches = (list) => list.find(
     (p) => String(p.customer_id) === String(customerId) && (p.employee_id || "").trim().toLowerCase() === empId
   );
+  const match = matches(currentRealizedTmEmployeePractices) || matches(currentRealizedTmOwnPractices);
   return match ? { id: match.practice_id, name: match.practice_name } : null;
 }
 
