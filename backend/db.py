@@ -446,6 +446,54 @@ CREATE TABLE IF NOT EXISTS realized_tm_entries (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Realized Revenue > Managed Services: a standalone actuals ledger for
+-- Managed Services billing, structurally parallel to Realized Revenue >
+-- Time and Material's own realized_tm_entries above (one shared Add/View/
+-- Copy/Edit/Delete popup - see openRealizedMsEntryModal() in app.js - rather
+-- than Best Estimates > Managed Services' inline-editable grid), but keeping
+-- a live link to a real Contract (sow_id) since Billing Model is always
+-- read straight off the selected SOW (sows.billing_model_id) rather than
+-- hand-picked or stored here - per explicit request ("SoW Name (Drop
+-- Down)", "Billing Model (Auto populated based on SoW selected)").
+-- customer_id is redundant with sows.customer_id but kept here too (same
+-- reasoning as revenue_sow_accounts.customer_id) so a row still
+-- shows/filters by Customer even if its SOW is ever deleted - sow_id is ON
+-- DELETE SET NULL rather than CASCADE, since unlike Best Estimates' own
+-- tracking rows, a Realized Revenue entry is an actual and shouldn't vanish
+-- just because its Contract record is later removed. No UNIQUE(sow_id,
+-- fiscal_year): per explicit request this grid supports Copy (duplicating a
+-- row), so, like realized_tm_entries, the same SOW can appear on more than
+-- one row in the same fiscal year. Apr-Mar monthly revenue is plain
+-- user-typed numbers (unlike Best Estimates > Managed Services, which
+-- computes them from ms_resources), normalized into realized_ms_entries
+-- below exactly like revenue_entries/ms_resource_entries (one row per
+-- fiscal month, fiscal_month 1=Apr...12=Mar) rather than flattened into 12
+-- columns on this row - the same shape makes "Billing Model wise Monthly
+-- Revenue" (the page's own Table 1) summable with a plain GROUP BY.
+CREATE TABLE IF NOT EXISTS realized_ms_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER REFERENCES customers(id),
+    sow_id INTEGER REFERENCES sows(id) ON DELETE SET NULL,
+    fiscal_year INTEGER NOT NULL,
+    additional_info TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- One row per (account, fiscal month) - mirrors revenue_entries' shape
+-- exactly (fiscal_month is the same 1=Apr...12=Mar position), just scoped to
+-- a Realized Revenue > Managed Services account instead of a Best Estimates
+-- revenue_sow_accounts row.
+CREATE TABLE IF NOT EXISTS realized_ms_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES realized_ms_accounts(id) ON DELETE CASCADE,
+    fiscal_month INTEGER NOT NULL,
+    amount REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(account_id, fiscal_month)
+);
+
 CREATE INDEX IF NOT EXISTS idx_milestones_sow_id ON milestones(sow_id);
 CREATE INDEX IF NOT EXISTS idx_customers_code ON customers(customer_code);
 CREATE INDEX IF NOT EXISTS idx_sows_customer_id ON sows(customer_id);
@@ -456,6 +504,10 @@ CREATE INDEX IF NOT EXISTS idx_tm_assignment_fiscal_years_fy ON tm_assignment_fi
 CREATE INDEX IF NOT EXISTS idx_leave_management_customer_employee ON leave_management(customer_id, employee_id);
 CREATE INDEX IF NOT EXISTS idx_realized_tm_fy_fm ON realized_tm_entries(fiscal_year, fiscal_month);
 CREATE INDEX IF NOT EXISTS idx_realized_tm_customer ON realized_tm_entries(customer_id);
+CREATE INDEX IF NOT EXISTS idx_realized_ms_accounts_fy ON realized_ms_accounts(fiscal_year);
+CREATE INDEX IF NOT EXISTS idx_realized_ms_accounts_customer ON realized_ms_accounts(customer_id);
+CREATE INDEX IF NOT EXISTS idx_realized_ms_accounts_sow ON realized_ms_accounts(sow_id);
+CREATE INDEX IF NOT EXISTS idx_realized_ms_entries_account ON realized_ms_entries(account_id);
 """
 
 

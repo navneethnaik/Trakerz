@@ -445,6 +445,19 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
    over this on that one column, so it still wraps/clamps in place instead
    of stretching the whole table to its length. */
 #tab-realized-tm .rtm-table th, #tab-realized-tm .rtm-table td { white-space: nowrap; }
+/* Realized Revenue > Managed Services - same shape as Realized Revenue >
+   Time and Material just above: a plain single-row "Billing Model wise
+   Monthly Revenue" summary table (Table 1, reusing .revenue-type-summary-
+   table) above a two-row grouped grid (Table 2, .rms-table - "Customer and
+   SoW Details"/"Monthly Revenue (Apr-Mar)", verbatim from
+   #realizedMsEntryModal's own layout, per explicit request - see
+   index.html). .rms-table also carries .rev-grid-table (Best Estimates'
+   generic centered/nowrap/banded-month styling further below in this file,
+   not scoped to #tab-revenue except its own sticky rule), so only the
+   sticky positioning needs its own rule here. */
+#tab-realized-ms .revenue-type-summary-table thead th { position: sticky; top: 0; z-index: 2; }
+#tab-realized-ms .rms-table thead tr:first-child th { position: sticky; top: 0; z-index: 3; }
+#tab-realized-ms .rms-table thead tr:last-child th { position: sticky; top: 29px; z-index: 2; }
 /* The SOW table has a two-row header (a "Contract Details / BTP Information /
    Reference Documents / Additional Information" group row spanning the
    individual column-name row below it, same shape as the Revenue Management

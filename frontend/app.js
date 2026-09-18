@@ -225,7 +225,7 @@ function showTab(name) {
   // permanently so every other page keeps its normal whole-page scrolling.
   document.body.classList.toggle(
     "scroll-locked",
-    ["sows", "resources", "revenue", "realized-tm", "config-leaves", "customers", "config-billing-hours", "config-holidays"].includes(name)
+    ["sows", "resources", "revenue", "realized-tm", "realized-ms", "config-leaves", "customers", "config-billing-hours", "config-holidays"].includes(name)
   );
 
   if (name === "home") loadHome();
@@ -240,6 +240,7 @@ function showTab(name) {
   if (name === "resources") loadResources();
   if (name === "revenue") loadRevenueTab();
   if (name === "realized-tm") loadRealizedTm();
+  if (name === "realized-ms") loadRealizedMs();
   if (name === "config-locations") loadLocations();
   if (name === "config-billing-models") loadBillingModels();
   if (name === "config-operating-models") loadOperatingModels();
@@ -6286,6 +6287,412 @@ document.getElementById("realizedTmEntryForm").addEventListener("submit", async 
 document.getElementById("newRealizedTmEntryBtn").addEventListener("click", () => openRealizedTmEntryModal());
 
 wireExcelImport("importRealizedTmBtn", "realizedTmImportFile", "/realized/tm/import", loadRealizedTm);
+
+// ---------- Realized Revenue > Managed Services ----------
+// Standalone actuals ledger, structurally parallel to Realized Revenue >
+// Time and Material above, but keeps a live link to a real Contract
+// (sow_id) so Billing Model is always read straight off the selected SOW
+// rather than hand-picked (see realized_ms_accounts/realized_ms_entries in
+// db.py).
+let realizedMsCache = new Map();
+let currentRealizedMsCustomers = [];
+// Every SOW in the system (not filtered by fiscal year) - the Add/Edit
+// popup's own Statement of Work dropdown narrows this by Customer + non-
+// Time-and-Material Billing Model (see openRealizedMsEntryModal's
+// refreshSowOptions()), same exclusion Best Estimates > Managed Services'
+// own dropdown applies, but - unlike that grid - a SOW already used on
+// another row is NOT excluded here: per explicit request this ledger
+// supports Copy (and has no uniqueness rule at all), so the same SOW can
+// appear on more than one row.
+let currentRealizedMsSows = [];
+// The full Billing Models master list (see /api/billing-models) - kept so
+// Table 1 (Billing Model wise Monthly Revenue) always shows every Billing
+// Model, even one with no rows yet, the same way Realized T&M's own
+// Location wise Monthly Revenue summary shows every Location.
+let currentRealizedMsBillingModels = [];
+
+let realizedMsSearchQuery = "";
+document.getElementById("realizedMsSearchInput").addEventListener("input", debounce(() => {
+  realizedMsSearchQuery = document.getElementById("realizedMsSearchInput").value.trim().toLowerCase();
+  renderRealizedMsTable();
+}, 250));
+
+let realizedMsCustomerFilter = "";
+document.getElementById("realizedMsCustomerFilter").addEventListener("change", (e) => {
+  realizedMsCustomerFilter = e.target.value;
+  renderRealizedMsTable();
+});
+
+// Value is the Billing Model's NAME, not its id (mirrors
+// populateRevenueBillingModelFilter()'s own convention below) - rows here
+// only ever carry billing_model_name (read live off the linked SOW), never
+// a billing_model_id of their own.
+let realizedMsBillingModelFilter = "";
+document.getElementById("realizedMsBillingModelFilter").addEventListener("change", (e) => {
+  realizedMsBillingModelFilter = e.target.value;
+  renderRealizedMsTable();
+});
+
+function populateRealizedMsCustomerFilter(customers) {
+  const select = document.getElementById("realizedMsCustomerFilter");
+  const current = realizedMsCustomerFilter;
+  select.innerHTML = '<option value="">All customers</option>' +
+    customers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
+  select.value = current;
+}
+
+// Time and Material is excluded from this filter (and from Table 1 below)
+// per explicit request - this page is Managed Services only, mirroring
+// Best Estimates > Managed Services' own populateRevenueBillingModelFilter().
+function populateRealizedMsBillingModelFilter(models) {
+  const select = document.getElementById("realizedMsBillingModelFilter");
+  const current = realizedMsBillingModelFilter;
+  const options = models.filter((m) => m.name !== "Time and Material");
+  select.innerHTML = '<option value="">All billing models</option>' +
+    options.map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join("");
+  select.value = current;
+}
+
+function realizedMsRowMatchesFilters(r) {
+  return (
+    (!realizedMsCustomerFilter || String(r.customer_id) === realizedMsCustomerFilter) &&
+    (!realizedMsBillingModelFilter || (r.billing_model_name || "") === realizedMsBillingModelFilter) &&
+    realizedMsRowMatchesSearch(r)
+  );
+}
+
+function realizedMsRowMatchesSearch(r) {
+  if (!realizedMsSearchQuery) return true;
+  return (
+    (r.customer_name || "").toLowerCase().includes(realizedMsSearchQuery) ||
+    (r.sow_title || "").toLowerCase().includes(realizedMsSearchQuery) ||
+    (r.additional_info || "").toLowerCase().includes(realizedMsSearchQuery)
+  );
+}
+
+function realizedMsFilterActive() {
+  return !!(realizedMsCustomerFilter || realizedMsBillingModelFilter || realizedMsSearchQuery);
+}
+
+async function loadRealizedMs() {
+  if (currentFiscalYear === null) currentFiscalYear = fiscalYearForToday();
+  const [customers, sows, billingModels, data] = await Promise.all([
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(`${API}/sows`).then((r) => r.json()),
+    fetch(`${API}/billing-models`).then((r) => r.json()),
+    fetch(`${API}/realized/ms?fiscal_year=${currentFiscalYear}`).then((r) => r.json()),
+  ]);
+  populateRealizedMsCustomerFilter(customers);
+  populateRealizedMsBillingModelFilter(billingModels);
+  currentRealizedMsCustomers = customers;
+  currentRealizedMsSows = sows;
+  currentRealizedMsBillingModels = billingModels;
+  realizedMsCache = new Map(data.rows.map((r) => [r.account_id, r]));
+  renderRealizedMsTable();
+}
+
+// Re-renders the grid from the already-fetched realizedMsCache rather than
+// re-fetching - mirrors renderRealizedTmTable() above, needed here so the
+// free-text search can re-render on every keystroke without a network round
+// trip; the Customer/Billing Model filters re-render the same way (no
+// server-side filtering on GET /api/realized/ms).
+function renderRealizedMsTable() {
+  const allRows = Array.from(realizedMsCache.values());
+  const filteredRows = allRows.filter(realizedMsRowMatchesFilters);
+  const tbody = document.getElementById("realizedMsTableBody");
+  tbody.innerHTML = "";
+  if (!filteredRows.length) {
+    tbody.innerHTML = `<tr><td colspan="18" class="empty-state">${
+      allRows.length ? "No entries match the selected filter." : 'No entries yet. Click "Add Entry" to start tracking realized Managed Services revenue.'
+    }</td></tr>`;
+  } else {
+    filteredRows.forEach((r) => tbody.appendChild(buildRealizedMsRow(r)));
+    renumberRealizedMsRows();
+  }
+  renderRealizedMsBillingModelSummary(filteredRows);
+  setFooterRowCount(realizedMsFilterActive() ? filteredRows.length : null);
+}
+
+function renumberRealizedMsRows() {
+  const tbody = document.getElementById("realizedMsTableBody");
+  let n = 0;
+  tbody.querySelectorAll("tr").forEach((tr) => {
+    const cell = tr.querySelector(".rms-sl-no");
+    if (cell) { n += 1; cell.textContent = n; }
+  });
+}
+
+// Billing Model x Month summary above the grid (Table 1) - one row per
+// Billing Model (every billing model in the master list except Time and
+// Material, per explicit request, plus "Unassigned" only if at least one
+// visible row has none), summing Apr-Mar revenue across every row currently
+// visible below. Mirrors renderRealizedTmLocationSummary()'s shape exactly,
+// just keyed by billing_model_name and reading each row's own months array
+// (r.months[i].amount, one entry per fiscal month) instead of a single
+// fiscal_month bucket.
+function renderRealizedMsBillingModelSummary(filteredRows) {
+  const tbody = document.getElementById("realizedMsBillingModelSummaryBody");
+  if (!tbody) return;
+
+  const sumsByModel = new Map();
+  filteredRows.forEach((r) => {
+    const key = r.billing_model_name || "";
+    if (!sumsByModel.has(key)) sumsByModel.set(key, new Array(12).fill(0));
+    const sums = sumsByModel.get(key);
+    (r.months || []).forEach((m) => { sums[m.fiscal_month - 1] += m.amount || 0; });
+  });
+
+  let labels = currentRealizedMsBillingModels.filter((m) => m.name !== "Time and Material").map((m) => m.name);
+  if (sumsByModel.has("")) labels.push("Unassigned");
+
+  tbody.innerHTML = "";
+  if (!labels.length) {
+    tbody.innerHTML = `<tr class="revenue-type-empty-row"><td colspan="18" class="empty-state">No Billing Models configured yet - add some under Global Settings.</td></tr>`;
+    return;
+  }
+  labels.forEach((label) => {
+    const key = label === "Unassigned" ? "" : label;
+    const sums = sumsByModel.get(key) || new Array(12).fill(0);
+    const total = sums.reduce((a, v) => a + v, 0);
+    const q1 = sums[0] + sums[1] + sums[2];
+    const q2 = sums[3] + sums[4] + sums[5];
+    const q3 = sums[6] + sums[7] + sums[8];
+    const q4 = sums[9] + sums[10] + sums[11];
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${escapeHtml(label)}</td><td class="rts-highlight-col">${fmtPlain(total)}</td>` +
+      `<td>${fmtPlain(sums[0])}</td><td>${fmtPlain(sums[1])}</td><td>${fmtPlain(sums[2])}</td><td class="rts-highlight-col">${fmtPlain(q1)}</td>` +
+      `<td>${fmtPlain(sums[3])}</td><td>${fmtPlain(sums[4])}</td><td>${fmtPlain(sums[5])}</td><td class="rts-highlight-col">${fmtPlain(q2)}</td>` +
+      `<td>${fmtPlain(sums[6])}</td><td>${fmtPlain(sums[7])}</td><td>${fmtPlain(sums[8])}</td><td class="rts-highlight-col">${fmtPlain(q3)}</td>` +
+      `<td>${fmtPlain(sums[9])}</td><td>${fmtPlain(sums[10])}</td><td>${fmtPlain(sums[11])}</td><td class="rts-highlight-col">${fmtPlain(q4)}</td>`;
+    tbody.appendChild(tr);
+  });
+  const colTotals = new Array(17).fill(0); // Total, Apr..Mar(12), Q1..Q4
+  labels.forEach((label) => {
+    const key = label === "Unassigned" ? "" : label;
+    const sums = sumsByModel.get(key) || new Array(12).fill(0);
+    const total = sums.reduce((a, v) => a + v, 0);
+    const q1 = sums[0] + sums[1] + sums[2];
+    const q2 = sums[3] + sums[4] + sums[5];
+    const q3 = sums[6] + sums[7] + sums[8];
+    const q4 = sums[9] + sums[10] + sums[11];
+    const rowValues = [total, ...sums, q1, q2, q3, q4];
+    rowValues.forEach((v, i) => { colTotals[i] += v; });
+  });
+  const totalTr = document.createElement("tr");
+  totalTr.className = "table-total-row";
+  totalTr.innerHTML = `<td>Total</td><td class="rts-highlight-col">${fmtPlain(colTotals[0])}</td>` +
+    `<td>${fmtPlain(colTotals[1])}</td><td>${fmtPlain(colTotals[2])}</td><td>${fmtPlain(colTotals[3])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[13])}</td>` +
+    `<td>${fmtPlain(colTotals[4])}</td><td>${fmtPlain(colTotals[5])}</td><td>${fmtPlain(colTotals[6])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[14])}</td>` +
+    `<td>${fmtPlain(colTotals[7])}</td><td>${fmtPlain(colTotals[8])}</td><td>${fmtPlain(colTotals[9])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[15])}</td>` +
+    `<td>${fmtPlain(colTotals[10])}</td><td>${fmtPlain(colTotals[11])}</td><td>${fmtPlain(colTotals[12])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[16])}</td>`;
+  tbody.appendChild(totalTr);
+}
+
+// Builds one <tr> for the Realized Managed Services grid - always read-only
+// (Add, Copy, Edit and View all open #realizedMsEntryModal, same
+// View/Copy/Edit/Delete convention as buildRealizedTmRow() above).
+function buildRealizedMsRow(r) {
+  const tr = document.createElement("tr");
+  let cells = `<td class="row-actions">
+        <button type="button" class="ghost-btn btn-edit icon-btn rms-view-btn" title="View">${icon("eye")}</button>
+        <button type="button" class="ghost-btn btn-edit icon-btn rms-copy-btn" title="Copy">${icon("copy")}</button>
+        <button type="button" class="ghost-btn btn-edit icon-btn rms-edit-btn" title="Edit">${icon("edit")}</button>
+        <button type="button" class="ghost-btn btn-danger icon-btn rms-del-btn" title="Delete">${icon("trash")}</button>
+      </td>`;
+  cells += `<td class="rms-sl-no"></td>`;
+  cells += `
+    <td>${escapeHtml(r.customer_name) || "—"}</td>
+    <td>${escapeHtml(r.sow_title) || "—"}</td>
+    <td class="group-divider">${escapeHtml(r.billing_model_name) || "—"}</td>
+  `;
+  // Alternating background per month (rev-band-a/rev-band-b), same
+  // convention as Best Estimates' own buildRevenueSowRow().
+  (r.months || []).forEach((m, i) => {
+    const band = i % 2 === 0 ? "rev-band-a" : "rev-band-b";
+    cells += `<td class="${band}">${fmtPlain(m.amount || 0)}</td>`;
+  });
+  cells += `<td class="group-divider">${r.additional_info ? `<span class="notes-cell" title="${escapeHtml(r.additional_info)}">${escapeHtml(r.additional_info)}</span>` : "—"}</td>`;
+
+  tr.innerHTML = cells;
+
+  tr.querySelector(".rms-view-btn").addEventListener("click", () => {
+    openRealizedMsEntryModal(r, {}, true);
+  });
+  tr.querySelector(".rms-copy-btn").addEventListener("click", () => {
+    // No uniqueness rule here (same as Realized T&M) - "Copy" opens the same
+    // Add Entry popup, pre-filled with this row's Customer/SOW/months/
+    // Additional Details but no account id, so Save creates a brand-new row.
+    openRealizedMsEntryModal(null, {
+      customerId: r.customer_id, sowId: r.sow_id, months: r.months, additionalInfo: r.additional_info,
+    });
+  });
+  tr.querySelector(".rms-edit-btn").addEventListener("click", () => {
+    openRealizedMsEntryModal(r);
+  });
+  tr.querySelector(".rms-del-btn").addEventListener("click", async () => {
+    if (confirm(`Remove this entry for "${r.sow_title || "this SOW"}" (${r.customer_name || "—"})?`)) {
+      const resp = await fetch(`${API}/realized/ms/${r.account_id}`, { method: "DELETE" });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert(formatApiError(err, "Failed to remove this entry."));
+        return;
+      }
+      loadRealizedMs();
+    }
+  });
+
+  return tr;
+}
+
+// ---------- Realized Revenue > Managed Services Add/Edit/View popup
+// (#realizedMsEntryModal) ----------
+const realizedMsEntryModal = document.getElementById("realizedMsEntryModal");
+wireModalCancel(realizedMsEntryModal, "cancelRealizedMsEntryBtn", "cancelRealizedMsEntryBtnTop");
+const editRealizedMsEntryBtnTop = document.getElementById("editRealizedMsEntryBtnTop");
+const editRealizedMsEntryBtn = document.getElementById("editRealizedMsEntryBtn");
+const saveRealizedMsEntryBtnTop = document.getElementById("saveRealizedMsEntryBtnTop");
+const saveRealizedMsEntryBtn = document.getElementById("saveRealizedMsEntryBtn");
+
+function openRealizedMsEntryModal(r = null, prefill = {}, viewOnly = false) {
+  const isEditing = !!r;
+  const box = realizedMsEntryModal;
+  box.dataset.editing = isEditing ? "true" : "";
+  box.dataset.accountId = (r && r.account_id != null) ? String(r.account_id) : "";
+
+  const customerSelect = box.querySelector(".rms-f-customer");
+  const sowSelect = box.querySelector(".rms-f-sow");
+  const billingModelInput = box.querySelector(".rms-f-billing-model");
+  const notesInput = box.querySelector(".rms-f-notes");
+  const monthInputs = box.querySelectorAll(".rms-f-month");
+  const totalEl = document.getElementById("realizedMsEntryModalTotal");
+
+  customerSelect.innerHTML = '<option value="">Select customer&hellip;</option>' +
+    currentRealizedMsCustomers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
+  customerSelect.value = r ? String(r.customer_id ?? "") : String(prefill.customerId ?? "");
+
+  // Time and Material SOWs are excluded here - this grid is Managed
+  // Services only, per explicit request (mirrors Best Estimates > Managed
+  // Services' own refreshSowOptions()). Unlike that grid, a SOW already
+  // used on another row is NOT excluded - see currentRealizedMsSows' own
+  // comment above for why.
+  function refreshSowOptions() {
+    const custVal = customerSelect.value;
+    if (!custVal) {
+      sowSelect.innerHTML = '<option value="">Select customer first&hellip;</option>';
+      sowSelect.disabled = true;
+      return;
+    }
+    const matching = currentRealizedMsSows.filter((s) =>
+      String(s.customer_id) === custVal && (s.billing_model_name || "") !== "Time and Material"
+    );
+    if (!matching.length) {
+      sowSelect.innerHTML = '<option value="">No available SOWs for this customer</option>';
+      sowSelect.disabled = true;
+    } else {
+      sowSelect.innerHTML = '<option value="">Select SOW&hellip;</option>' +
+        matching.map((s) => `<option value="${s.id}">${escapeHtml(s.title)}</option>`).join("");
+      sowSelect.disabled = false;
+    }
+    sowSelect.value = r ? String(r.sow_id ?? "") : String(prefill.sowId ?? "");
+  }
+  refreshSowOptions();
+
+  function refreshBillingModel() {
+    const selectedSow = currentRealizedMsSows.find((s) => String(s.id) === sowSelect.value);
+    billingModelInput.value = (selectedSow && selectedSow.billing_model_name) || "—";
+  }
+  refreshBillingModel();
+
+  function refreshTotal() {
+    const sum = Array.from(monthInputs).reduce((acc, input) => acc + (parseFloat(input.value) || 0), 0);
+    totalEl.textContent = fmtPlain(sum);
+  }
+
+  const monthValues = {};
+  (r ? r.months : (prefill.months || [])).forEach((m) => { monthValues[m.fiscal_month] = m.amount; });
+  monthInputs.forEach((input) => {
+    const fm = parseInt(input.dataset.fiscalMonth, 10);
+    input.value = monthValues[fm] ?? 0;
+  });
+  refreshTotal();
+
+  notesInput.value = (r ? r.additional_info : prefill.additionalInfo) || "";
+
+  // Assigned via .onchange/.oninput (not addEventListener) since these same
+  // elements persist across every open of this modal - addEventListener
+  // would stack a new listener on top of the last one each time.
+  customerSelect.onchange = () => { refreshSowOptions(); refreshBillingModel(); };
+  sowSelect.onchange = refreshBillingModel;
+  monthInputs.forEach((input) => { input.oninput = refreshTotal; });
+
+  // View mode disables/read-onlys every field that's otherwise editable
+  // (Customer Name, Statement of Work, the 12 months and Additional
+  // Details) and swaps the Save button for an Edit button, same convention
+  // as openRealizedTmEntryModal()'s own setMode(). Not offered for a
+  // brand-new ("Add Entry") row.
+  function setMode(isViewOnly) {
+    document.getElementById("realizedMsEntryModalTitle").textContent = isViewOnly
+      ? "View Realized Revenue Entry"
+      : (isEditing ? "Edit Realized Revenue Entry" : "Add Realized Revenue Entry");
+    customerSelect.disabled = isViewOnly;
+    sowSelect.disabled = isViewOnly || !customerSelect.value;
+    monthInputs.forEach((input) => { input.readOnly = isViewOnly; });
+    notesInput.readOnly = isViewOnly;
+    editRealizedMsEntryBtnTop.hidden = !isViewOnly;
+    editRealizedMsEntryBtn.hidden = !isViewOnly;
+    saveRealizedMsEntryBtnTop.hidden = isViewOnly;
+    saveRealizedMsEntryBtn.hidden = isViewOnly;
+  }
+  editRealizedMsEntryBtnTop.onclick = () => setMode(false);
+  editRealizedMsEntryBtn.onclick = () => setMode(false);
+  setMode(isEditing && viewOnly);
+
+  realizedMsEntryModal.hidden = false;
+}
+
+document.getElementById("realizedMsEntryForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const box = realizedMsEntryModal;
+  const isEditing = box.dataset.editing === "true";
+  const accountId = box.dataset.accountId ? parseInt(box.dataset.accountId, 10) : null;
+
+  const customerVal = box.querySelector(".rms-f-customer").value;
+  const sowVal = box.querySelector(".rms-f-sow").value;
+  if (!sowVal) { alert("Please select a Statement of Work."); return; }
+
+  const months = Array.from(box.querySelectorAll(".rms-f-month")).map((input) => ({
+    fiscal_month: parseInt(input.dataset.fiscalMonth, 10),
+    amount: parseFloat(input.value) || 0,
+  }));
+
+  if (currentFiscalYear === null) currentFiscalYear = fiscalYearForToday();
+  const payload = {
+    customer_id: customerVal ? parseInt(customerVal, 10) : null,
+    sow_id: sowVal ? parseInt(sowVal, 10) : null,
+    fiscal_year: currentFiscalYear,
+    months,
+    additional_info: box.querySelector(".rms-f-notes").value.trim() || null,
+  };
+
+  const saveButtons = box.querySelectorAll('button[type="submit"]');
+  saveButtons.forEach((b) => (b.disabled = true));
+  try {
+    const url = isEditing ? `${API}/realized/ms/${accountId}` : `${API}/realized/ms`;
+    const method = isEditing ? "PUT" : "POST";
+    const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      alert(formatApiError(err, "Failed to save this entry."));
+      return;
+    }
+    realizedMsEntryModal.hidden = true;
+    await loadRealizedMs();
+  } finally {
+    saveButtons.forEach((b) => (b.disabled = false));
+  }
+});
+
+document.getElementById("newRealizedMsEntryBtn").addEventListener("click", () => openRealizedMsEntryModal());
 
 // ---------- Configuration: generic simple-list helper (Locations, Billing
 // Models, Statuses, Employee Types, Bands, Opportunity Types) ----------
