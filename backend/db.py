@@ -323,6 +323,7 @@ CREATE TABLE IF NOT EXISTS ms_resources (
     employee_name TEXT NOT NULL,
     location_id INTEGER REFERENCES locations(id),
     practice_id INTEGER REFERENCES practices(id),
+    band_id INTEGER REFERENCES bands(id),
     start_date TEXT,
     end_date TEXT,
     rate_card REAL,
@@ -805,6 +806,8 @@ def _migrate(conn):
     # (Apr-Mar) revenue entries in ms_resource_entries, which stay untouched.
     if _table_exists(conn, "ms_resources") and not _column_exists(conn, "ms_resources", "rate_card"):
         conn.execute("ALTER TABLE ms_resources ADD COLUMN rate_card REAL")
+    if _table_exists(conn, "ms_resources") and not _column_exists(conn, "ms_resources", "band_id"):
+        conn.execute("ALTER TABLE ms_resources ADD COLUMN band_id INTEGER REFERENCES bands(id)")
 
     # Practice removed (front end and back end) from the Managed Services
     # grid's SOW-less rows per explicit instruction - unlike sows.practice_id
@@ -897,6 +900,31 @@ def _seed_defaults(conn):
         )
 
 
+def _cleanup_orphaned_ms_resources(conn):
+    """Delete any Managed Services Resource left behind by an "Add Managed
+    Services Entry" popup that was never actually saved - per explicit bug
+    report, a resource's own Save (see ms_resources/ms_resource_entries) is
+    immediate and independent of that popup's outer Save button, so picking
+    a SOW, adding a resource, then hitting Cancel (or closing the popup
+    without saving) left orphaned ms_resources rows behind: no
+    revenue_sow_accounts row was ever created to track them, so the grid
+    never showed a row with a Delete button to remove them, and they
+    resurfaced - already filled in, looking like old data that was never
+    really deleted - the next time that same SOW was picked again (see
+    delete_ms_resources_by_sow in main.py, called on Cancel going forward).
+    Runs on every startup (idempotent - a no-op once there's nothing
+    orphaned) so it also catches anything left behind before this fix
+    existed, not just stops new occurrences. ms_resource_entries cascades
+    automatically via its ON DELETE CASCADE FK to ms_resources."""
+    conn.execute(
+        """DELETE FROM ms_resources
+           WHERE NOT EXISTS (
+               SELECT 1 FROM revenue_sow_accounts ra
+               WHERE ra.sow_id = ms_resources.sow_id AND ra.fiscal_year = ms_resources.fiscal_year
+           )"""
+    )
+
+
 def _backfill_revenue_accounts(conn):
     """Make sure every (SOW, fiscal year) pair that already has month entries
     also has a revenue_sow_accounts row, so data entered before the
@@ -919,3 +947,4 @@ def init_db():
         conn.executescript(SCHEMA)
         _seed_defaults(conn)
         _backfill_revenue_accounts(conn)
+        _cleanup_orphaned_ms_resources(conn)

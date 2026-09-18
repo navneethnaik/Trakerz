@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=118" />
+<link rel="stylesheet" href="style.css?v=130" />
 </head>
 <body>
 <header class="topbar">
@@ -1136,51 +1136,74 @@
         </select>
       </div>
     </div>
-    <p class="page-header-desc dash-header-desc">Month-wise headcount of Time and Material resources (<span id="resourceReportCount">0</span>) by location for the current fiscal year &ndash; optionally scoped with the filters above. Managed Services headcount is not included here.</p>
+    <p class="page-header-desc dash-header-desc">Time and Material (<span id="resourceReportCount">0</span>) and Managed Services (<span id="resourceReportMsCount">0</span>) resources for the current fiscal year &ndash; optionally scoped with the filters above.</p>
 
-    <div class="table-scroll">
-      <table class="sow-table">
-        <thead>
-          <tr id="resourceReportLocationMonthHeaderRow">
-            <th>Location</th>
-            <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
-            <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
-          </tr>
-        </thead>
-        <tbody id="resourceReportLocationMonthBody"></tbody>
-      </table>
-    </div>
+    <!-- Both tables stacked one above the other, each at the app's normal
+         full table width (per explicit request - a side-by-side layout with
+         narrowed, fixed-width columns was tried first and rejected as too
+         cramped). See .resource-tables-row in style.css. -->
+    <div class="resource-tables-row">
+      <div class="resource-table-col">
+        <!-- Per explicit request, months-as-columns (Apr-Mar), with a
+             "Time and Material" divider row introducing that group's own
+             Onsite/Offshore/Nearshore rows, then a "Managed Services"
+             divider row introducing that group's rows, then a Total row
+             summing every resource active that month across both groups
+             regardless of Location - not just the sum of the six named rows
+             above it - so it still reads as a true total even if Locations
+             beyond Onsite/Offshore/Nearshore are configured (see
+             renderResourceReportLocationMonthTable in app.js). Per explicit
+             request, the two divider rows also show their own group's
+             Onsite+Offshore+Nearshore sum per month (rather than blank
+             cells) and are click-to-collapse/expand toggles for their
+             group's three Location rows. Same shape as the Ramp Up/Ramp
+             Down table beside it (see its own comment below) - a Location
+             name is matched case/whitespace-insensitively, same convention
+             as the backend's _ms_location_counts_by_sow. -->
+        <h3 class="report-subsection-title">Headcount by Month</h3>
+        <p class="resource-table-col-desc">Resources active each month, by Location.</p>
+        <div class="table-scroll">
+          <table class="sow-table resource-headcount-table">
+            <thead>
+              <tr>
+                <th>Months</th>
+                <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
+                <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
+              </tr>
+            </thead>
+            <tbody id="resourceReportLocationMonthBody"></tbody>
+          </table>
+        </div>
+      </div>
 
-    <h3 class="report-subsection-title">Ramp Up &ndash; Resources Onboarded This Fiscal Year</h3>
-    <p class="page-header-desc dash-header-desc">Time and Material resources whose assignment started during the current fiscal year, by month &ndash; click a month's count to see who.</p>
-    <div class="table-scroll">
-      <table class="sow-table">
-        <thead>
-          <tr>
-            <th></th>
-            <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
-            <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
-            <th>Total</th>
-          </tr>
-        </thead>
-        <tbody id="resourceReportRampUpBody"></tbody>
-      </table>
-    </div>
-
-    <h3 class="report-subsection-title">Ramp Down &ndash; Resources Released This Fiscal Year</h3>
-    <p class="page-header-desc dash-header-desc">Time and Material resources whose assignment ended during the current fiscal year, by month &ndash; click a month's count to see who.</p>
-    <div class="table-scroll">
-      <table class="sow-table">
-        <thead>
-          <tr>
-            <th></th>
-            <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
-            <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
-            <th>Total</th>
-          </tr>
-        </thead>
-        <tbody id="resourceReportRampDownBody"></tbody>
-      </table>
+      <!-- Ramp Up and Ramp Down used to be two separate tables, each with its
+           own heading/description and its own single Apr-Mar data row (one
+           for Time and Material only) - per explicit request, now pivoted
+           into a single Month-rows table with Ramp Up/Ramp Down repeated
+           under Time and Material and under Managed Services (see
+           renderResourceRampTables in app.js). -->
+      <div class="resource-table-col">
+        <h3 class="report-subsection-title">Ramp Up / Ramp Down</h3>
+        <p class="resource-table-col-desc">Onboarded/released this fiscal year, by month &ndash; click a count to see who.</p>
+        <!-- Per explicit request, months-as-columns with a generic leading
+             header column ("Months") - a "Time and Material" divider row
+             now introduces that group's own Ramp Up/Ramp Down rows, then a
+             "Managed Services" divider row introduces that group's own
+             Ramp Up/Ramp Down rows below it - see renderResourceRampTables
+             in app.js. -->
+        <div class="table-scroll">
+          <table class="sow-table resource-ramp-table">
+            <thead>
+              <tr>
+                <th>Months</th>
+                <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
+                <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
+              </tr>
+            </thead>
+            <tbody id="resourceReportRampBody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1228,11 +1251,25 @@
     <h3 class="report-subsection-title">QoQ Revenue &amp; Variance</h3>
     <p class="page-header-desc dash-header-desc">Quarter-over-quarter change in the combined revenue above, for the current fiscal year, alongside two measurable factors that often drive a swing &ndash; billing days by location and Time and Material resource headcount &ndash; shown as data points to help you judge the likely driver, not as a definitive cause.</p>
     <div class="table-scroll">
-      <table class="sow-table">
+      <table class="sow-table qoq-table">
+        <!-- Per explicit request, the Revenue column is split into Time and
+             Material/Managed Services/Total sub-columns - same two-row
+             group-header-row/group-header/group-divider pattern used
+             elsewhere in the app (Statement of Work, Revenue grids). The
+             other columns are unaffected and still span both header rows
+             via rowspan="2" - see renderQoQRevenueTable in app.js. The
+             Total sub-column is highlighted/bold (.qoq-revenue-total-col in
+             style.css), same convention as the Total/Q1-Q4 columns on the
+             Revenue Type Summary table above (.rts-highlight-col). -->
         <thead>
+          <tr class="group-header-row">
+            <th rowspan="2">Quarter</th>
+            <th colspan="3" class="group-header group-divider">Revenue</th>
+            <th rowspan="2">Variance ($)</th><th rowspan="2">Variance (%)</th>
+            <th rowspan="2">Billing Days (by Location)</th><th rowspan="2">TM Resource Count</th><th rowspan="2">Possible Contributing Factors</th>
+          </tr>
           <tr>
-            <th>Quarter</th><th>Revenue</th><th>Variance ($)</th><th>Variance (%)</th>
-            <th>Billing Days (by Location)</th><th>TM Resource Count</th><th>Possible Contributing Factors</th>
+            <th class="group-divider">Time and Material</th><th>Managed Services</th><th class="qoq-revenue-total-col">Total</th>
           </tr>
         </thead>
         <tbody id="revenueReportQoQBody"></tbody>
@@ -1982,6 +2019,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=148"></script>
+<script src="app.js?v=162"></script>
 </body>
 </html>

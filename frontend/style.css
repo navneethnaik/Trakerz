@@ -280,6 +280,45 @@ main { padding: 14px 20px; max-width: none; margin: 0; flex: 1 0 auto; width: 10
    tables) - smaller than .page-header-title since it's not the page title,
    but still bold enough to read as a section break. */
 .report-subsection-title { margin: 24px 0 4px; font-size: 15px; font-weight: 700; color: var(--text); }
+/* Reports > Resources - Headcount by Month and Ramp Up/Ramp Down, per
+   explicit request, stacked one above the other (not side by side - an
+   earlier side-by-side layout with narrowed, fixed-width columns was tried
+   and explicitly rejected as too cramped) and each at the app's normal full
+   table width, same as every other .sow-table in the app. Only the first
+   table's heading has its top margin zeroed (it's the first thing on the
+   page, not a break after something above it) - the second table keeps
+   .report-subsection-title's normal 24px top margin since there now really
+   is a table above it to break away from. */
+.resource-tables-row { display: flex; flex-direction: column; gap: 8px; }
+.resource-table-col { width: 100%; }
+.resource-table-col:first-child .report-subsection-title { margin-top: 0; }
+.resource-table-col-desc { margin: 0 0 8px; font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+/* Per explicit request, the Location rows (Onsite/Offshore/Nearshore) under
+   each billing-model divider in the Headcount table, and the Ramp Up/Ramp
+   Down rows under each billing-model divider in the Ramp table, have their
+   leading label right-aligned within the cell - visually nested under the
+   left-aligned, bold divider label above them. The divider rows themselves
+   (.ramp-group-row) and the Headcount table's Total row (.table-total-row)
+   are excluded so their labels stay left-aligned. */
+.resource-headcount-table tbody tr:not(.ramp-group-row):not(.table-total-row) td:first-child,
+.resource-ramp-table tbody tr:not(.ramp-group-row) td:first-child {
+  text-align: right;
+}
+/* Divider rows in the Headcount table ("Time and Material (A)"/"Managed
+   Services (B)") and the Ramp table ("Time and Material"/"Managed
+   Services") - a label-only row introducing that group's own data rows
+   below it. Per explicit request, plain bold text left-aligned in the
+   cell - no background fill - rather than a blank data row so it doesn't
+   read as all zeros. */
+.ramp-group-row td { font-weight: 700; text-align: left; }
+/* Headcount by Month table's "Time and Material (A)"/"Managed Services
+   (B)" rows only (see the collapseOpts branch of appendResourceReportDivi-
+   derRow in app.js) - per explicit request these two rows expand/collapse
+   their group's Onsite/Offshore/Nearshore rows on click. The Ramp table's
+   plain divider rows don't get this class and stay non-interactive. */
+.resource-group-toggle-row { cursor: pointer; }
+.resource-group-toggle-row:hover { background: var(--row-hover); }
+.resource-group-toggle-icon { display: inline-block; width: 11px; font-size: 9px; }
 /* QoQ Revenue & Variance table (Reports > Revenue) - up/down coloring for
    the variance columns, a muted parenthetical delta next to the raw
    Billing Days/TM Resource Count figures, and a small muted line under the
@@ -970,6 +1009,14 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 .revenue-type-summary-table th.rts-highlight-col { background: var(--primary-hover); }
 .revenue-type-summary-table td.rts-highlight-col { background: rgba(var(--primary-rgb), .14); color: var(--primary-hover); font-weight: 700; }
 
+/* QoQ Revenue & Variance's Revenue sub-columns (Time and Material/Managed
+   Services/Total) - per explicit request, the Total sub-column gets the
+   same highlighted/bold treatment as .rts-highlight-col above (the Revenue
+   Type Summary table's own Total/Q1-Q4 columns), so it reads the same way
+   across both tables on this page. */
+.qoq-table th.qoq-revenue-total-col { background: var(--primary-hover); }
+.qoq-table td.qoq-revenue-total-col { background: rgba(var(--primary-rgb), .14); color: var(--primary-hover); font-weight: 700; }
+
 /* Reports > Revenue's expand-to-breakdown Revenue Type rows (see
    renderRevenueReportSummaryTable in app.js) - the expand-btn/expanded
    convention is the same one the SOW table's milestone toggle uses (see
@@ -1022,6 +1069,7 @@ body.scroll-locked #tab-revenue .revenue-type-summary-scroll {
 .ms-resource-table th.ms-res-col-name, .ms-resource-table td:nth-child(3) { min-width: 170px; }
 .ms-resource-table th.ms-res-col-location, .ms-resource-table td:nth-child(4),
 .ms-resource-table th.ms-res-col-practice, .ms-resource-table td:nth-child(5) { min-width: 150px; }
+.ms-resource-table th.ms-res-col-band, .ms-resource-table td:nth-child(6) { min-width: 130px; }
 /* "Managed Services Resources" heading + its "+ Add resource" button, side
    by side with the button right-aligned, per explicit request - the
    .form-section-title's own border-bottom/spacing apply to this row as a

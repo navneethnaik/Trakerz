@@ -226,6 +226,7 @@ class MsResourceIn(BaseModel):
     employee_name: str
     location_id: Optional[int] = None
     practice_id: Optional[int] = None
+    band_id: Optional[int] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     rate_card: Optional[float] = None
@@ -1359,7 +1360,16 @@ def add_revenue_sow(payload: RevenueSowIn):
 @app.delete("/api/revenue/sows/{sow_id}/{fiscal_year}", status_code=204)
 def delete_revenue_sow(sow_id: int, fiscal_year: int):
     """Remove a SOW from the Revenue Management grid for a fiscal year,
-    deleting all of its month entries for that year along with it."""
+    deleting all of its month entries for that year along with it - and,
+    per explicit bug report, every Managed Services Resource added under
+    this SOW for this fiscal year too (ms_resource_entries cascades
+    automatically via its ON DELETE CASCADE FK to ms_resources - see
+    db.py - once the ms_resources rows themselves are deleted here).
+    Without this, a resource added via the Add/Edit popup silently survived
+    this delete (ms_resources is keyed by (sow_id, fiscal_year), not by the
+    revenue_sow_accounts row removed below, so nothing cascaded it away) and
+    reappeared, already filled in, the next time this same SOW was re-added
+    for this same fiscal year."""
     with db.get_db() as conn:
         row = conn.execute(
             "SELECT 1 FROM revenue_sow_accounts WHERE sow_id=? AND fiscal_year=?",
@@ -1368,6 +1378,7 @@ def delete_revenue_sow(sow_id: int, fiscal_year: int):
         if not row:
             raise HTTPException(status_code=404, detail="Revenue row not found")
         conn.execute("DELETE FROM revenue_entries WHERE sow_id=? AND fiscal_year=?", (sow_id, fiscal_year))
+        conn.execute("DELETE FROM ms_resources WHERE sow_id=? AND fiscal_year=?", (sow_id, fiscal_year))
         _execute_delete(
             conn, "DELETE FROM revenue_sow_accounts WHERE sow_id=? AND fiscal_year=?",
             (sow_id, fiscal_year), "revenue row",
@@ -1771,7 +1782,7 @@ def _get_ms_resource_or_404(conn, resource_id: int) -> dict:
     return _row_to_dict(row)
 
 
-def _ms_resource_row_dict(conn, resource: dict, locations: Dict[int, str], practices: Dict[int, str]) -> dict:
+def _ms_resource_row_dict(conn, resource: dict, locations: Dict[int, str], practices: Dict[int, str], bands: Dict[int, str] = None) -> dict:
     entry_rows = conn.execute(
         "SELECT fiscal_month, revenue FROM ms_resource_entries WHERE resource_id = ?",
         (resource["id"],),
@@ -1781,10 +1792,12 @@ def _ms_resource_row_dict(conn, resource: dict, locations: Dict[int, str], pract
         {"fiscal_month": fm, "month_label": FISCAL_MONTH_LABELS[fm - 1], "revenue": entries.get(fm, 0)}
         for fm in range(1, 13)
     ]
+    bands = bands or {}
     return {
         **resource,
         "location_name": locations.get(resource["location_id"]),
         "practice_name": practices.get(resource["practice_id"]),
+        "band_name": bands.get(resource.get("band_id")),
         "months": months,
         "total_revenue": sum(m["revenue"] for m in months),
     }
@@ -1802,7 +1815,45 @@ def list_ms_resources(sow_id: int, fiscal_year: int):
         ).fetchall()
         locations = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM locations")}
         practices = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM practices")}
-        return [_ms_resource_row_dict(conn, _row_to_dict(r), locations, practices) for r in rows]
+        bands = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM bands")}
+        return [_ms_resource_row_dict(conn, _row_to_dict(r), locations, practices, bands) for r in rows]
+
+
+@app.get("/api/revenue/ms-resources/all")
+def list_all_ms_resources(fiscal_year: int):
+    """Every Managed Services Resource across every SOW for a fiscal year -
+    unlike list_ms_resources above (scoped to one SOW's Add/Edit/View popup),
+    this powers the Reports > Resources page's headcount/Ramp Up-Ramp Down
+    tables, which need every resource at once (grouped by month and
+    location) the same way /api/tm/assignments already does for Time and
+    Material. Each row carries its own SOW's customer_id/customer_name/
+    sow_title so the report page's existing Customer filter (already applied
+    to the Time and Material rows it's shown alongside) can scope these the
+    same way, purely client-side - mirrors the shape of a
+    /api/tm/assignments row closely enough that the same
+    fiscalMonthCalendarRange-based "active in this fiscal month" helper in
+    app.js works against both, unmodified."""
+    with db.get_db() as conn:
+        rows = conn.execute(
+            """SELECT mr.*, s.customer_id AS customer_id, c.customer_name AS customer_name, s.title AS sow_title
+               FROM ms_resources mr
+               JOIN sows s ON s.id = mr.sow_id
+               JOIN customers c ON c.id = s.customer_id
+               WHERE mr.fiscal_year = ?
+               ORDER BY mr.start_date IS NULL, mr.start_date ASC""",
+            (fiscal_year,),
+        ).fetchall()
+        locations = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM locations")}
+        practices = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM practices")}
+        bands = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM bands")}
+        result = []
+        for r in rows:
+            d = _row_to_dict(r)
+            d["location_name"] = locations.get(d.get("location_id"))
+            d["practice_name"] = practices.get(d.get("practice_id"))
+            d["band_name"] = bands.get(d.get("band_id"))
+            result.append(d)
+        return {"fiscal_year": fiscal_year, "rows": result}
 
 
 @app.post("/api/revenue/ms-resources", status_code=201)
@@ -1818,18 +1869,23 @@ def create_ms_resource(r: MsResourceCreateIn):
             "SELECT 1 FROM practices WHERE id = ?", (r.practice_id,)
         ).fetchone():
             raise HTTPException(status_code=400, detail="Selected practice does not exist")
+        if r.band_id is not None and not conn.execute(
+            "SELECT 1 FROM bands WHERE id = ?", (r.band_id,)
+        ).fetchone():
+            raise HTTPException(status_code=400, detail="Selected band does not exist")
         cur = conn.execute(
             """INSERT INTO ms_resources (sow_id, fiscal_year, employee_id, employee_name,
-               location_id, practice_id, start_date, end_date, rate_card, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+               location_id, practice_id, band_id, start_date, end_date, rate_card, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (r.sow_id, r.fiscal_year, r.employee_id, r.employee_name, r.location_id,
-             r.practice_id, r.start_date, r.end_date, r.rate_card),
+             r.practice_id, r.band_id, r.start_date, r.end_date, r.rate_card),
         )
         new_id = cur.lastrowid
         row = _get_ms_resource_or_404(conn, new_id)
         locations = {loc["id"]: loc["name"] for loc in conn.execute("SELECT id, name FROM locations")}
         practices = {p["id"]: p["name"] for p in conn.execute("SELECT id, name FROM practices")}
-        return _ms_resource_row_dict(conn, row, locations, practices)
+        bands = {b["id"]: b["name"] for b in conn.execute("SELECT id, name FROM bands")}
+        return _ms_resource_row_dict(conn, row, locations, practices, bands)
 
 
 @app.put("/api/revenue/ms-resources/cell")
@@ -1870,15 +1926,50 @@ def update_ms_resource(resource_id: int, r: MsResourceIn):
             "SELECT 1 FROM practices WHERE id = ?", (r.practice_id,)
         ).fetchone():
             raise HTTPException(status_code=400, detail="Selected practice does not exist")
+        if r.band_id is not None and not conn.execute(
+            "SELECT 1 FROM bands WHERE id = ?", (r.band_id,)
+        ).fetchone():
+            raise HTTPException(status_code=400, detail="Selected band does not exist")
         conn.execute(
-            """UPDATE ms_resources SET employee_id=?, employee_name=?, location_id=?, practice_id=?,
+            """UPDATE ms_resources SET employee_id=?, employee_name=?, location_id=?, practice_id=?, band_id=?,
                start_date=?, end_date=?, rate_card=?, updated_at=datetime('now') WHERE id=?""",
-            (r.employee_id, r.employee_name, r.location_id, r.practice_id, r.start_date, r.end_date, r.rate_card, resource_id),
+            (r.employee_id, r.employee_name, r.location_id, r.practice_id, r.band_id, r.start_date, r.end_date, r.rate_card, resource_id),
         )
         row = _get_ms_resource_or_404(conn, resource_id)
         locations = {loc["id"]: loc["name"] for loc in conn.execute("SELECT id, name FROM locations")}
         practices = {p["id"]: p["name"] for p in conn.execute("SELECT id, name FROM practices")}
-        return _ms_resource_row_dict(conn, row, locations, practices)
+        bands = {b["id"]: b["name"] for b in conn.execute("SELECT id, name FROM bands")}
+        return _ms_resource_row_dict(conn, row, locations, practices, bands)
+
+
+@app.delete("/api/revenue/ms-resources/by-sow", status_code=204)
+def delete_ms_resources_by_sow(sow_id: int, fiscal_year: int):
+    """Bulk-cleanup fired only when abandoning an unsaved "Add Managed
+    Services Entry" popup (see app.js's Cancel handler on
+    #cancelRevenueEntryBtn/#cancelRevenueEntryBtnTop) - per explicit bug
+    report, a resource's own Save (buildMsResourceRow) is immediate and
+    independent of that popup's outer Save button, so a resource added
+    while picking a SOW there can exist even though no revenue_sow_accounts
+    row was ever created to track it (no tracked row means no Delete button
+    on the grid to remove it via delete_revenue_sow above, so it would
+    otherwise resurface - already filled in - the next time this same SOW
+    was picked again). Declared before DELETE /ms-resources/{resource_id}
+    below - FastAPI matches routes in registration order, so "by-sow" would
+    otherwise be swallowed by that dynamic {resource_id} segment (and fail
+    trying to parse "by-sow" as an int) if this came after it. Unlike
+    delete_revenue_sow, this never 404s (it's fired on every Cancel
+    regardless of whether a resource was actually added) and only ever
+    touches a SOW that is NOT currently tracked - if a revenue_sow_accounts
+    row does exist for this (sow, fiscal year) pair, this is a deliberate
+    no-op, so it can never delete a legitimately-tracked entry's resources."""
+    with db.get_db() as conn:
+        tracked = conn.execute(
+            "SELECT 1 FROM revenue_sow_accounts WHERE sow_id=? AND fiscal_year=?",
+            (sow_id, fiscal_year),
+        ).fetchone()
+        if not tracked:
+            conn.execute("DELETE FROM ms_resources WHERE sow_id=? AND fiscal_year=?", (sow_id, fiscal_year))
+    return None
 
 
 @app.delete("/api/revenue/ms-resources/{resource_id}", status_code=204)
@@ -1902,20 +1993,20 @@ def export_ms_resources(sow_id: int, fiscal_year: int):
             raise HTTPException(status_code=400, detail="Selected SOW does not exist")
     resources = list_ms_resources(sow_id=sow_id, fiscal_year=fiscal_year)
 
-    headers = ["Employee ID", "Employee Name", "Location", "Practice", "Start Date", "End Date", "Rate Card"]
+    headers = ["Employee ID", "Employee Name", "Location", "Practice", "Band", "Start Date", "End Date", "Rate Card"]
     headers.extend(FISCAL_MONTH_LABELS)
 
     rows = []
     for r in resources:
         row = [r["employee_id"] or "", r["employee_name"], r["location_name"] or "", r["practice_name"] or "",
-               _parse_iso_date(r["start_date"]), _parse_iso_date(r["end_date"]), r["rate_card"]]
+               r["band_name"] or "", _parse_iso_date(r["start_date"]), _parse_iso_date(r["end_date"]), r["rate_card"]]
         for m in r["months"]:
             row.append(m["revenue"])
         rows.append(row)
 
-    date_cols = (5, 6)
-    currency_cols = (7,) + tuple(range(8, len(headers) + 1))
-    widths = [14, 22, 16, 16, 14, 14, 12] + [12] * (len(headers) - 7)
+    date_cols = (6, 7)
+    currency_cols = (8,) + tuple(range(9, len(headers) + 1))
+    widths = [14, 22, 16, 16, 14, 14, 14, 12] + [12] * (len(headers) - 8)
     wb = _build_workbook(f"MS Resources FY{fiscal_year}", headers, rows,
                           date_cols=date_cols, currency_cols=currency_cols, widths=widths)
     return _xlsx_response(wb, f"trakerz_ms_resources_sow{sow_id}_fy{fiscal_year}_{date.today().isoformat()}.xlsx")
@@ -1932,16 +2023,18 @@ def ms_resources_import_template():
     12 months are included here and editable. Sheet 2 is a reference list of
     the Locations/Practices already configured, matching
     revenue_sows_import_template's convention."""
-    headers = ["Employee ID", "Employee Name", "Location", "Practice", "Start Date (dd-mmm-yyyy)", "End Date (dd-mmm-yyyy)", "Rate Card"]
+    headers = ["Employee ID", "Employee Name", "Location", "Practice", "Band", "Start Date (dd-mmm-yyyy)", "End Date (dd-mmm-yyyy)", "Rate Card"]
     headers.extend(FISCAL_MONTH_LABELS)
-    widths = [14, 22, 16, 16, 20, 20, 12] + [12] * (len(headers) - 7)
+    widths = [14, 22, 16, 16, 14, 20, 20, 12] + [12] * (len(headers) - 8)
     wb = _build_workbook("MS Resources Template", headers, [], widths=widths)
     with db.get_db() as conn:
         location_names = [r["name"] for r in conn.execute("SELECT name FROM locations ORDER BY name COLLATE NOCASE").fetchall()]
         practice_names = [r["name"] for r in conn.execute("SELECT name FROM practices ORDER BY name COLLATE NOCASE").fetchall()]
+        band_names = [r["name"] for r in conn.execute("SELECT name FROM bands ORDER BY name COLLATE NOCASE").fetchall()]
     _add_reference_sheet(wb, "Reference Lists", {
         "Available Location": location_names,
         "Available Practice": practice_names,
+        "Available Band": band_names,
     })
     return _xlsx_response(wb, "trakerz_ms_resources_template.xlsx")
 
@@ -1977,6 +2070,7 @@ async def import_ms_resources(sow_id: int, fiscal_year: int, file: UploadFile = 
                 employee_id = _cell_str(rec.get("employee id"))
                 location_id = _lookup_id_by_name(conn, "locations", _cell_str(rec.get("location")))
                 practice_id = _lookup_id_by_name(conn, "practices", _cell_str(rec.get("practice")))
+                band_id = _lookup_id_by_name(conn, "bands", _cell_str(rec.get("band")))
                 start_date = _cell_date(rec.get("start date (dd-mmm-yyyy)"))
                 if start_date is None:
                     start_date = _cell_date(rec.get("start date"))
@@ -1991,9 +2085,9 @@ async def import_ms_resources(sow_id: int, fiscal_year: int, file: UploadFile = 
 
                 cur = conn.execute(
                     """INSERT INTO ms_resources (sow_id, fiscal_year, employee_id, employee_name,
-                       location_id, practice_id, start_date, end_date, rate_card, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-                    (sow_id, fiscal_year, employee_id, employee_name, location_id, practice_id,
+                       location_id, practice_id, band_id, start_date, end_date, rate_card, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    (sow_id, fiscal_year, employee_id, employee_name, location_id, practice_id, band_id,
                      start_date, end_date, rate_card),
                 )
                 resource_id = cur.lastrowid

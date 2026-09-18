@@ -2859,80 +2859,131 @@ function tmAssignmentActiveInFiscalMonth(row, fy, fm) {
 async function loadResourceReport() {
   if (resourceReportFiscalYear === null) resourceReportFiscalYear = fiscalYearForToday();
 
-  const [customers, locations, tmData] = await Promise.all([
+  const [customers, locations, tmData, msData] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/locations`).then((r) => r.json()),
     fetch(`${API}/tm/assignments?fiscal_year=${resourceReportFiscalYear}`).then((r) => r.json()),
+    // Every Managed Services Resource across every SOW for this fiscal year
+    // (see list_all_ms_resources in main.py) - both this page's tables now
+    // show Time and Material alongside Managed Services, per explicit
+    // request, rather than Time and Material only.
+    fetch(`${API}/revenue/ms-resources/all?fiscal_year=${resourceReportFiscalYear}`).then((r) => r.json()),
   ]);
   populateCustomerFilterSelect(customers, "resourceReportCustomerFilter");
   populateIdFilterSelect(locations, "resourceReportLocationFilter", "All Locations");
 
-  let filtered = tmData.rows || [];
-  if (resourceReportCustomerFilter) {
-    filtered = filtered.filter((r) => String(r.customer_id) === resourceReportCustomerFilter);
+  // Same Customer/Location filters applied to both sources - a Managed
+  // Services Resource row carries customer_id/location_id in the same shape
+  // as a Time and Material assignment row (see list_all_ms_resources), so
+  // one filter function covers both.
+  function applyReportFilters(rows) {
+    let out = rows;
+    if (resourceReportCustomerFilter) {
+      out = out.filter((r) => String(r.customer_id) === resourceReportCustomerFilter);
+    }
+    if (resourceReportLocationFilter) {
+      out = out.filter((r) => String(r.location_id) === resourceReportLocationFilter);
+    }
+    return out;
   }
-  if (resourceReportLocationFilter) {
-    filtered = filtered.filter((r) => String(r.location_id) === resourceReportLocationFilter);
-  }
+  const tmFiltered = applyReportFilters(tmData.rows || []);
+  const msFiltered = applyReportFilters(msData.rows || []);
 
-  document.getElementById("resourceReportCount").textContent = filtered.length;
-  setFooterRowCount(resourceReportCustomerFilter || resourceReportLocationFilter ? filtered.length : null);
+  document.getElementById("resourceReportCount").textContent = tmFiltered.length;
+  document.getElementById("resourceReportMsCount").textContent = msFiltered.length;
+  setFooterRowCount(resourceReportCustomerFilter || resourceReportLocationFilter ? tmFiltered.length + msFiltered.length : null);
 
-  renderResourceReportLocationMonthTable(filtered, locations, resourceReportFiscalYear, "resourceReportLocationMonthBody");
-  renderResourceRampTables(filtered, resourceReportFiscalYear);
+  renderResourceReportLocationMonthTable(tmFiltered, msFiltered, resourceReportFiscalYear, "resourceReportLocationMonthBody");
+  renderResourceRampTables(tmFiltered, msFiltered, resourceReportFiscalYear);
 }
 
-// Ramp Up / Ramp Down: a single Apr-Mar row of counts (same horizontal
-// layout as the Location x Month table just above, rather than one row per
-// month - a 12-row table for what's usually a handful of small numbers
-// read as clumsy) built from the same Time and Material assignments
-// already loaded above (respecting the Customer/Location filters), split
-// by whether their start_date or end_date falls inside the selected fiscal
-// year - an assignment merely *tracked* for this fiscal year doesn't count
-// as onboarded/released in it unless the actual date lands here (e.g.
-// staff carried over from a prior fiscal year shouldn't show up as a fresh
-// ramp-up). A month with any activity is a count-link (same "click a
-// number, see a details popup" convention as the SOW Report's stat cards -
-// see openSowDetailsModal) that opens resourceRampModal with that month's
-// resources.
-function renderResourceRampTables(rows, fiscalYear) {
-  renderResourceRampMonthRow("resourceReportRampUpBody", rows, "start_date", fiscalYear, "Resources Onboarded");
-  renderResourceRampMonthRow("resourceReportRampDownBody", rows, "end_date", fiscalYear, "Resources Released");
+// Ramp Up / Ramp Down: back to months-as-columns (Apr-Mar), per explicit
+// request - Time and Material is named in the table's own header row (see
+// index.html), with its Ramp Up/Ramp Down as the first two body rows, then
+// a "Managed Services" divider row introduces that group's own Ramp Up/Ramp
+// Down rows below it. Built from the same Time and Material assignments and
+// Managed Services Resources already loaded/filtered by loadResourceReport(),
+// split by whether start_date (Ramp Up) or end_date (Ramp Down) falls inside
+// the selected fiscal year - a row merely *tracked* for this fiscal year
+// doesn't count as onboarded/released in it unless the actual date lands
+// here (e.g. staff/resources carried over from a prior fiscal year
+// shouldn't show up as a fresh ramp-up). A month with any activity is a
+// count-link (same "click a number, see a details popup" convention as the
+// SOW Report's stat cards - see openSowDetailsModal) that opens
+// resourceRampModal with that month's rows.
+function resourceRampMonthRows(rows, dateField, fiscalYear, fm) {
+  const [monthFirst, monthLast] = fiscalMonthCalendarRange(fiscalYear, fm);
+  return rows
+    .filter((r) => r[dateField] && r[dateField] >= monthFirst && r[dateField] <= monthLast)
+    .slice()
+    .sort((a, b) => a[dateField].localeCompare(b[dateField]));
 }
 
-function renderResourceRampMonthRow(tbodyId, rows, dateField, fiscalYear, rowLabel) {
-  const tbody = document.getElementById(tbodyId);
-  if (!tbody) return;
-
+function buildResourceRampMetricRow(rowLabel, rows, dateField, fiscalYear, groupLabel) {
   const monthRowsByFm = [];
-  let total = 0;
   for (let fm = 1; fm <= 12; fm++) {
-    const [monthFirst, monthLast] = fiscalMonthCalendarRange(fiscalYear, fm);
-    const monthRows = rows
-      .filter((r) => r[dateField] && r[dateField] >= monthFirst && r[dateField] <= monthLast)
-      .slice()
-      .sort((a, b) => a[dateField].localeCompare(b[dateField]));
-    monthRowsByFm.push(monthRows);
-    total += monthRows.length;
+    monthRowsByFm.push(resourceRampMonthRows(rows, dateField, fiscalYear, fm));
   }
 
-  const cellsHtml = monthRowsByFm.map((monthRows, i) => {
-    if (!monthRows.length) return "<td>0</td>";
-    return `<td><button type="button" class="count-link ramp-month-count" data-fm="${i + 1}">${monthRows.length}</button></td>`;
+  // Bug fix: a month with a zero count doesn't get a <button> (see the
+  // ternary below), so querySelectorAll(".ramp-month-count") only ever
+  // finds the buttons for the NON-zero months - its forEach index is a
+  // position among those buttons, not the actual fiscal month, and using
+  // that index as "fm" silently opened the wrong month's popup (or an
+  // empty one) whenever an earlier month in the row had a zero count. Each
+  // button now carries its real fiscal month in a data-fm attribute, set
+  // at creation time from the same loop that built monthRowsByFm, so the
+  // click handler below reads the month back rather than re-deriving it
+  // from button position.
+  const cellsHtml = monthRowsByFm.map((monthRows, idx) => {
+    const fm = idx + 1;
+    return monthRows.length
+      ? `<td><button type="button" class="count-link ramp-month-count" data-fm="${fm}">${monthRows.length}</button></td>`
+      : "<td>0</td>";
   }).join("");
 
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td>${escapeHtml(rowLabel)}</td>${cellsHtml}<td>${total}</td>`;
-  tbody.innerHTML = "";
-  tbody.appendChild(tr);
+  tr.innerHTML = `<td>${escapeHtml(rowLabel)}</td>${cellsHtml}`;
 
   tr.querySelectorAll(".ramp-month-count").forEach((btn) => {
-    const fm = Number(btn.dataset.fm);
+    const fm = parseInt(btn.dataset.fm, 10);
     btn.addEventListener("click", () => {
+      const action = dateField === "start_date" ? "Onboarded" : "Released";
       const monthLabel = `${FY_MONTH_LABELS[fm - 1]} FY${fiscalYear}`;
-      openResourceRampModal(`${rowLabel} – ${monthLabel}`, monthRowsByFm[fm - 1], dateField);
+      openResourceRampModal(`${groupLabel} Resources ${action} – ${monthLabel}`, monthRowsByFm[fm - 1], dateField);
     });
   });
+
+  return tr;
+}
+
+function renderResourceRampTables(tmRows, msRows, fiscalYear) {
+  const tbody = document.getElementById("resourceReportRampBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  // Divider row introducing the Time and Material rows below it - per
+  // explicit request the table's header column is now generic ("Months"),
+  // so both billing models get their own labeled divider row here (mirrors
+  // the Headcount by Month table's "Time and Material (A)"/"Managed
+  // Services (B)" dividers, see renderResourceReportLocationMonthTable
+  // below).
+  const tmDividerTr = document.createElement("tr");
+  tmDividerTr.className = "ramp-group-row";
+  tmDividerTr.innerHTML = `<td>Time and Material</td>${"<td></td>".repeat(12)}`;
+  tbody.appendChild(tmDividerTr);
+
+  tbody.appendChild(buildResourceRampMetricRow("Ramp Up", tmRows, "start_date", fiscalYear, "Time and Material"));
+  tbody.appendChild(buildResourceRampMetricRow("Ramp Down", tmRows, "end_date", fiscalYear, "Time and Material"));
+
+  // Divider row introducing the Managed Services rows below it.
+  const msDividerTr = document.createElement("tr");
+  msDividerTr.className = "ramp-group-row";
+  msDividerTr.innerHTML = `<td>Managed Services</td>${"<td></td>".repeat(12)}`;
+  tbody.appendChild(msDividerTr);
+
+  tbody.appendChild(buildResourceRampMetricRow("Ramp Up", msRows, "start_date", fiscalYear, "Managed Services"));
+  tbody.appendChild(buildResourceRampMetricRow("Ramp Down", msRows, "end_date", fiscalYear, "Managed Services"));
 }
 
 // Details popup behind a Ramp Up/Ramp Down month's count-link - same
@@ -2953,7 +3004,16 @@ let resourceRampModalSearchQuery = "";
 
 function openResourceRampModal(title, rows, dateField) {
   document.getElementById("resourceRampModalTitle").textContent = title;
-  document.getElementById("resourceRampModalDateHeader").textContent = dateField === "start_date" ? "Start Date" : "End Date";
+  document.getElementById("resourceRampModalDateHeader").textContent =
+    dateField === "start_date" ? "Start Date" :
+    dateField === "end_date" ? "End Date" :
+    // "active_range" - the Headcount by Month table's counts (per explicit
+    // request, same click-to-see-who popup as Ramp Up/Ramp Down) open this
+    // same modal, but a headcount count is "active sometime in the month",
+    // not a single onboarded/released date, so both dates are shown per
+    // row instead of picking one field (see the dateField === "active_range"
+    // branch below).
+    "Active Dates";
   resourceRampModalRows = rows;
   resourceRampModalDateField = dateField;
   resourceRampModalSearchQuery = "";
@@ -2985,7 +3045,11 @@ function renderResourceRampModalTable() {
         <td>${escapeHtml(r.practice_name) || "—"}</td>
         <td>${escapeHtml(r.customer_name) || "—"}</td>
         <td>${escapeHtml(r.sow_title) || "—"}</td>
-        <td>${fmtDate(r[dateField])}</td>
+        <td>${
+          dateField === "active_range"
+            ? `${fmtDate(r.start_date)} – ${r.end_date ? fmtDate(r.end_date) : "Ongoing"}`
+            : fmtDate(r[dateField])
+        }</td>
       </tr>
     `).join("");
   }
@@ -2996,42 +3060,146 @@ document.getElementById("resourceRampModalSearch").addEventListener("input", deb
   renderResourceRampModalTable();
 }, 250));
 
-// Month-wise resource count by Location - every configured Location is shown
-// as its own row (zero-filled, same "always list every configured item"
-// convention as the old Band/Employee Type charts), with a Total row summing
-// headcount across locations for each month. A resource is counted in every
-// fiscal month its assignment's [start_date, end_date] overlaps at all.
-function renderResourceReportLocationMonthTable(rows, locations, fiscalYear, tbodyId) {
+// Month-wise headcount, months as columns (Apr-Mar) - per explicit request,
+// same shape as the Ramp Up/Ramp Down table beside it: a "Time and Material
+// (A)" divider row introduces that group's own Onsite/Offshore/Nearshore
+// rows, a "Managed Services (B)" divider row introduces that group's own
+// rows, and a final Total (A+B) row sums every resource/assignment active
+// that month across both groups regardless of Location - not just the sum
+// of the six named rows above it - so it still reads as a true total even
+// if Locations beyond Onsite/Offshore/Nearshore are configured. A Location
+// name is matched case/whitespace-insensitively, same convention as the
+// backend's _ms_location_counts_by_sow. A resource/assignment is counted in
+// every fiscal month its [start_date, end_date] overlaps at all
+// (tmAssignmentActiveInFiscalMonth is generic despite the name - both Time
+// and Material assignments and Managed Services Resources share the same
+// start_date/end_date shape - see list_all_ms_resources in main.py).
+function resourceHeadcountMonthRows(rows, fiscalYear, slug) {
+  const monthRowsByFm = [];
+  for (let fm = 1; fm <= 12; fm++) {
+    const active = rows.filter((r) => tmAssignmentActiveInFiscalMonth(r, fiscalYear, fm));
+    monthRowsByFm.push(
+      slug === "total" ? active : active.filter((r) => (r.location_name || "").trim().toLowerCase() === slug)
+    );
+  }
+  return monthRowsByFm;
+}
+
+// Per explicit request, every count in the Headcount by Month table opens
+// the same click-to-see-who popup as a Ramp Up/Ramp Down count (see
+// buildResourceRampMetricRow/openResourceRampModal above) - a headcount
+// count is "active sometime in the month" rather than a single onboarded/
+// released date, so the popup opens with dateField "active_range" (shows
+// both Start Date and End Date per row) instead of "start_date"/"end_date".
+// Each button carries its real fiscal month in a data-fm attribute rather
+// than relying on its position among only the non-zero months' buttons -
+// see the matching bug fix/comment on buildResourceRampMetricRow above.
+function buildResourceCountCellsHtml(monthRowsByFm) {
+  return monthRowsByFm.map((monthRows, idx) => {
+    const fm = idx + 1;
+    return monthRows.length
+      ? `<td><button type="button" class="count-link resource-headcount-month-count" data-fm="${fm}">${monthRows.length}</button></td>`
+      : "<td>0</td>";
+  }).join("");
+}
+
+function wireResourceCountCellClicks(tr, monthRowsByFm, fiscalYear, titlePrefix) {
+  tr.querySelectorAll(".resource-headcount-month-count").forEach((btn) => {
+    const fm = parseInt(btn.dataset.fm, 10);
+    btn.addEventListener("click", (e) => {
+      // Buttons live inside the group divider/Total rows too, which have
+      // their own row-level click listener (collapse/expand toggle) -
+      // without this, clicking a count would also toggle that group.
+      e.stopPropagation();
+      const monthLabel = `${FY_MONTH_LABELS[fm - 1]} FY${fiscalYear}`;
+      openResourceRampModal(`${titlePrefix} – ${monthLabel}`, monthRowsByFm[fm - 1], "active_range");
+    });
+  });
+}
+
+function appendResourceReportDataRow(tbody, label, monthRowsByFm, fiscalYear, titlePrefix) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${escapeHtml(label)}</td>${buildResourceCountCellsHtml(monthRowsByFm)}`;
+  wireResourceCountCellClicks(tr, monthRowsByFm, fiscalYear, titlePrefix);
+  tbody.appendChild(tr);
+  return tr;
+}
+
+// Collapsed/expanded state for the Headcount by Month table's "Time and
+// Material (A)"/"Managed Services (B)" group rows (per explicit request) -
+// kept at module scope, rather than reset on every render, so toggling a
+// group stays collapsed across fiscal-year/filter changes and re-fetches.
+const resourceHeadcountGroupCollapsed = { tm: false, ms: false };
+
+function appendResourceReportDividerRow(tbody, label, monthRowsByFm, collapseOpts, fiscalYear, titlePrefix) {
+  // monthRowsByFm is optional - when passed (Headcount by Month table's
+  // "Time and Material"/"Managed Services" rows, per explicit request), the
+  // divider row itself shows that group's Onsite+Offshore+Nearshore sum per
+  // month, as a count-link like every other count in this table, instead of
+  // blank cells. The Ramp Up/Ramp Down table's "Time and Material"/"Managed
+  // Services" dividers (renderResourceRampTables below) don't pass this and
+  // stay blank, since a sum of Ramp Up/Ramp Down counts wouldn't mean
+  // anything.
+  //
+  // collapseOpts is also optional - { groupKey, subRows } makes this row an
+  // expand/collapse toggle for the Headcount table's two groups: clicking
+  // it hides/shows the location rows in subRows (populated by the caller
+  // after this row is created - the click handler reads it live, so a push
+  // after the fact is still picked up) and flips the row's own ▾/▸ icon.
+  // The Ramp table's dividers don't pass this and stay plain, non-clickable
+  // rows.
+  const tr = document.createElement("tr");
+  tr.className = "ramp-group-row";
+  const cellsHtml = monthRowsByFm ? buildResourceCountCellsHtml(monthRowsByFm) : "<td></td>".repeat(12);
+  if (collapseOpts) {
+    const { groupKey, subRows } = collapseOpts;
+    const collapsed = !!resourceHeadcountGroupCollapsed[groupKey];
+    tr.classList.add("resource-group-toggle-row");
+    tr.innerHTML =
+      `<td><span class="resource-group-toggle-icon">${collapsed ? "▸" : "▾"}</span>${escapeHtml(label)}</td>${cellsHtml}`;
+    tr.addEventListener("click", () => {
+      const nowCollapsed = !resourceHeadcountGroupCollapsed[groupKey];
+      resourceHeadcountGroupCollapsed[groupKey] = nowCollapsed;
+      subRows.forEach((subTr) => {
+        subTr.style.display = nowCollapsed ? "none" : "";
+      });
+      tr.querySelector(".resource-group-toggle-icon").textContent = nowCollapsed ? "▸" : "▾";
+    });
+  } else {
+    tr.innerHTML = `<td>${escapeHtml(label)}</td>${cellsHtml}`;
+  }
+  if (monthRowsByFm) wireResourceCountCellClicks(tr, monthRowsByFm, fiscalYear, titlePrefix);
+  tbody.appendChild(tr);
+  return tr;
+}
+
+function renderResourceReportLocationMonthTable(tmRows, msRows, fiscalYear, tbodyId) {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
-
-  let names = locations.map((l) => l.name);
-  rows.forEach((r) => { const key = r.location_name || "Unspecified"; if (!names.includes(key)) names.push(key); });
-  names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-
   tbody.innerHTML = "";
-  if (!names.length) {
-    tbody.innerHTML = `<tr><td colspan="13" class="empty-state">No Locations configured yet, or no Time and Material resources in scope.</td></tr>`;
-    return;
-  }
 
-  const monthTotals = new Array(12).fill(0);
-  names.forEach((name) => {
-    const rowsForLocation = rows.filter((r) => (r.location_name || "Unspecified") === name);
-    const counts = [];
-    for (let fm = 1; fm <= 12; fm++) {
-      const count = rowsForLocation.filter((r) => tmAssignmentActiveInFiscalMonth(r, fiscalYear, fm)).length;
-      counts.push(count);
-      monthTotals[fm - 1] += count;
-    }
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${escapeHtml(name)}</td>` + counts.map((c) => `<td>${c}</td>`).join("");
-    tbody.appendChild(tr);
-  });
+  const tmTotalRows = resourceHeadcountMonthRows(tmRows, fiscalYear, "total");
+  const msTotalRows = resourceHeadcountMonthRows(msRows, fiscalYear, "total");
 
+  const tmSubRows = [];
+  appendResourceReportDividerRow(tbody, "Time and Material", tmTotalRows, { groupKey: "tm", subRows: tmSubRows }, fiscalYear, "Time and Material Resources Active");
+  tmSubRows.push(appendResourceReportDataRow(tbody, "Onsite", resourceHeadcountMonthRows(tmRows, fiscalYear, "onsite"), fiscalYear, "Time and Material Onsite Resources Active"));
+  tmSubRows.push(appendResourceReportDataRow(tbody, "Offshore", resourceHeadcountMonthRows(tmRows, fiscalYear, "offshore"), fiscalYear, "Time and Material Offshore Resources Active"));
+  tmSubRows.push(appendResourceReportDataRow(tbody, "Nearshore", resourceHeadcountMonthRows(tmRows, fiscalYear, "nearshore"), fiscalYear, "Time and Material Nearshore Resources Active"));
+  if (resourceHeadcountGroupCollapsed.tm) tmSubRows.forEach((r) => (r.style.display = "none"));
+
+  const msSubRows = [];
+  appendResourceReportDividerRow(tbody, "Managed Services", msTotalRows, { groupKey: "ms", subRows: msSubRows }, fiscalYear, "Managed Services Resources Active");
+  msSubRows.push(appendResourceReportDataRow(tbody, "Onsite", resourceHeadcountMonthRows(msRows, fiscalYear, "onsite"), fiscalYear, "Managed Services Onsite Resources Active"));
+  msSubRows.push(appendResourceReportDataRow(tbody, "Offshore", resourceHeadcountMonthRows(msRows, fiscalYear, "offshore"), fiscalYear, "Managed Services Offshore Resources Active"));
+  msSubRows.push(appendResourceReportDataRow(tbody, "Nearshore", resourceHeadcountMonthRows(msRows, fiscalYear, "nearshore"), fiscalYear, "Managed Services Nearshore Resources Active"));
+  if (resourceHeadcountGroupCollapsed.ms) msSubRows.forEach((r) => (r.style.display = "none"));
+
+  const combinedTotalRows = tmTotalRows.map((rows, i) => rows.concat(msTotalRows[i]));
   const totalTr = document.createElement("tr");
   totalTr.className = "table-total-row";
-  totalTr.innerHTML = `<td>Total</td>` + monthTotals.map((c) => `<td>${c}</td>`).join("");
+  totalTr.innerHTML = `<td>Total</td>${buildResourceCountCellsHtml(combinedTotalRows)}`;
+  wireResourceCountCellClicks(totalTr, combinedTotalRows, fiscalYear, "Total Resources Active");
   tbody.appendChild(totalTr);
 }
 
@@ -3257,14 +3425,24 @@ function renderRevenueReportSummaryTable(msRows, tmRows, tbodyId) {
 // the Contributing Factors column spells them out as plain sentences
 // rather than the terser "label +N (a→b)" notation used in the Billing
 // Days/TM Resource Count cells themselves.
-function combinedMonthlyRevenueTotals(msRows, tmRows) {
+// One source's (Time and Material's, or Managed Services') 12-element
+// fiscal-month array, summed across every revenue type - per explicit
+// request, the QoQ table's Revenue column is split into Time and
+// Material/Managed Services/Total sub-columns, so callers need each
+// source's own monthly totals, not just the combined figure
+// combinedMonthlyRevenueTotals below used to return directly.
+function monthlyTotalsForRows(rows) {
   const totals = new Array(12).fill(0);
-  const addAll = (sumsByType) => {
-    for (const arr of sumsByType.values()) arr.forEach((v, i) => { totals[i] += v; });
-  };
-  addAll(revenueReportSumsByType(msRows));
-  addAll(revenueReportSumsByType(tmRows));
+  for (const arr of revenueReportSumsByType(rows).values()) {
+    arr.forEach((v, i) => { totals[i] += v; });
+  }
   return totals;
+}
+
+function combinedMonthlyRevenueTotals(msRows, tmRows) {
+  const ms = monthlyTotalsForRows(msRows);
+  const tm = monthlyTotalsForRows(tmRows);
+  return ms.map((v, i) => v + tm[i]);
 }
 
 function qoqFiscalMonthsForQuarter(q) {
@@ -3320,11 +3498,20 @@ function renderQoQRevenueTable(msRows, tmRows, fiscalYear, locations, holidaysIn
   const tbody = document.getElementById("revenueReportQoQBody");
   if (!tbody) return;
 
-  const totals = combinedMonthlyRevenueTotals(msRows, tmRows);
+  // Per explicit request, the Revenue column is split into Time and
+  // Material/Managed Services/Total sub-columns (see the group-header-row
+  // in index.html) - Variance ($)/Variance (%) and the "Possible
+  // Contributing Factors" sentences below are unaffected and still track
+  // the Total (combined) figure only, same as before the split.
+  const tmMonthlyTotals = monthlyTotalsForRows(tmRows);
+  const msMonthlyTotals = monthlyTotalsForRows(msRows);
+  const combinedMonthlyTotals = tmMonthlyTotals.map((v, i) => v + msMonthlyTotals[i]);
 
   const quarters = [1, 2, 3, 4].map((q) => ({
     label: `Q${q} FY${fiscalYear}`,
-    revenue: qoqQuarterRevenue(totals, q),
+    tmRevenue: qoqQuarterRevenue(tmMonthlyTotals, q),
+    msRevenue: qoqQuarterRevenue(msMonthlyTotals, q),
+    revenue: qoqQuarterRevenue(combinedMonthlyTotals, q),
     billingDaysByLocation: qoqQuarterBillingDaysByLocation(fiscalYear, q, locations, holidaysInScope),
     headcount: qoqQuarterHeadcount(tmRows, fiscalYear, q),
   }));
@@ -3342,7 +3529,9 @@ function renderQoQRevenueTable(msRows, tmRows, fiscalYear, locations, holidaysIn
       return `
         <tr>
           <td>${escapeHtml(cur.label)}</td>
-          <td>${fmtPlain(cur.revenue)}</td>
+          <td>${fmtPlain(cur.tmRevenue)}</td>
+          <td>${fmtPlain(cur.msRevenue)}</td>
+          <td class="qoq-revenue-total-col">${fmtPlain(cur.revenue)}</td>
           <td>—</td><td>—</td>
           <td>${billingDaysCellHtml(cur.billingDaysByLocation, curTotal, "")}</td>
           <td>${cur.headcount}</td>
@@ -3396,7 +3585,9 @@ function renderQoQRevenueTable(msRows, tmRows, fiscalYear, locations, holidaysIn
     return `
       <tr>
         <td>${escapeHtml(cur.label)}</td>
-        <td>${fmtPlain(cur.revenue)}</td>
+        <td>${fmtPlain(cur.tmRevenue)}</td>
+        <td>${fmtPlain(cur.msRevenue)}</td>
+        <td class="qoq-revenue-total-col">${fmtPlain(cur.revenue)}</td>
         <td><span class="${dirClass}">${varAmount >= 0 ? "+" : ""}${fmtPlain(varAmount)}</span></td>
         <td>${varPct === null ? "—" : `<span class="${dirClass}">${varPct >= 0 ? "+" : ""}${varPct.toFixed(1)}%</span>`}</td>
         <td>${billingDaysCellHtml(cur.billingDaysByLocation, curTotal, `(${bdDelta >= 0 ? "+" : ""}${bdDelta})`)}</td>
@@ -3842,6 +4033,7 @@ function populateTmPracticeFilter(practices) {
 let currentRevenueTypes = [];
 let currentPractices = [];
 let currentLocations = [];
+let currentBands = [];
 let currentTmCustomers = [];
 let currentAllSows = [];
 let currentBillingHourConfigs = [];
@@ -3862,12 +4054,13 @@ function billingHoursFor(customerId, locationId) {
 
 async function loadRevenueTab() {
   if (currentFiscalYear === null) currentFiscalYear = fiscalYearForToday();
-  const [customers, billingModels, revenueTypes, practices, locations, allSows, billingHourConfigs] = await Promise.all([
+  const [customers, billingModels, revenueTypes, practices, locations, bands, allSows, billingHourConfigs] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/billing-models`).then((r) => r.json()),
     fetch(`${API}/revenue-types`).then((r) => r.json()),
     fetch(`${API}/practices`).then((r) => r.json()),
     fetch(`${API}/locations`).then((r) => r.json()),
+    fetch(`${API}/bands`).then((r) => r.json()),
     fetch(`${API}/sows`).then((r) => r.json()),
     fetch(`${API}/billing-hours`).then((r) => r.json()),
   ]);
@@ -3881,6 +4074,7 @@ async function loadRevenueTab() {
   currentRevenueTypes = revenueTypes;
   currentPractices = practices;
   currentLocations = locations;
+  currentBands = bands;
   currentTmCustomers = customers;
   currentAllSows = allSows;
   currentBillingHourConfigs = billingHourConfigs;
@@ -4189,6 +4383,7 @@ function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh) {
        <td><input type="text" class="ms-res-name" placeholder="Name" value="${escapeHtml(res?.employee_name ?? "")}" /></td>
        <td><select class="ms-res-location">${sowSelectOptionsHtml(currentLocations, "id", "name", "Select location&hellip;", res?.location_id)}</select></td>
        <td><select class="ms-res-practice">${sowSelectOptionsHtml(currentPractices, "id", "name", "Select practice&hellip;", res?.practice_id)}</select></td>
+       <td><select class="ms-res-band">${sowSelectOptionsHtml(currentBands, "id", "name", "Select band&hellip;", res?.band_id)}</select></td>
        <td><input type="date" class="ms-res-start" value="${res?.start_date ?? ""}" /></td>
        <td><input type="date" class="ms-res-end" value="${res?.end_date ?? ""}" /></td>
        <td><input type="number" step="0.01" min="0" class="ms-res-rate-card" placeholder="Rate Card" value="${res?.rate_card ?? ""}" /></td>
@@ -4197,6 +4392,7 @@ function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh) {
        <td>${escapeHtml(res.employee_name)}</td>
        <td>${escapeHtml(res.location_name) || "—"}</td>
        <td>${escapeHtml(res.practice_name) || "—"}</td>
+       <td>${escapeHtml(res.band_name) || "—"}</td>
        <td>${fmtDate(res.start_date)}</td>
        <td>${fmtDate(res.end_date)}</td>
        <td class="rev-tcv-cell">${res.rate_card != null ? fmt(res.rate_card) : "—"}</td>
@@ -4245,12 +4441,14 @@ function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh) {
       try {
         const locationVal = tr.querySelector(".ms-res-location").value;
         const practiceVal = tr.querySelector(".ms-res-practice").value;
+        const bandVal = tr.querySelector(".ms-res-band").value;
         const rateCardVal = tr.querySelector(".ms-res-rate-card").value;
         const payload = {
           employee_id: tr.querySelector(".ms-res-code").value.trim() || null,
           employee_name: employeeName,
           location_id: locationVal ? parseInt(locationVal, 10) : null,
           practice_id: practiceVal ? parseInt(practiceVal, 10) : null,
+          band_id: bandVal ? parseInt(bandVal, 10) : null,
           start_date: tr.querySelector(".ms-res-start").value || null,
           end_date: tr.querySelector(".ms-res-end").value || null,
           rate_card: rateCardVal !== "" ? parseFloat(rateCardVal) : null,
@@ -4344,6 +4542,7 @@ async function renderMsResourceSubtable(container, sowId, fiscalYear, onResource
           <tr>
             <th>Actions</th><th class="ms-res-col-id">ID</th><th class="ms-res-col-name">Name</th>
             <th class="ms-res-col-location">Location</th><th class="ms-res-col-practice">Practice</th>
+            <th class="ms-res-col-band">Band</th>
             <th>Start Date</th><th>End Date</th><th>Rate Card ($)</th><th>Total</th>
             <th class="rev-band-a">Apr</th><th class="rev-band-b">May</th><th class="rev-band-a">Jun</th>
             <th class="rev-band-b">Jul</th><th class="rev-band-a">Aug</th><th class="rev-band-b">Sep</th>
@@ -4362,7 +4561,7 @@ async function renderMsResourceSubtable(container, sowId, fiscalYear, onResource
     const resources = await fetch(`${API}/revenue/ms-resources?sow_id=${sowId}&fiscal_year=${fiscalYear}`).then((r) => r.json());
     tbody.innerHTML = "";
     if (!resources.length) {
-      tbody.innerHTML = '<tr><td colspan="21" class="empty-state empty-state-tight">No resources added yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="22" class="empty-state empty-state-tight">No resources added yet.</td></tr>';
     } else {
       resources.forEach((res) => tbody.appendChild(buildMsResourceRow(res, sowId, fiscalYear, false, refresh)));
     }
@@ -4457,6 +4656,8 @@ const editRevenueEntryBtnTop = document.getElementById("editRevenueEntryBtnTop")
 const editRevenueEntryBtn = document.getElementById("editRevenueEntryBtn");
 const saveRevenueEntryBtnTop = document.getElementById("saveRevenueEntryBtnTop");
 const saveRevenueEntryBtn = document.getElementById("saveRevenueEntryBtn");
+const cancelRevenueEntryBtnTop = document.getElementById("cancelRevenueEntryBtnTop");
+const cancelRevenueEntryBtn = document.getElementById("cancelRevenueEntryBtn");
 
 // r is null for "Add Entry" (a POST/creation flow on Save), or the row's own
 // already-fetched summary object for "Edit"/"View" (a PUT on Save, or no
@@ -4589,9 +4790,24 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
   const resourcesHint = document.getElementById("revenueEntryResourcesHint");
   const resourcesContainer = document.getElementById("revenueEntryResourcesContainer");
   const addResourceBtn = document.getElementById("msAddResourceBtn");
+  // Every SOW a not-yet-saved "Add Entry" popup's dropdown was set to while
+  // open, so Cancel (see the wiring right after setMode() below) can clean
+  // up resources added to any of them, not just whichever one happens to be
+  // selected at the moment Cancel is clicked (the user may pick SOW A, add a
+  // resource, then switch to SOW B before abandoning the popup).
+  const touchedSowIds = new Set();
   function refreshResourcesSection() {
     const selectedSowId = sowSelect.value ? parseInt(sowSelect.value, 10) : null;
     if (selectedSowId) {
+      // A resource's own Save (buildMsResourceRow) is immediate and
+      // independent of this popup's outer Save button below, so for a
+      // brand-new ("Add Entry") row - never for editing an existing one,
+      // whose resources are already legitimately tracked - every SOW picked
+      // here while resources might get added to it is remembered, so
+      // Cancel can clean up anything left orphaned if this popup is
+      // abandoned without ever completing Save (see the Cancel wiring
+      // below and delete_ms_resources_by_sow in main.py).
+      if (!isEditing) touchedSowIds.add(selectedSowId);
       resourcesSection.hidden = false;
       resourcesHint.hidden = true;
       addResourceBtn.hidden = false;
@@ -4688,9 +4904,14 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
 
   // Assigned via .onchange (not addEventListener) since these same <select>
   // elements persist across every open of this modal - addEventListener
-  // would stack a new listener on top of the last one each time.
+  // would stack a new listener on top of the last one each time. Revenue
+  // Type is never touched by either handler below (per explicit request -
+  // it used to be reset to blank on Customer change and then re-derived
+  // from the selected SOW's own revenue_type_id on SOW change, which
+  // clobbered whatever the user had already picked depending on the order
+  // they filled the popup in). Whatever the user selects for Revenue Type -
+  // in any order relative to Customer/SOW - is left exactly as they set it.
   customerSelect.onchange = () => {
-    revenueTypeSelect.value = "";
     refreshSowOptions();
     refreshSowDependentFields();
     refreshResourcesSection();
@@ -4698,8 +4919,6 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
   sowSelect.onchange = () => {
     refreshSowDependentFields();
     refreshResourcesSection();
-    const selectedSow = sows.find((s) => String(s.id) === sowSelect.value);
-    revenueTypeSelect.value = (selectedSow && selectedSow.revenue_type_id) ?? "";
   };
 
   // View mode disables/read-onlys every field that's otherwise editable for
@@ -4724,6 +4943,24 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
   editRevenueEntryBtnTop.onclick = () => setMode(false);
   editRevenueEntryBtn.onclick = () => setMode(false);
   setMode(isEditing && viewOnly);
+
+  // Cancelling a not-yet-saved "Add Entry" (never for Edit/View, where every
+  // resource change is already immediately persisted by design - see
+  // touchedSowIds above) cleans up any resource added to any SOW this
+  // session touched, so nothing orphaned is left behind with no tracked row
+  // to ever delete it via - it would otherwise resurface, already filled
+  // in, the next time that same SOW was picked again (see explicit bug
+  // report and delete_ms_resources_by_sow in main.py). Assigned via
+  // .onclick (overwriting, not stacking) alongside wireModalCancel's own
+  // addEventListener-based hide, which still runs every time regardless.
+  const cleanupUnsavedResourcesOnCancel = () => {
+    if (isEditing) return;
+    touchedSowIds.forEach((sowIdToClean) => {
+      fetch(`${API}/revenue/ms-resources/by-sow?sow_id=${sowIdToClean}&fiscal_year=${currentFiscalYear}`, { method: "DELETE" }).catch(() => {});
+    });
+  };
+  cancelRevenueEntryBtnTop.onclick = cleanupUnsavedResourcesOnCancel;
+  cancelRevenueEntryBtn.onclick = cleanupUnsavedResourcesOnCancel;
 
   revenueEntryModal.hidden = false;
 }
