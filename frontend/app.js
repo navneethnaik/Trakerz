@@ -193,8 +193,18 @@ function setRevenueCategory(category) {
   // above - "Time and Material" or "Managed Services" per explicit
   // instruction, rather than a fixed "Best Estimates".
   const pageHeaderTitle = document.getElementById("revenuePageHeaderTitle");
+  const leafLabel = category === "time-material" ? "Time and Material" : "Managed Services";
   if (pageHeaderTitle) {
-    pageHeaderTitle.textContent = category === "time-material" ? "Time and Material" : "Managed Services";
+    pageHeaderTitle.textContent = leafLabel;
+  }
+  // Breadcrumb's third segment (see .page-breadcrumb) follows the same
+  // leaf switch, for the same reason - this is the one page in the app
+  // reached via two different Best Estimates menu leaves that share a
+  // single tab/panel, so its trail can't just be hard-coded in index.html
+  // like every other page's.
+  const pageBreadcrumb = document.getElementById("revenuePageBreadcrumb");
+  if (pageBreadcrumb) {
+    pageBreadcrumb.textContent = `Revenue Outlook | Best Estimates | ${leafLabel}`;
   }
 }
 
@@ -546,64 +556,18 @@ function renderSowsTable(sowsIn) {
   renumberSowRows();
 }
 
-// Fills in every row's "Sl. No" cell based on current DOM order, skipping the
-// milestone-subrow a Fixed Price row's expand-btn may have injected below it
-// (see toggleMilestoneSubrow) - same pattern as renumberRevenueRows()/
-// renumberLeaveRows-equivalent elsewhere in this file.
+// Fills in every row's "Sl. No" cell based on current DOM order. The
+// milestone-subrow skip-check this used to need (for the Opportunity Title
+// column's expand/collapse row, removed per explicit request - see
+// buildSowRow below) is gone along with that feature, since no row in this
+// table is ever anything but a plain SOW row now.
 function renumberSowRows() {
   const tbody = document.getElementById("sowTableBody");
   let n = 0;
   tbody.querySelectorAll("tr").forEach((tr) => {
-    if (tr.classList.contains("milestone-subrow")) return;
     const cell = tr.querySelector(".sow-sl-no");
     if (cell) { n += 1; cell.textContent = n; }
   });
-}
-
-// Milestone status is a fixed 2-value set (see MilestoneIn in backend/
-// main.py) rather than the free-text master lists most other statuses in
-// this app use, so both the badge color and the human-readable label are
-// simple lookups keyed off the raw stored value.
-const MILESTONE_BADGE_CLASS = { invoiced: "active", to_be_invoiced: "draft" };
-const MILESTONE_STATUS_LABEL = { invoiced: "Invoiced", to_be_invoiced: "To be invoiced" };
-function milestoneStatusLabel(status) {
-  return MILESTONE_STATUS_LABEL[status] || capitalize((status || "").replace(/_/g, " "));
-}
-
-function renderMilestoneSubtable(milestones) {
-  if (!milestones.length) {
-    return '<div class="empty-state empty-state-tight">No milestones yet.</div>';
-  }
-  const rows = milestones.map((m) => `
-    <tr>
-      <td>${escapeHtml(m.description)}</td>
-      <td>${fmtDate(m.due_date)}</td>
-      <td>${fmt(m.amount)}</td>
-      <td><span class="badge badge-${MILESTONE_BADGE_CLASS[m.status] || "draft"}">${escapeHtml(milestoneStatusLabel(m.status))}</span></td>
-    </tr>
-  `).join("");
-  return `
-    <table class="milestone-subtable">
-      <thead><tr><th>Milestone title</th><th>Milestone date</th><th>Milestone amount (USD)</th><th>Status</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
-}
-
-async function toggleMilestoneSubrow(tr, s) {
-  const btn = tr.querySelector(".expand-btn");
-  const next = tr.nextElementSibling;
-  if (next && next.classList.contains("milestone-subrow")) {
-    next.remove();
-    btn.classList.remove("expanded");
-    return;
-  }
-  btn.classList.add("expanded");
-  const milestones = await fetch(`${API}/sows/${s.id}/milestones`).then((r) => r.json());
-  const subTr = document.createElement("tr");
-  subTr.className = "milestone-subrow";
-  subTr.innerHTML = `<td colspan="23">${renderMilestoneSubtable(milestones)}</td>`;
-  tr.after(subTr);
 }
 
 // Wires up any number of Cancel buttons (a modal's top-of-header one and its
@@ -769,16 +733,18 @@ function wireSowDocUploadRow(tr, btnClass, fileClass, linkClass) {
 // never added to ICON_PATHS).
 const SOW_UPLOAD_BTN_ICON = '<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>';
 
-// Builds one read-only <tr> for the SOW grid (Copy/Edit/Delete actions, the
-// Fixed Price milestones expand-btn, doc links as clickable text). Column
-// order mirrors the table's own two-row grouped header in index.html -
-// Customer Name, then Opportunity Details / Billing and Operating Model /
-// Duration Details / Financial Details / BTP Details / Reference Documents /
-// Additional Information. Editing now happens in the New/Edit SOW popup (see
-// openSowModal() below) rather than in place, so this only ever renders the
-// display form of a row.
+// Builds one read-only <tr> for the SOW grid (Copy/Edit/Delete actions, doc
+// links as clickable text). Column order mirrors the table's own two-row
+// grouped header in index.html - Customer Name, then Opportunity Details /
+// Billing and Operating Model / Duration Details / Financial Details / BTP
+// Details / Reference Documents / Additional Information. Editing now
+// happens in the New/Edit SOW popup (see openSowModal() below) rather than
+// in place, so this only ever renders the display form of a row.
+// A Fixed Price row's Opportunity Title used to carry an expand/collapse
+// chevron here, opening a read-only milestone subrow right in this table -
+// removed per explicit request; a SOW's milestones are still visible (and
+// editable) from the View/Edit popup's own Milestones section.
 function buildSowRow(s) {
-  const isFixedPrice = (s.billing_model_name || "").toLowerCase().includes("fixed price");
   const tr = document.createElement("tr");
   tr.dataset.sowId = s.id ?? "";
   // Highlight rows by how soon the SOW's end date is coming up: 0-15 days
@@ -790,6 +756,7 @@ function buildSowRow(s) {
   }
 
   const actionsHtml = `<td class="row-actions">
+        <button class="ghost-btn btn-edit icon-btn view-btn" title="View">${icon("eye")}</button>
         <button class="ghost-btn btn-edit icon-btn copy-btn" title="Copy">${icon("copy")}</button>
         <button class="ghost-btn btn-edit icon-btn edit-btn" title="Edit">${icon("edit")}</button>
         <button class="ghost-btn btn-danger icon-btn del-btn" title="Delete">${icon("trash")}</button>
@@ -797,10 +764,10 @@ function buildSowRow(s) {
 
   const bodyHtml = `
     <td class="sl-no-cell sow-sl-no"></td>
-    <td>${escapeHtml(s.customer_name)}</td>
+    <td><button type="button" class="count-link sow-customer-link">${escapeHtml(s.customer_name)}</button></td>
     <td>${escapeHtml(s.opportunity_id) || "—"}</td>
     <td>${escapeHtml(s.opportunity_type_name) || "—"}</td>
-    <td>${escapeHtml(s.title)}${isFixedPrice ? `<button type="button" class="expand-btn" title="Show milestones">${icon("chevron")}</button>` : ""}</td>
+    <td><button type="button" class="count-link sow-title-link">${escapeHtml(s.title)}</button></td>
     <td><span class="badge badge-${slugify(s.status)}">${escapeHtml(s.status)}</span></td>
     <td>${escapeHtml(s.billing_model_name) || "—"}</td>
     <td>${escapeHtml(s.operating_model_name) || "—"}</td>
@@ -821,12 +788,20 @@ function buildSowRow(s) {
   `;
   tr.innerHTML = actionsHtml + bodyHtml;
 
-  if (isFixedPrice) {
-    tr.querySelector(".expand-btn").addEventListener("click", async (e) => {
-      e.stopPropagation();
-      await toggleMilestoneSubrow(tr, s);
-    });
-  }
+  tr.querySelector(".view-btn").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await openSowModal(s, true);
+  });
+  tr.querySelector(".sow-title-link").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await openSowModal(s, true);
+  });
+  tr.querySelector(".sow-customer-link").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (s.customer_id) {
+      await openCustomerModalById(s.customer_id, true);
+    }
+  });
   tr.querySelector(".edit-btn").addEventListener("click", async (e) => {
     e.stopPropagation();
     await openSowModal(s);
@@ -898,15 +873,14 @@ function renderSowMilestoneRow(m) {
   const row = document.createElement("div");
   row.className = "milestone-row";
   row.dataset.milestoneId = m?.id ?? "";
+  // Status/Billed date removed from this popup per explicit request - still
+  // real stored columns (see MilestoneIn in backend/main.py), just no longer
+  // hand-edited here; the submit handler below preserves whatever an
+  // existing milestone already has for both, unchanged.
   row.innerHTML = `
     <input type="text" class="ms-description" placeholder="Description" value="${escapeHtml(m?.description ?? "")}" />
     <input type="number" step="0.01" min="0" class="ms-amount" placeholder="Amount ($)" value="${m?.amount ?? ""}" />
-    <select class="ms-status">
-      <option value="to_be_invoiced"${(m?.status ?? "to_be_invoiced") === "to_be_invoiced" ? " selected" : ""}>To be invoiced</option>
-      <option value="invoiced"${m?.status === "invoiced" ? " selected" : ""}>Invoiced</option>
-    </select>
     <input type="date" class="ms-due" value="${m?.due_date ?? ""}" title="Due date" />
-    <input type="date" class="ms-billed" value="${m?.billed_date ?? ""}" title="Billed date" />
     <button type="button" class="ghost-btn icon-btn remove-ms-row" title="Remove milestone">${icon("x")}</button>
   `;
   row.querySelector(".remove-ms-row").addEventListener("click", () => {
@@ -935,11 +909,45 @@ document.getElementById("addMilestoneRowBtn").addEventListener("click", () => {
   document.getElementById("sowMilestoneRows").appendChild(renderSowMilestoneRow());
 });
 
+// View mode disables/read-onlys every field on the form (including the
+// Milestones subsection's own inputs) and hides anything that mutates data -
+// the Reference Documents upload buttons, "+ Add milestone" and each row's
+// own remove (x) button - swapping Save for an Edit button, same
+// View/Copy/Edit/Delete convention every other popup in this app already
+// follows (see openRealizedTmEntryModal's setMode(), for one). Clicking Edit
+// re-enters edit mode in place without closing/reopening the popup; not
+// offered at all for a brand-new ("New SOW") row, which has no view mode to
+// begin with.
+function setSowFormMode(isViewOnly) {
+  const box = sowFormModal;
+  document.getElementById("sowFormModalTitle").textContent = isViewOnly
+    ? "View SOW"
+    : (sowModalId ? "Edit SOW" : "New SOW");
+  box.querySelectorAll("#sowForm select").forEach((el) => { el.disabled = isViewOnly; });
+  box.querySelectorAll("#sowForm input, #sowForm textarea").forEach((el) => {
+    if (el.type === "file" || el.type === "hidden") return;
+    el.readOnly = isViewOnly;
+  });
+  box.querySelectorAll(".sow-upload-deal-btn, .sow-upload-po-btn, .sow-upload-doc-btn, #addMilestoneRowBtn").forEach((btn) => {
+    btn.hidden = isViewOnly;
+  });
+  box.querySelectorAll("#sowMilestoneRows .remove-ms-row").forEach((btn) => { btn.hidden = isViewOnly; });
+  document.getElementById("editSowBtnTop").hidden = !isViewOnly;
+  document.getElementById("editSowBtn").hidden = !isViewOnly;
+  document.getElementById("saveSowBtnTop").hidden = isViewOnly;
+  document.getElementById("saveSowBtn").hidden = isViewOnly;
+}
+document.getElementById("editSowBtnTop").addEventListener("click", () => setSowFormMode(false));
+document.getElementById("editSowBtn").addEventListener("click", () => setSowFormMode(false));
+
 // Opens the popup for New SOW (s undefined), Edit (s = the row's own already-
-// fetched summary object) or Copy (s = a stub with id:null). Edit re-fetches
-// GET /api/sows/{id} to get that SOW's full milestone list, since the list
-// endpoint buildSowRow's s came from doesn't embed milestones per row.
-async function openSowModal(s) {
+// fetched summary object), Copy (s = a stub with id:null) or View (s = the
+// row's own object, viewOnly true - opens the same popup read-only, per
+// explicit request, with an Edit button to switch into normal edit mode in
+// place). Edit/View re-fetch GET /api/sows/{id} to get that SOW's full
+// milestone list, since the list endpoint buildSowRow's s came from doesn't
+// embed milestones per row.
+async function openSowModal(s, viewOnly = false) {
   await loadSowFormLookups();
   const isNew = !s || !s.id;
   sowModalId = s?.id ?? null;
@@ -948,7 +956,6 @@ async function openSowModal(s) {
   sowModalRevenueTypeId = full.revenue_type_id ?? null;
   sowModalPracticeId = full.practice_id ?? null;
 
-  document.getElementById("sowFormModalTitle").textContent = isNew ? "New SOW" : "Edit SOW";
   const box = sowFormModal;
   box.querySelector(".sow-f-customer").innerHTML = sowSelectOptionsHtml(sowFormLookups.customers, "id", "customer_name", "Select customer&hellip;", full.customer_id);
   box.querySelector(".sow-f-opportunity").value = full.opportunity_id ?? "";
@@ -975,6 +982,7 @@ async function openSowModal(s) {
 
   renderSowMilestoneRows(sowModalOriginalMilestones);
   refreshSowModalMilestonesVisibility();
+  setSowFormMode(viewOnly);
   sowFormModal.hidden = false;
 }
 document.getElementById("newSowBtn").addEventListener("click", () => openSowModal());
@@ -1046,28 +1054,72 @@ document.getElementById("sowForm").addEventListener("submit", async (e) => {
     if (!document.getElementById("sowMilestonesSection").hidden) {
       const rows = Array.from(document.querySelectorAll("#sowMilestoneRows .milestone-row"));
       const keptIds = new Set();
-      for (const row of rows) {
+      // Per explicit bug report, a milestone could silently vanish with no
+      // error shown at all: neither of the fetches below used to check
+      // resp.ok (unlike every other save in this app), so a single failed
+      // save just went unnoticed - the popup still closed and reloaded as if
+      // everything had succeeded, one milestone quietly missing. Every
+      // failure is now collected here and reported together once the loop
+      // finishes, the same "collect and summarize" pattern the Excel import
+      // flows already use, rather than stopping the whole Save partway
+      // through over one bad row.
+      const milestoneErrors = [];
+      for (const [idx, row] of rows.entries()) {
         const description = row.querySelector(".ms-description").value.trim();
-        if (!description) continue; // silently drop a still-blank row
+        const amountVal = row.querySelector(".ms-amount").value;
+        const dueVal = row.querySelector(".ms-due").value;
+        if (!description) {
+          // A row with some other field filled in but no description is far
+          // more likely a forgotten/cleared Description than an
+          // intentionally-blank row - per the same bug report, silently
+          // discarding it (the old behavior) is exactly how a milestone the
+          // user believed they'd added could disappear without a trace.
+          // A genuinely untouched blank row (nothing typed at all) is still
+          // dropped without complaint.
+          if (amountVal || dueVal) {
+            milestoneErrors.push(`Row ${idx + 1}: no Description was entered, so this milestone was not saved.`);
+          }
+          continue;
+        }
         const mid = row.dataset.milestoneId;
+        // Status/Billed date are no longer editable on this popup (removed
+        // per explicit request) - an existing milestone keeps whatever it
+        // already had for both, looked up from this popup's own opening
+        // snapshot rather than reset to the "new milestone" defaults below.
+        const orig = mid ? sowModalOriginalMilestones.find((o) => String(o.id) === mid) : null;
         const mPayload = {
           description,
-          amount: parseFloat(row.querySelector(".ms-amount").value) || 0,
-          status: row.querySelector(".ms-status").value,
-          due_date: row.querySelector(".ms-due").value || null,
-          billed_date: row.querySelector(".ms-billed").value || null,
+          amount: parseFloat(amountVal) || 0,
+          due_date: dueVal || null,
+          status: orig ? orig.status : "to_be_invoiced",
+          billed_date: orig ? orig.billed_date : null,
         };
         if (mid) {
           keptIds.add(mid);
-          await fetch(`${API}/milestones/${mid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mPayload) });
+          const r = await fetch(`${API}/milestones/${mid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mPayload) });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            milestoneErrors.push(`Row ${idx + 1} ("${description}"): ${formatApiError(err, "failed to save.")}`);
+          }
         } else {
-          await fetch(`${API}/sows/${savedSow.id}/milestones`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mPayload) });
+          const r = await fetch(`${API}/sows/${savedSow.id}/milestones`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mPayload) });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            milestoneErrors.push(`Row ${idx + 1} ("${description}"): ${formatApiError(err, "failed to save.")}`);
+          }
         }
       }
       for (const orig of sowModalOriginalMilestones) {
         if (!keptIds.has(String(orig.id))) {
-          await fetch(`${API}/milestones/${orig.id}`, { method: "DELETE" });
+          const r = await fetch(`${API}/milestones/${orig.id}`, { method: "DELETE" });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            milestoneErrors.push(`"${orig.description}": ${formatApiError(err, "failed to remove.")}`);
+          }
         }
+      }
+      if (milestoneErrors.length) {
+        alert(`SOW saved, but some milestones need attention:\n\n${milestoneErrors.join("\n")}`);
       }
     }
 
@@ -1325,6 +1377,103 @@ document.getElementById("exportCustomersBtn").addEventListener("click", () => {
   });
   const qs = params.toString();
   window.location.href = `${API}/customers/export${qs ? "?" + qs : ""}`;
+});
+
+// ---------- Customer Details View/Edit popup (#customerFormModal) ----------
+// Opened in View mode from Statement of Work's Customer hyperlink (see the
+// ".sow-customer-link" handler in buildSowRow() above) via
+// openCustomerModalById(), which re-fetches the full customer record since a
+// SOW row's own object only carries customer_id/customer_name/customer_code
+// - same "re-fetch the full record" pattern openSowModal() uses when opened
+// from a row that only has its own summary fields. Follows the same
+// View/Edit-toggle convention as every other popup in the app - setMode()
+// disables every field and hides Save until Edit is clicked. Saving PUTs to
+// the same /api/customers/{id} endpoint Customer Management's own inline
+// row editor uses, so either path keeps the other in sync. Purely additive:
+// Customer Management's existing inline-row Add/Edit flow is untouched.
+const customerFormModal = document.getElementById("customerFormModal");
+wireModalCancel(customerFormModal, "cancelCustomerFormBtn", "cancelCustomerFormBtnTop");
+const editCustomerFormBtnTop = document.getElementById("editCustomerFormBtnTop");
+const editCustomerFormBtn = document.getElementById("editCustomerFormBtn");
+const saveCustomerFormBtnTop = document.getElementById("saveCustomerFormBtnTop");
+const saveCustomerFormBtn = document.getElementById("saveCustomerFormBtn");
+
+function openCustomerModal(c, viewOnly = false) {
+  const box = customerFormModal;
+  box.dataset.entryId = (c && c.id != null) ? String(c.id) : "";
+
+  const inputs = {};
+  CUSTOMER_FIELDS.forEach(({ key }) => {
+    const input = box.querySelector(`.cf-f-${key}`);
+    input.value = (c && c[key]) || "";
+    inputs[key] = input;
+  });
+
+  // View mode disables every field and swaps the Save button for an Edit
+  // button, same convention as openRealizedTmEntryModal()'s own setMode()
+  // above - only clicking Edit re-enables the form in place.
+  function setMode(isViewOnly) {
+    document.getElementById("customerFormModalTitle").textContent = isViewOnly ? "View Customer" : "Edit Customer";
+    CUSTOMER_FIELDS.forEach(({ key }) => {
+      inputs[key].readOnly = isViewOnly;
+    });
+    editCustomerFormBtnTop.hidden = !isViewOnly;
+    editCustomerFormBtn.hidden = !isViewOnly;
+    saveCustomerFormBtnTop.hidden = isViewOnly;
+    saveCustomerFormBtn.hidden = isViewOnly;
+  }
+  editCustomerFormBtnTop.onclick = () => setMode(false);
+  editCustomerFormBtn.onclick = () => setMode(false);
+  setMode(viewOnly);
+
+  customerFormModal.hidden = false;
+}
+
+async function openCustomerModalById(customerId, viewOnly = false) {
+  const resp = await fetch(`${API}/customers/${customerId}`);
+  if (!resp.ok) {
+    alert("Failed to load this customer's details.");
+    return;
+  }
+  const c = await resp.json();
+  openCustomerModal(c, viewOnly);
+}
+
+document.getElementById("customerForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const box = customerFormModal;
+  const entryId = box.dataset.entryId ? parseInt(box.dataset.entryId, 10) : null;
+
+  const payload = {};
+  let missingRequired = false;
+  CUSTOMER_FIELDS.forEach(({ key, required }) => {
+    const value = box.querySelector(`.cf-f-${key}`).value.trim();
+    if (required && !value) missingRequired = true;
+    payload[key] = value || null;
+  });
+  if (missingRequired) {
+    alert("Customer code and Customer name are required.");
+    return;
+  }
+
+  const saveButtons = box.querySelectorAll('button[type="submit"]');
+  saveButtons.forEach((b) => (b.disabled = true));
+  try {
+    const url = entryId ? `${API}/customers/${entryId}` : `${API}/customers`;
+    const method = entryId ? "PUT" : "POST";
+    const resp = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      alert(formatApiError(err, "Failed to save this customer."));
+      return;
+    }
+    customerFormModal.hidden = true;
+    await loadCustomers();
+    refreshSowCustomerFilterOptions();
+    populateCustomerFilterOptions();
+  } finally {
+    saveButtons.forEach((b) => (b.disabled = false));
+  }
 });
 
 // ---------- Customer Configuration: Billing Hours ----------
@@ -5835,11 +5984,23 @@ function renderRealizedTmLocationSummary(filteredRows) {
   if (!tbody) return;
 
   const sumsByLocation = new Map();
+  // sumsByLocationNoDiscount mirrors sumsByLocation exactly (same Location x
+  // fiscal month buckets) but sums revenue computed off each row's own raw
+  // Bill Rate ($) instead of its discounted Final Bill Rate ($) - i.e. Bill
+  // Rate x Total Billable Hours, with no discount applied at all - so the
+  // "Total (without discount)" row below can show what each month's revenue
+  // would be without any discount, per explicit request.
+  const sumsByLocationNoDiscount = new Map();
   filteredRows.forEach((r) => {
     const key = r.location_name || "";
     if (!sumsByLocation.has(key)) sumsByLocation.set(key, new Array(12).fill(0));
+    if (!sumsByLocationNoDiscount.has(key)) sumsByLocationNoDiscount.set(key, new Array(12).fill(0));
     const sums = sumsByLocation.get(key);
-    if (r.fiscal_month) sums[r.fiscal_month - 1] += r.total_invoice_amount || 0;
+    const sumsNoDiscount = sumsByLocationNoDiscount.get(key);
+    if (r.fiscal_month) {
+      sums[r.fiscal_month - 1] += r.total_invoice_amount || 0;
+      sumsNoDiscount[r.fiscal_month - 1] += (r.bill_rate || 0) * (r.total_billable_hours || 0);
+    }
   });
 
   let labels = currentRealizedTmLocations.map((l) => l.name);
@@ -5866,26 +6027,44 @@ function renderRealizedTmLocationSummary(filteredRows) {
       `<td>${fmtPlain(sums[9])}</td><td>${fmtPlain(sums[10])}</td><td>${fmtPlain(sums[11])}</td><td class="rts-highlight-col">${fmtPlain(q4)}</td>`;
     tbody.appendChild(tr);
   });
-  const colTotals = new Array(17).fill(0); // Total, Apr..Mar(12), Q1..Q4
-  labels.forEach((label) => {
-    const key = label === "Unassigned" ? "" : label;
-    const sums = sumsByLocation.get(key) || new Array(12).fill(0);
-    const total = sums.reduce((a, v) => a + v, 0);
-    const q1 = sums[0] + sums[1] + sums[2];
-    const q2 = sums[3] + sums[4] + sums[5];
-    const q3 = sums[6] + sums[7] + sums[8];
-    const q4 = sums[9] + sums[10] + sums[11];
-    const rowValues = [total, ...sums, q1, q2, q3, q4];
-    rowValues.forEach((v, i) => { colTotals[i] += v; });
-  });
-  const totalTr = document.createElement("tr");
-  totalTr.className = "table-total-row";
-  totalTr.innerHTML = `<td>Total</td><td class="rts-highlight-col">${fmtPlain(colTotals[0])}</td>` +
-    `<td>${fmtPlain(colTotals[1])}</td><td>${fmtPlain(colTotals[2])}</td><td>${fmtPlain(colTotals[3])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[13])}</td>` +
-    `<td>${fmtPlain(colTotals[4])}</td><td>${fmtPlain(colTotals[5])}</td><td>${fmtPlain(colTotals[6])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[14])}</td>` +
-    `<td>${fmtPlain(colTotals[7])}</td><td>${fmtPlain(colTotals[8])}</td><td>${fmtPlain(colTotals[9])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[15])}</td>` +
-    `<td>${fmtPlain(colTotals[10])}</td><td>${fmtPlain(colTotals[11])}</td><td>${fmtPlain(colTotals[12])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[16])}</td>`;
-  tbody.appendChild(totalTr);
+  // colTotalsFrom() sums a given per-location sums-map down into the same
+  // [Total, Apr..Mar(12), Q1..Q4] shape each Location row above already
+  // uses, so the "Total (with discount)"/"Total (without discount)" rows
+  // below can be built with the exact same column layout.
+  function colTotalsFrom(sumsMap) {
+    const colTotals = new Array(17).fill(0); // Total, Apr..Mar(12), Q1..Q4
+    labels.forEach((label) => {
+      const key = label === "Unassigned" ? "" : label;
+      const sums = sumsMap.get(key) || new Array(12).fill(0);
+      const total = sums.reduce((a, v) => a + v, 0);
+      const q1 = sums[0] + sums[1] + sums[2];
+      const q2 = sums[3] + sums[4] + sums[5];
+      const q3 = sums[6] + sums[7] + sums[8];
+      const q4 = sums[9] + sums[10] + sums[11];
+      const rowValues = [total, ...sums, q1, q2, q3, q4];
+      rowValues.forEach((v, i) => { colTotals[i] += v; });
+    });
+    return colTotals;
+  }
+  function buildTotalRow(label, colTotals) {
+    const tr = document.createElement("tr");
+    tr.className = "table-total-row";
+    tr.innerHTML = `<td>${escapeHtml(label)}</td><td class="rts-highlight-col">${fmtPlain(colTotals[0])}</td>` +
+      `<td>${fmtPlain(colTotals[1])}</td><td>${fmtPlain(colTotals[2])}</td><td>${fmtPlain(colTotals[3])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[13])}</td>` +
+      `<td>${fmtPlain(colTotals[4])}</td><td>${fmtPlain(colTotals[5])}</td><td>${fmtPlain(colTotals[6])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[14])}</td>` +
+      `<td>${fmtPlain(colTotals[7])}</td><td>${fmtPlain(colTotals[8])}</td><td>${fmtPlain(colTotals[9])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[15])}</td>` +
+      `<td>${fmtPlain(colTotals[10])}</td><td>${fmtPlain(colTotals[11])}</td><td>${fmtPlain(colTotals[12])}</td><td class="rts-highlight-col">${fmtPlain(colTotals[16])}</td>`;
+    return tr;
+  }
+  // "Total (with discount)" is the pre-existing grand total row (Total
+  // Invoice Amount, i.e. computed off each row's discounted Final Bill Rate
+  // ($)) - just relabelled per explicit request. "Total (without discount)"
+  // is a new row below it showing the same grand total computed off each
+  // row's raw, undiscounted Bill Rate ($) instead (see sumsByLocationNoDiscount
+  // above), so the difference between the two rows is exactly the discount's
+  // dollar impact for that month.
+  tbody.appendChild(buildTotalRow("Total (with discount)", colTotalsFrom(sumsByLocation)));
+  tbody.appendChild(buildTotalRow("Total (without discount)", colTotalsFrom(sumsByLocationNoDiscount)));
 }
 
 // Builds one <tr> for the Realized T&M grid - always read-only (Add, Copy,

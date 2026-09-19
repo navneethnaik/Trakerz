@@ -275,6 +275,18 @@ main { padding: 14px 20px; max-width: none; margin: 0; flex: 1 0 auto; width: 10
 .page-header-title { margin: 0 0 4px; font-size: 20px; font-weight: 700; color: var(--text); }
 .page-header-desc { margin: 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-header-desc { margin-bottom: 16px; }
+/* Breadcrumb trail (Main Menu Option | Sub Menu Option | Page), added above
+   every reachable page's existing title per explicit request - a small
+   muted line, not a second heading, so .page-header-title/.dash-title below
+   it still carries the visual weight. A page reached through fewer nav
+   levels (a flat top-level button, or a two-level menu with no submenu)
+   just shows fewer segments rather than padding the trail out to three.
+   Segments are written as plain " | "-joined text directly in the markup
+   (static per page), except the one page reachable two ways from the same
+   Best Estimates submenu leaves (Time and Material/Managed Services),
+   whose third segment is kept in sync with the title swap already done in
+   setRevenueCategory() (see app.js). */
+.page-breadcrumb { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
 /* Sub-heading for a second (or third) table stacked below a report's main
    one on the same page (e.g. Reports > Resource's Ramp Up/Ramp Down
    tables) - smaller than .page-header-title since it's not the page title,
@@ -631,10 +643,19 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
 .alert-list li:not(.empty):hover { color: var(--primary-hover); }
 
 /* ---------- Reports (Statement of Work / Resource / Revenue) ---------- */
-/* Multiple filter <select>s side by side in a report page's header row,
-   reusing .dash-customer-filter for each one's own styling - wraps on
-   narrow widths rather than overflowing the header row. */
-.report-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* Multiple filter <select>s side by side, reusing .dash-customer-filter for
+   each one's own styling - wraps on narrow widths rather than overflowing.
+   Used to be a flex child of .dash-header-row, sharing that row with the
+   page title (title left, filters right via that row's own
+   justify-content: space-between) with the page description below the
+   whole row. Per explicit request the description now reads before the
+   filters, not after, and each Reports page's h2 no longer has a row-mate
+   to split space with - so .report-filters is now its own block-level row
+   below the description, right-aligned on its own (justify-content:
+   flex-end, matching every other filter/button row in the app per the same
+   request) with its own bottom margin now that .dash-header-row's margin
+   no longer covers it. */
+.report-filters { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
 /* .chart-row (generic 3-up grid, see above) variant for a report page whose
    charts don't split evenly into three - currently just Resource's own
    single full-width "Top Accounts" bar chart below its 3-up row. */
@@ -665,7 +686,20 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
 /* Customer filter - top right of the Dashboard heading. Everything below it
    (tiles, charts, tables) is re-rendered from data scoped to the selected
    customer, or the full dataset when "All" (the default) is selected. */
-.dash-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+/* margin-bottom used to be 16px, sized for this row's old contents (title +
+   filter <select> sharing one line, with the description below it) - now
+   that every .dash-header-row on every Reports page holds just the lone
+   title (the filter moved to its own .report-filters row below the
+   description, see above), that extra 16px was leftover unwanted gap
+   between the title and the description right after it. Left at 0 here
+   rather than matched to .page-header-title's own 4px bottom margin,
+   because that 4px is itself already what creates the gap: the title is a
+   flex item of this row, so its own margin-bottom already extends the
+   row's rendered box by 4px (a flex item's margin doesn't collapse away
+   the way it would between two plain block siblings) - adding a
+   margin-bottom here too would stack a second 4px on top of that and
+   double the gap instead of matching it. */
+.dash-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 0; }
 .dash-customer-filter {
   padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px;
   background: var(--surface); color: var(--text); min-width: 200px;
@@ -694,7 +728,12 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
 }
 #tab-home .dash-chart-row, #tab-home .dash-lists-row { gap: 16px; }
 #tab-home .chart-card, #tab-home .list-card { padding: 18px 20px; }
-.dash-title { font-size: 20px; font-weight: 700; margin: 0; color: var(--text); }
+/* margin-bottom 4px matches .page-header-title's own title-to-description
+   gap (see above) - this used to come entirely from .dash-header-row's
+   old 16px margin instead, which the dashboard's own customer filter no
+   longer needs now that it moved to its own .report-filters row below the
+   description (same change as every other Reports page). */
+.dash-title { font-size: 20px; font-weight: 700; margin: 0 0 4px; color: var(--text); }
 #tab-home .dash-customer-filter { border-radius: 999px; padding: 7px 16px; }
 /* Circle KPI tiles at the very top of the Dashboard - Total Customers,
    Active SOWs, Total Resources, TCV. Plain counts/values rather than
@@ -766,32 +805,19 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
 #tab-home .list-card table td, #tab-home .list-card table th { padding: 8px 6px; }
 
 /* ---------- Toolbar / buttons ---------- */
-.toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; }
-/* Global Settings and Configuration toolbars, right-aligned per explicit
-   instruction - most lost the heading that used to push their
-   filters/buttons right via .toolbar h3's flex:1 (removed from these per
-   earlier explicit instruction), so flex-end is what pushes the leftover
-   space (and the whole filters+buttons cluster) to the right edge instead.
-   Scoped by section id rather than a bare ".toolbar" override so toolbars
-   not covered by any of these requests are untouched.
-   #tab-sows is deliberately NOT in this list per a later explicit request:
-   its filters stay left-aligned (the toolbar's natural flex-start) with
-   Export to Excel/New SOW pushed to the right via .toolbar-spacer instead -
-   see the markup in index.html. */
-#tab-config-locations .toolbar,
-#tab-config-billing-models .toolbar,
-#tab-config-operating-models .toolbar,
-#tab-config-statuses .toolbar,
-#tab-config-employee-types .toolbar,
-#tab-config-bands .toolbar,
-#tab-config-opportunity-types .toolbar,
-#tab-config-revenue-types .toolbar,
-#tab-config-practices .toolbar,
-#tab-config-billing-hours .toolbar,
-#tab-config-holidays .toolbar,
-#tab-config-leaves .toolbar {
-  justify-content: flex-end;
-}
+/* Every toolbar's contents (search box, filter <select>s, action buttons)
+   are right-aligned as one cluster hugging the toolbar's right edge, per
+   explicit instruction - this used to be scoped to just Global
+   Settings/Configuration's filter-and-button-only toolbars (see git
+   history), with Statement of Work/Customer/Best Estimates/Realized
+   Revenue's own search+filter toolbars deliberately left out (their search
+   box flex-grew to fill the row instead, splitting filters left/buttons
+   right via .toolbar-spacer - see below). That split is exactly what this
+   later, broader instruction asks to undo everywhere, so flex-end is now
+   the bare .toolbar default and .toolbar-spacer has been removed from
+   every toolbar in index.html (a leftover spacer would still flex-grow and
+   re-split the row, undoing this). */
+.toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; justify-content: flex-end; }
 .toolbar input, .toolbar select {
   padding: 5px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px;
   background: var(--surface); transition: border-color .15s, box-shadow .15s;
@@ -799,28 +825,24 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
 .toolbar input:focus, .toolbar select:focus, .modal-box input:focus, .modal-box select:focus, .modal-box textarea:focus {
   outline: none; border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(var(--primary-rgb), .3);
 }
-.toolbar input[type=search] { flex: 1; }
-/* Statement of Work list's own search box - smaller than the shared
-   toolbar input sizing above (which lets it grow to fill all remaining
-   toolbar space via flex:1): capped narrower and a touch shorter so it
-   doesn't dominate the toolbar next to the customer/status filters and
-   Export/New SOW buttons. */
-#searchInput { max-width: 260px; padding: 4px 10px; }
-/* Time and Material grid's own search box - same capped sizing as
-   #searchInput above and for the same reason (this toolbar also has four
-   filter <select>s and an Export button to its right). */
-#tmSearchInput { max-width: 260px; padding: 4px 10px; }
-/* Shared toolbar layout helpers - a heading that takes up the remaining
-   space (pushing action buttons to the right) and a plain spacer for
-   toolbars with no heading, e.g. Revenue Management's filter row. Replaces
-   what used to be a repeated inline style="flex:1;margin:0" on every
-   Configuration screen's toolbar heading (and again on the SOW detail
-   page's Milestones/Invoices toolbar) plus a one-off style="flex:1" spacer.
-   .toolbar h4 is the same trick for the Revenue Management subsection
-   toolbars (SoW Level Detail/Assignment Level Detail - see
-   .subsection-toolbar below), whose heading is an h4, not an h3. */
+/* Search boxes no longer flex-grow to fill the toolbar (that was the other
+   half of the old left/right split above) - a fixed width instead, same
+   sizing #searchInput/#tmSearchInput already used on their own, now shared
+   by every toolbar search box so they all sit at a consistent width within
+   the right-aligned cluster. */
+.toolbar input[type=search] { flex: 0 0 auto; width: 260px; }
+#searchInput, #tmSearchInput { padding: 4px 10px; }
+/* .toolbar h3/h4 - dead code kept only because nothing currently uses it
+   (see git history): a heading used to take up a toolbar's remaining space
+   via flex:1, pushing action buttons to the right, before Global
+   Settings/Configuration lost their per-card headings entirely. No toolbar
+   markup in index.html has an h3/h4 any more, and .toolbar-spacer (the
+   plain flex:1 spacer div that served the same "push things right"
+   purpose on toolbars with no heading) has been removed from every
+   toolbar's markup now that the bare .toolbar rule above right-aligns
+   everything on its own - a leftover spacer would still flex-grow and
+   re-split the row into two clusters, undoing that. */
 .toolbar h3, .toolbar h4 { flex: 1; margin: 0; display: flex; align-items: center; gap: 8px; }
-.toolbar-spacer { flex: 1; }
 /* "Download template" next to Import from Excel on those same toolbars - a
    plain link rather than a button, since it's a starting point for an
    action (fill it in, then Import) rather than the action itself. */
@@ -1115,14 +1137,10 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
 }
 .expand-btn:hover { background: rgba(91, 118, 134, .12); color: var(--primary-hover); }
 .expand-btn.expanded { transform: rotate(90deg); color: var(--primary-hover); }
-
-.milestone-subrow { cursor: default; background: var(--row-hover); }
-.milestone-subrow:hover { background: var(--row-hover); }
-.milestone-subrow td { padding: 12px 14px 16px 42px; white-space: normal; }
-.milestone-subtable { width: 100%; max-width: 640px; border-collapse: collapse; background: var(--surface); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); border: 1px solid var(--table-border); }
-.milestone-subtable th, .milestone-subtable td { text-align: left; padding: 6px 10px; font-size: 12.5px; border: 1px solid var(--table-border); white-space: nowrap; }
-.milestone-subtable th { color: #fff; font-weight: 700; font-size: 11.5px; background: var(--table-header-bg); }
-.milestone-subtable tbody tr:last-child td { border-bottom: none; }
+/* .milestone-subrow/.milestone-subtable - removed along with the SOW
+   table's Opportunity Title expand/collapse row per explicit request (see
+   buildSowRow in app.js); .expand-btn above is kept, still used by the
+   Revenue Type breakdown's own unrelated expand arrow. */
 
 /* Managed Services grid's Resources subtable, inside the Add/Edit/View
    popup only now (see renderMsResourceSubtable in app.js - the grid's old
@@ -1265,13 +1283,6 @@ input:disabled, select:disabled, textarea:disabled {
   font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em;
 }
 .milestone-row .remove-ms-row { padding: 5px; justify-content: center; }
-
-/* SOW popup's Milestones section reuses .milestone-row but needs 6 columns
-   (description/amount/status/due date/billed date/remove) instead of the
-   base 4 - ID-scoped so it wins over .milestone-row above via specificity. */
-#sowMilestoneRows .milestone-row, #sowFormModal .milestone-row-header {
-  grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr 34px;
-}
 
 /* Managed Services Add/Edit popup's 12-month grid (see #revenueEntryModal in
    index.html/openRevenueEntryModal() in app.js) - 6 columns x 2 rows fits
