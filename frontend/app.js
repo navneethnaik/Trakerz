@@ -6815,6 +6815,19 @@ function openRealizedMsEntryModal(r = null, prefill = {}, viewOnly = false) {
   }
   refreshSowOptions();
 
+  // Save stays disabled until a Statement of Work is actually picked (the
+  // same rule the submit handler already enforces server-side with its own
+  // alert) - per explicit request, so a doomed-to-fail Save isn't clickable
+  // in the first place. Both Save buttons (header and footer) are kept in
+  // sync; View mode already hides them outright via setMode() below, so this
+  // only ever matters in Add/Edit mode.
+  function refreshSaveEnabled() {
+    const hasSow = !!sowSelect.value;
+    saveRealizedMsEntryBtnTop.disabled = !hasSow;
+    saveRealizedMsEntryBtn.disabled = !hasSow;
+  }
+  refreshSaveEnabled();
+
   function refreshBillingModel() {
     const selectedSow = currentRealizedMsSows.find((s) => String(s.id) === sowSelect.value);
     billingModelInput.value = (selectedSow && selectedSow.billing_model_name) || "—";
@@ -6880,8 +6893,8 @@ function openRealizedMsEntryModal(r = null, prefill = {}, viewOnly = false) {
   // Assigned via .onchange (not addEventListener) since these same elements
   // persist across every open of this modal - addEventListener would stack
   // a new listener on top of the last one each time.
-  customerSelect.onchange = () => { refreshSowOptions(); refreshBillingModel(); refreshMilestoneOptions(); };
-  sowSelect.onchange = () => { refreshBillingModel(); refreshMilestoneOptions(); };
+  customerSelect.onchange = () => { refreshSowOptions(); refreshSaveEnabled(); refreshBillingModel(); refreshMilestoneOptions(); };
+  sowSelect.onchange = () => { refreshSaveEnabled(); refreshBillingModel(); refreshMilestoneOptions(); };
   milestoneSelect.onchange = refreshMilestoneAutofill;
 
   // View mode disables/read-onlys every field that's otherwise editable
