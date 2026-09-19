@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=144" />
+<link rel="stylesheet" href="style.css?v=145" />
 </head>
 <body>
 <header class="topbar">
@@ -183,6 +183,10 @@
         <button class="dropdown-item" data-tab="sow-report">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
           Statement of Work
+        </button>
+        <button class="dropdown-item" data-tab="account-summary">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+          Account Summary
         </button>
         <button class="dropdown-item" data-tab="resource-hub">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
@@ -1207,6 +1211,30 @@
         </div>
       </div>
     </div>
+
+    <!-- Headcount by Band/Location - Managed Services only, since Band is a
+         Managed Services Resource attribute (Time and Material assignments
+         carry no Band at all - see TmAssignmentIn in main.py). One
+         click-to-collapse/expand group per Band (same convention as the
+         Headcount by Month table's Time and Material/Managed Services
+         groups above, reusing its .resource-headcount-table styling and
+         click handling - see renderResourceReportBandLocationTable in
+         app.js), starting collapsed per explicit request - unlike those two
+         groups, which start expanded. -->
+    <h3 class="report-subsection-title">Headcount by Band/Location</h3>
+    <p class="resource-table-col-desc">Managed Services resources active each month, by Band and Location.</p>
+    <div class="table-scroll">
+      <table class="sow-table resource-headcount-table">
+        <thead>
+          <tr>
+            <th>Band/Location</th>
+            <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
+            <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
+          </tr>
+        </thead>
+        <tbody id="resourceReportBandLocationBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <section id="tab-revenue-hub" class="tab-panel">
@@ -1289,7 +1317,7 @@
   <section id="tab-billing-days-report" class="tab-panel">
     <p class="page-breadcrumb">Reports | Billing Days</p>
     <div class="dash-header-row">
-      <h2 class="page-header-title">Working Billing Days</h2>
+      <h2 class="page-header-title">Billing Days</h2>
     </div>
     <p class="page-header-desc dash-header-desc">Location-wise Working Days, Holidays and Billing Days by month for the current fiscal year, for the selected customer.</p>
     <div class="report-filters">
@@ -1308,6 +1336,135 @@
           </tr>
         </thead>
         <tbody id="billingDaysReportBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Reports > Account Summary - a single-account deep dive, per explicit
+       request: a mandatory Customer filter (same "no All customers option,
+       always lands on a real customer" convention as Reports > Billing Days
+       above - there's no single account's worth of data to show with
+       nothing selected) drives every widget on this page. Deliberately
+       reuses data already fetched elsewhere across this app's Reports pages
+       (Statement of Work, Resources, Revenue) rather than adding new
+       backend endpoints - see loadAccountSummary() in app.js for exactly
+       which existing endpoint feeds each widget, filtered down to this one
+       customer_id client-side. -->
+  <section id="tab-account-summary" class="tab-panel">
+    <p class="page-breadcrumb">Reports | Account Summary</p>
+    <div class="dash-header-row">
+      <h2 class="page-header-title">Account Summary</h2>
+    </div>
+    <p class="page-header-desc dash-header-desc">A complete profile of one account &ndash; Statement of Work, resourcing, and projected/realized revenue for the current fiscal year, all in one place.</p>
+    <div class="report-filters">
+      <select id="accountSummaryCustomerFilter" class="dash-customer-filter"></select>
+    </div>
+
+    <!-- Account Profile - the Customer master record's own attributes (see
+         Configuration | Customer), read-only here. -->
+    <div class="chart-card account-profile-card">
+      <h3><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span><span>Account Profile</span></h3>
+      <div class="account-profile-grid">
+        <div class="account-profile-item"><span class="account-profile-label">Customer Code</span><span class="account-profile-value" id="asCode">—</span></div>
+        <div class="account-profile-item"><span class="account-profile-label">Client Partner</span><span class="account-profile-value" id="asClientPartner">—</span></div>
+        <div class="account-profile-item"><span class="account-profile-label">Delivery Director</span><span class="account-profile-value" id="asDeliveryDirector">—</span></div>
+        <div class="account-profile-item"><span class="account-profile-label">Delivery Head</span><span class="account-profile-value" id="asDeliveryHead">—</span></div>
+        <div class="account-profile-item"><span class="account-profile-label">Sales Head</span><span class="account-profile-value" id="asSalesHead">—</span></div>
+        <div class="account-profile-item"><span class="account-profile-label">Industry</span><span class="account-profile-value" id="asIndustry">—</span></div>
+        <div class="account-profile-item"><span class="account-profile-label">Headquarters</span><span class="account-profile-value" id="asHq">—</span></div>
+        <div class="account-profile-item"><span class="account-profile-label">Geo</span><span class="account-profile-value" id="asGeo">—</span></div>
+      </div>
+    </div>
+
+    <div class="dash-circle-row account-summary-circle-row">
+      <div class="dash-circle-tile circle-indigo">
+        <div class="circle-value" id="asCircleActiveSows">0</div>
+        <div class="circle-label">Active SOWs</div>
+      </div>
+      <div class="dash-circle-tile circle-amber">
+        <div class="circle-value" id="asCircleTcv">$0</div>
+        <div class="circle-label">TCV</div>
+      </div>
+      <div class="dash-circle-tile circle-orange">
+        <div class="circle-value" id="asCircleResources">0</div>
+        <div class="circle-label">Resources (FY)</div>
+      </div>
+      <div class="dash-circle-tile circle-cyan">
+        <div class="circle-value" id="asCircleProjected">$0</div>
+        <div class="circle-label">Projected Revenue (FY)</div>
+      </div>
+      <div class="dash-circle-tile circle-emerald">
+        <div class="circle-value" id="asCircleRealized">$0</div>
+        <div class="circle-label">Realized Revenue (FY)</div>
+      </div>
+      <div class="dash-circle-tile circle-red">
+        <div class="circle-value" id="asCircleExpiring">0</div>
+        <div class="circle-label">Expiring in 30 days</div>
+      </div>
+    </div>
+
+    <div class="dash-chart-row account-summary-chart-row">
+      <div class="chart-card">
+        <h3><span class="card-icon icon-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></span><span>Projected vs Realized Revenue (Apr-Mar)</span></h3>
+        <canvas id="chartAccountSummaryRevenue" height="180"></canvas>
+      </div>
+      <div class="chart-card chart-card-compact">
+        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></span><span>Resources by Location (<span id="asLocationCount">0</span>)</span></h3>
+        <canvas id="chartAccountSummaryLocation" height="180"></canvas>
+      </div>
+    </div>
+
+    <div class="dash-lists-row account-summary-lists-row">
+      <div class="list-card">
+        <h3><span class="card-icon icon-emerald"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span><span>SOW Status (<span id="asSowStatusCount">0</span>)</span></h3>
+        <table>
+          <thead><tr><th>Status</th><th>SOWs</th><th>%</th></tr></thead>
+          <tbody id="asSowStatusTableBody"></tbody>
+        </table>
+      </div>
+      <div class="list-card">
+        <h3><span class="card-icon icon-indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg></span><span>Billing Models &ndash; Active SOWs (<span id="asBillingModelCount">0</span>)</span></h3>
+        <table>
+          <thead><tr><th>Billing Model</th><th>Active SOWs</th><th>%</th></tr></thead>
+          <tbody id="asBillingModelTableBody"></tbody>
+        </table>
+      </div>
+      <div class="list-card">
+        <h3><span class="card-icon icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg></span><span>Managed Services by Band (<span id="asBandCount">0</span>)</span></h3>
+        <table>
+          <thead><tr><th>Band</th><th>Resources</th><th>%</th></tr></thead>
+          <tbody id="asBandTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <h3 class="report-subsection-title">Revenue by Type (Apr-Mar)</h3>
+    <p class="page-header-desc dash-header-desc">Combined Managed Services + Time and Material projected revenue by Revenue Type and month, for this account only.</p>
+    <div class="table-scroll revenue-type-summary-scroll">
+      <table class="sow-table revenue-type-summary-table">
+        <thead>
+          <tr id="asRevenueTypeHeaderRow">
+            <th>Revenue Type</th><th class="rts-highlight-col">Total</th>
+            <th>Apr</th><th>May</th><th>Jun</th><th class="rts-highlight-col">Q1</th>
+            <th>Jul</th><th>Aug</th><th>Sep</th><th class="rts-highlight-col">Q2</th>
+            <th>Oct</th><th>Nov</th><th>Dec</th><th class="rts-highlight-col">Q3</th>
+            <th>Jan</th><th>Feb</th><th>Mar</th><th class="rts-highlight-col">Q4</th>
+          </tr>
+        </thead>
+        <tbody id="asRevenueTypeBody"></tbody>
+      </table>
+    </div>
+
+    <h3 class="report-subsection-title">Statements of Work</h3>
+    <div class="table-scroll">
+      <table class="sow-table">
+        <thead>
+          <tr>
+            <th>Sl. No</th><th>SOW Title</th><th>Status</th><th>Billing Model</th><th>Revenue Type</th>
+            <th>Start Date</th><th>End Date</th><th>TCV ($)</th><th>ACV ($)</th>
+          </tr>
+        </thead>
+        <tbody id="asSowTableBody"></tbody>
       </table>
     </div>
   </section>
@@ -2495,6 +2652,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=178"></script>
+<script src="app.js?v=182"></script>
 </body>
 </html>

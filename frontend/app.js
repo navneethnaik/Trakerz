@@ -264,6 +264,7 @@ function showTab(name) {
   if (name === "resource-hub") loadResourceReport();
   if (name === "revenue-hub") loadRevenueReport();
   if (name === "billing-days-report") loadBillingDaysReport();
+  if (name === "account-summary") loadAccountSummary();
 }
 
 // ---------- About / landing page (opened via the Trakerz logo) ----------
@@ -1978,20 +1979,34 @@ function renderBillingDaysReport(items, locations) {
       billing.push(Math.max(w - h, 0));
     }
 
+    // Working Days/Holidays start collapsed under their location's Billing
+    // Days row per explicit request - same expand-btn/.expanded/hidden-row
+    // convention as the Revenue report's Revenue Type breakdown (see
+    // renderRevenueReportSummaryTable above), just toggling two child rows
+    // instead of the Time and Material/Managed Services pair there.
     const billingTr = document.createElement("tr");
     billingTr.className = "holiday-location-row";
-    billingTr.innerHTML = `<td>${escapeHtml(displayName)} (Billing Days)</td>` + holidaySummaryRowCellsHtml(billing);
+    billingTr.innerHTML = `<td><button type="button" class="expand-btn rev-type-expand-btn" title="Show Working Days / Holidays breakdown">${icon("chevron")}</button>${escapeHtml(displayName)} (Billing Days)</td>` + holidaySummaryRowCellsHtml(billing);
     tbody.appendChild(billingTr);
 
     const workingTr = document.createElement("tr");
     workingTr.className = "rev-type-child-row";
+    workingTr.hidden = true;
     workingTr.innerHTML = `<td class="rev-type-child-label">Working Days</td>` + holidaySummaryRowCellsHtml(working);
     tbody.appendChild(workingTr);
 
     const holidaysTr = document.createElement("tr");
     holidaysTr.className = "rev-type-child-row";
+    holidaysTr.hidden = true;
     holidaysTr.innerHTML = `<td class="rev-type-child-label">Holidays</td>` + holidaySummaryRowCellsHtml(holidays);
     tbody.appendChild(holidaysTr);
+
+    billingTr.querySelector(".rev-type-expand-btn").addEventListener("click", (e) => {
+      const expanding = workingTr.hidden;
+      workingTr.hidden = !expanding;
+      holidaysTr.hidden = !expanding;
+      e.currentTarget.classList.toggle("expanded", expanding);
+    });
   });
 }
 
@@ -3011,9 +3026,10 @@ function tmAssignmentActiveInFiscalMonth(row, fy, fm) {
 async function loadResourceReport() {
   if (resourceReportFiscalYear === null) resourceReportFiscalYear = fiscalYearForToday();
 
-  const [customers, locations, tmData, msData] = await Promise.all([
+  const [customers, locations, bands, tmData, msData] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/locations`).then((r) => r.json()),
+    fetch(`${API}/bands`).then((r) => r.json()),
     fetch(`${API}/tm/assignments?fiscal_year=${resourceReportFiscalYear}`).then((r) => r.json()),
     // Every Managed Services Resource across every SOW for this fiscal year
     // (see list_all_ms_resources in main.py) - both this page's tables now
@@ -3047,6 +3063,7 @@ async function loadResourceReport() {
 
   renderResourceReportLocationMonthTable(tmFiltered, msFiltered, resourceReportFiscalYear, "resourceReportLocationMonthBody");
   renderResourceRampTables(tmFiltered, msFiltered, resourceReportFiscalYear);
+  renderResourceReportBandLocationTable(msFiltered, bands, resourceReportFiscalYear, "resourceReportBandLocationBody");
 }
 
 // Ramp Up / Ramp Down: back to months-as-columns (Apr-Mar), per explicit
@@ -3304,14 +3321,19 @@ function appendResourceReportDividerRow(tbody, label, monthRowsByFm, collapseOpt
   tr.className = "ramp-group-row";
   const cellsHtml = monthRowsByFm ? buildResourceCountCellsHtml(monthRowsByFm) : "<td></td>".repeat(12);
   if (collapseOpts) {
-    const { groupKey, subRows } = collapseOpts;
-    const collapsed = !!resourceHeadcountGroupCollapsed[groupKey];
+    // store defaults to resourceHeadcountGroupCollapsed (the Time and
+    // Material/Managed Services groups' own state, keyed "tm"/"ms") - the
+    // Band/Location table below passes its own store instead (keyed per
+    // Band, defaulting collapsed rather than expanded), so the two tables'
+    // collapse states never collide despite sharing this same function.
+    const { groupKey, subRows, store = resourceHeadcountGroupCollapsed } = collapseOpts;
+    const collapsed = !!store[groupKey];
     tr.classList.add("resource-group-toggle-row");
     tr.innerHTML =
       `<td><span class="resource-group-toggle-icon">${collapsed ? "▸" : "▾"}</span>${escapeHtml(label)}</td>${cellsHtml}`;
     tr.addEventListener("click", () => {
-      const nowCollapsed = !resourceHeadcountGroupCollapsed[groupKey];
-      resourceHeadcountGroupCollapsed[groupKey] = nowCollapsed;
+      const nowCollapsed = !store[groupKey];
+      store[groupKey] = nowCollapsed;
       subRows.forEach((subTr) => {
         subTr.style.display = nowCollapsed ? "none" : "";
       });
@@ -3353,6 +3375,57 @@ function renderResourceReportLocationMonthTable(tmRows, msRows, fiscalYear, tbod
   totalTr.innerHTML = `<td>Total</td>${buildResourceCountCellsHtml(combinedTotalRows)}`;
   wireResourceCountCellClicks(totalTr, combinedTotalRows, fiscalYear, "Total Resources Active");
   tbody.appendChild(totalTr);
+}
+
+// Headcount by Band/Location - Managed Services only, since Band is a
+// Managed Services Resource attribute that Time and Material assignments
+// don't carry at all (see TmAssignmentIn vs MsResourceIn in main.py). Same
+// per-month Onsite/Offshore/Nearshore headcount convention as the Headcount
+// by Month table above (resourceHeadcountMonthRows, reused unmodified), just
+// grouped by Band instead of by Time and Material/Managed Services - one
+// click-to-collapse/expand group per Band (reusing
+// appendResourceReportDividerRow/appendResourceReportDataRow's own toggle
+// convention and .resource-headcount-table styling), starting collapsed by
+// default per explicit request (see resourceBandCollapsed below - unlike
+// resourceHeadcountGroupCollapsed above, whose tm/ms groups default
+// expanded). Every Band on the master list is shown, in that list's own
+// order, even one with zero current activity - same "always show every
+// master-list entry" convention as the Revenue Report's Revenue Type
+// summary table - with a trailing "Unassigned" group for any Managed
+// Services Resource that has no Band set, only shown if at least one exists.
+const resourceBandCollapsed = {};
+
+function renderResourceReportBandLocationTable(msRows, bands, fiscalYear, tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  const groups = bands.map((b) => ({
+    key: `band-${b.id}`,
+    label: b.name,
+    rows: msRows.filter((r) => r.band_id === b.id),
+  }));
+  const unassignedRows = msRows.filter((r) => r.band_id === null || r.band_id === undefined);
+  if (unassignedRows.length) groups.push({ key: "band-unassigned", label: "Unassigned", rows: unassignedRows });
+
+  if (!groups.length) {
+    tbody.innerHTML = `<tr><td colspan="13" class="empty-state">No Bands configured yet - add some under Global Settings.</td></tr>`;
+    return;
+  }
+
+  groups.forEach(({ key, label, rows }) => {
+    if (!(key in resourceBandCollapsed)) resourceBandCollapsed[key] = true;
+
+    const totalRows = resourceHeadcountMonthRows(rows, fiscalYear, "total");
+    const subRows = [];
+    appendResourceReportDividerRow(
+      tbody, label, totalRows, { groupKey: key, subRows, store: resourceBandCollapsed }, fiscalYear, `${label} Resources Active`
+    );
+    subRows.push(appendResourceReportDataRow(tbody, "Onsite", resourceHeadcountMonthRows(rows, fiscalYear, "onsite"), fiscalYear, `${label} Onsite Resources Active`));
+    subRows.push(appendResourceReportDataRow(tbody, "Offshore", resourceHeadcountMonthRows(rows, fiscalYear, "offshore"), fiscalYear, `${label} Offshore Resources Active`));
+    subRows.push(appendResourceReportDataRow(tbody, "Nearshore", resourceHeadcountMonthRows(rows, fiscalYear, "nearshore"), fiscalYear, `${label} Nearshore Resources Active`));
+    if (resourceBandCollapsed[key]) subRows.forEach((r) => (r.style.display = "none"));
+  });
 }
 
 // ---------- Reports > Revenue ----------
@@ -3407,12 +3480,13 @@ function applyRevenueReportFilters(msRows, tmRows) {
 async function loadRevenueReport() {
   if (revenueReportFiscalYear === null) revenueReportFiscalYear = fiscalYearForToday();
 
-  const [customers, revenueTypes, practices, msData, tmData, locations, holidays] = await Promise.all([
+  const [customers, revenueTypes, practices, msData, tmData, msResourceData, locations, holidays] = await Promise.all([
     fetch(`${API}/customers`).then((r) => r.json()),
     fetch(`${API}/revenue-types`).then((r) => r.json()),
     fetch(`${API}/practices`).then((r) => r.json()),
     fetch(`${API}/revenue/sows?fiscal_year=${revenueReportFiscalYear}`).then((r) => r.json()),
     fetch(`${API}/tm/assignments?fiscal_year=${revenueReportFiscalYear}`).then((r) => r.json()),
+    fetch(`${API}/revenue/ms-resources/all?fiscal_year=${revenueReportFiscalYear}`).then((r) => r.json()),
     fetch(`${API}/locations`).then((r) => r.json()),
     fetch(`${API}/holidays`).then((r) => r.json()),
   ]);
@@ -3422,6 +3496,14 @@ async function loadRevenueReport() {
   currentRevenueTypes = revenueTypes;
 
   const [msRows, tmRows] = applyRevenueReportFilters(msData.rows || [], tmData.rows || []);
+  // Person Months (see qoqQuarterPersonMonths) needs individual Managed
+  // Services Resource rows, not the per-SOW msRows above - ms_resources
+  // carries no revenue_type_id of its own (per explicit request, unlike
+  // ms_resource-vs-sow parity elsewhere), so it's scoped to the same
+  // Customer/Revenue Type/Practice filters indirectly, via whichever SOWs
+  // survived those filters on msRows just above.
+  const inScopeSowIds = new Set(msRows.map((r) => r.sow_id).filter((id) => id !== null && id !== undefined));
+  const msResourceRows = (msResourceData.rows || []).filter((r) => inScopeSowIds.has(r.sow_id));
   // Billing Days needs a holiday calendar - when a single customer is
   // selected, use exactly that customer's calendar (same as Reports >
   // Billing Days); with no customer filter, there's no one calendar to use
@@ -3434,7 +3516,7 @@ async function loadRevenueReport() {
     : holidays;
 
   renderRevenueReportSummaryTable(msRows, tmRows, "revenueReportSummaryBody");
-  renderQoQRevenueTable(msRows, tmRows, revenueReportFiscalYear, locations, holidaysInScope);
+  renderQoQRevenueTable(msRows, tmRows, msResourceRows, revenueReportFiscalYear, locations, holidaysInScope);
   setFooterRowCount(
     revenueReportCustomerFilter || revenueReportRevenueTypeFilter || revenueReportPracticeFilter
       ? msRows.length + tmRows.length
@@ -3606,13 +3688,41 @@ function qoqQuarterRevenue(monthlyTotals, q) {
   return monthlyTotals[a - 1] + monthlyTotals[b - 1] + monthlyTotals[c - 1];
 }
 
+// Which of the fixed three locations actually have any presence in the
+// currently in-scope rows (msRows/tmRows, already filtered by whichever
+// Customer/Revenue Type/Practice filters are active - see
+// applyRevenueReportFilters/loadRevenueReport) - per explicit request, a
+// location with no applicable accounts (e.g. no Nearshore resource/
+// assignment anywhere in scope) is left out of "Billing Days (by Location)"
+// entirely, rather than always showing all three at a flat calendar-only
+// count. Managed Services rows carry their location presence as
+// onsite_count/offshore_count/nearshore_count (see _ms_location_counts_by_sow
+// in main.py); Time and Material rows carry it as a single location_name per
+// assignment (see _TM_ASSIGNMENT_SELECT in main.py).
+function qoqApplicableLocationSlugs(msRows, tmRows) {
+  const applicable = new Set();
+  tmRows.forEach((r) => {
+    const slug = (r.location_name || "").trim().toLowerCase();
+    if (HOLIDAY_LOCATION_FIELDS.includes(slug)) applicable.add(slug);
+  });
+  msRows.forEach((r) => {
+    if (r.onsite_count) applicable.add("onsite");
+    if (r.offshore_count) applicable.add("offshore");
+    if (r.nearshore_count) applicable.add("nearshore");
+  });
+  return applicable;
+}
+
 // Billing Days per Location for a quarter - Working Days (Mon-Fri) across
 // the quarter's three calendar months, minus that Location's distinct
 // holiday dates in scope (already deduplicated/filtered to the right
 // customer(s) by the caller - see loadRevenueReport). Same convention as
 // Reports > Billing Days' own per-month calculation, just summed over a
-// quarter instead of shown month by month.
-function qoqQuarterBillingDaysByLocation(fiscalYear, q, locations, holidaysInScope) {
+// quarter instead of shown month by month. Only returns locations in
+// applicableSlugs (see qoqApplicableLocationSlugs above) - a location that's
+// not applicable to any in-scope account contributes neither a line nor
+// count toward the Total, per explicit request.
+function qoqQuarterBillingDaysByLocation(fiscalYear, q, locations, holidaysInScope, applicableSlugs) {
   const months = qoqFiscalMonthsForQuarter(q);
   const [firstDay] = fiscalMonthCalendarRange(fiscalYear, months[0]);
   const [, lastDay] = fiscalMonthCalendarRange(fiscalYear, months[2]);
@@ -3621,7 +3731,7 @@ function qoqQuarterBillingDaysByLocation(fiscalYear, q, locations, holidaysInSco
   const locationBySlug = {};
   locations.forEach((loc) => { locationBySlug[(loc.name || "").trim().toLowerCase()] = loc; });
 
-  return HOLIDAY_LOCATION_FIELDS.map((slug) => {
+  return HOLIDAY_LOCATION_FIELDS.filter((slug) => applicableSlugs.has(slug)).map((slug) => {
     const loc = locationBySlug[slug];
     const displayName = loc ? loc.name : slug.charAt(0).toUpperCase() + slug.slice(1);
     const holidayDates = new Set(
@@ -3646,7 +3756,24 @@ function qoqBillingDaysTotal(byLocation) {
   return byLocation.reduce((sum, l) => sum + l.billingDays, 0);
 }
 
-function renderQoQRevenueTable(msRows, tmRows, fiscalYear, locations, holidaysInScope) {
+// Person Months (Managed Services resourcing volume) for a quarter - each
+// MS Resource contributes one "person month" for every one of the
+// quarter's three fiscal months it's active in (see
+// tmAssignmentActiveInFiscalMonth, reused unmodified since ms-resource rows
+// are start_date/end_date-compatible with it - see list_all_ms_resources in
+// main.py). Deliberately distinct from qoqQuarterHeadcount above, which
+// counts each Time and Material assignment once per quarter no matter how
+// many of its months it's active in - this instead sums active months, so a
+// resource spanning the full quarter counts three times.
+function qoqQuarterPersonMonths(msResourceRows, fiscalYear, q) {
+  const months = qoqFiscalMonthsForQuarter(q);
+  return months.reduce(
+    (sum, fm) => sum + msResourceRows.filter((r) => tmAssignmentActiveInFiscalMonth(r, fiscalYear, fm)).length,
+    0
+  );
+}
+
+function renderQoQRevenueTable(msRows, tmRows, msResourceRows, fiscalYear, locations, holidaysInScope) {
   const tbody = document.getElementById("revenueReportQoQBody");
   if (!tbody) return;
 
@@ -3658,20 +3785,28 @@ function renderQoQRevenueTable(msRows, tmRows, fiscalYear, locations, holidaysIn
   const tmMonthlyTotals = monthlyTotalsForRows(tmRows);
   const msMonthlyTotals = monthlyTotalsForRows(msRows);
   const combinedMonthlyTotals = tmMonthlyTotals.map((v, i) => v + msMonthlyTotals[i]);
+  const applicableLocationSlugs = qoqApplicableLocationSlugs(msRows, tmRows);
 
   const quarters = [1, 2, 3, 4].map((q) => ({
     label: `Q${q} FY${fiscalYear}`,
     tmRevenue: qoqQuarterRevenue(tmMonthlyTotals, q),
     msRevenue: qoqQuarterRevenue(msMonthlyTotals, q),
     revenue: qoqQuarterRevenue(combinedMonthlyTotals, q),
-    billingDaysByLocation: qoqQuarterBillingDaysByLocation(fiscalYear, q, locations, holidaysInScope),
+    billingDaysByLocation: qoqQuarterBillingDaysByLocation(fiscalYear, q, locations, holidaysInScope, applicableLocationSlugs),
     headcount: qoqQuarterHeadcount(tmRows, fiscalYear, q),
+    personMonths: qoqQuarterPersonMonths(msResourceRows, fiscalYear, q),
   }));
 
-  const billingDaysCellHtml = (byLocation, total, deltaHtml) => `
+  // No applicable locations at all (e.g. the current filter's scope has no
+  // Managed Services/Time and Material presence anywhere) - show a plain
+  // dash rather than a "0" total with an empty breakdown line underneath.
+  const billingDaysCellHtml = (byLocation, total, deltaHtml) => {
+    if (!byLocation.length) return "—";
+    return `
     <div>${total}${deltaHtml ? ` <span class="qoq-delta">${deltaHtml}</span>` : ""}</div>
     <div class="qoq-location-breakdown">${byLocation.map((l) => `${escapeHtml(l.name)} ${l.billingDays}`).join(" &middot; ")}</div>
   `;
+  };
 
   tbody.innerHTML = quarters.map((cur, i) => {
     const curTotal = qoqBillingDaysTotal(cur.billingDaysByLocation);
@@ -3697,6 +3832,7 @@ function renderQoQRevenueTable(msRows, tmRows, fiscalYear, locations, holidaysIn
     const varPct = prev.revenue !== 0 ? (varAmount / Math.abs(prev.revenue)) * 100 : null;
     const bdDelta = curTotal - prevTotal;
     const hcDelta = cur.headcount - prev.headcount;
+    const pmDelta = cur.personMonths - prev.personMonths;
     const dirClass = varAmount > 0 ? "qoq-up" : varAmount < 0 ? "qoq-down" : "";
 
     // Per-location Billing Days deltas, in plain sentences, folded into the
@@ -3724,14 +3860,21 @@ function renderQoQRevenueTable(msRows, tmRows, fiscalYear, locations, holidaysIn
       const direction = hcDelta > 0 ? "increased" : "decreased";
       sentences.push(`Time and Material resource count ${direction} by ${Math.abs(hcDelta)} (from ${prev.headcount} to ${cur.headcount}).`);
     }
+    if (pmDelta !== 0) {
+      const direction = pmDelta > 0 ? "increased" : "decreased";
+      sentences.push(`Person Months billing ${direction} by ${Math.abs(pmDelta)} (from ${prev.personMonths} to ${cur.personMonths}).`);
+    }
 
+    // Each factor sentence renders on its own line within the cell (per
+    // explicit request), rather than as one space-joined paragraph -
+    // escaped individually, then joined with <br> instead of a space.
     let factorsHtml;
     if (varAmount === 0) {
       factorsHtml = "—";
     } else if (!sentences.length) {
-      factorsHtml = "No change in billing days or Time and Material headcount &ndash; check rate cards, discounts or Managed Services billing.";
+      factorsHtml = "No change in billing days, Time and Material headcount or Person Months billing &ndash; check rate cards, discounts or Managed Services billing.";
     } else {
-      factorsHtml = escapeHtml(sentences.join(" "));
+      factorsHtml = sentences.map((s) => escapeHtml(s)).join("<br>");
     }
 
     return `
@@ -3748,6 +3891,236 @@ function renderQoQRevenueTable(msRows, tmRows, fiscalYear, locations, holidaysIn
       </tr>
     `;
   }).join("");
+}
+
+// ---------- Reports > Account Summary ----------
+// A single-account deep dive, per explicit request: unlike every other
+// Reports page (which default to "All customers" and can be narrowed), this
+// one only ever shows one account at a time - same "no All customers
+// option, always lands on a real customer" convention as Reports > Billing
+// Days (see populateCustomerFilterSelect's includeAll:false branch above).
+// Deliberately built entirely from data already fetched elsewhere across
+// this app's other Reports pages (Statement of Work, Resources, Revenue),
+// filtered down to this one customer_id client-side, rather than adding new
+// backend endpoints - see the Promise.all below for exactly which existing
+// endpoint feeds each widget.
+let accountSummaryCustomerFilter = "";
+document.getElementById("accountSummaryCustomerFilter").addEventListener("change", (e) => {
+  accountSummaryCustomerFilter = e.target.value;
+  loadAccountSummary();
+});
+
+const accountSummaryCharts = { revenue: null, location: null };
+function destroyAccountSummaryCharts() {
+  Object.keys(accountSummaryCharts).forEach((k) => {
+    if (accountSummaryCharts[k]) { accountSummaryCharts[k].destroy(); accountSummaryCharts[k] = null; }
+  });
+}
+
+// Realized Revenue rows (both Time and Material and Managed Services) carry
+// their own fiscal_month directly on each row (unlike Best Estimates rows,
+// which come in as one row per SOW/assignment with a 12-element months
+// array - see revenueReportSumsByType/monthlyTotalsForRows above) - a
+// simple per-row bucket sum, no date-range overlap logic needed.
+function realizedMonthlyTotals(rows, amountField) {
+  const totals = new Array(12).fill(0);
+  rows.forEach((r) => {
+    const fm = r.fiscal_month;
+    if (fm >= 1 && fm <= 12) totals[fm - 1] += r[amountField] || 0;
+  });
+  return totals;
+}
+
+// Managed Services by Band - Band is a Managed Services Resource attribute
+// only (Time and Material assignments carry no band_id at all - see
+// TmAssignmentIn vs MsResourceIn in main.py, and the matching scope
+// decision on Reports > Resources' own Headcount by Band/Location table),
+// so this breakdown is scoped to msResourceRows only, same "every
+// configured Band shown, even at zero, plus a trailing Unassigned bucket"
+// convention as the Dashboard's own renderBandTable - a separate function
+// rather than reusing that one since it hard-codes the Dashboard's own
+// element ids.
+function renderAccountSummaryBandTable(msResourceRows, bands) {
+  const tbody = document.getElementById("asBandTableBody");
+  document.getElementById("asBandCount").textContent = msResourceRows.length;
+  const counts = {};
+  msResourceRows.forEach((r) => {
+    const key = r.band_name || "Unassigned";
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  const names = bands.map((b) => b.name);
+  Object.keys(counts).forEach((k) => { if (!names.includes(k)) names.push(k); });
+  names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (!names.length) {
+    tbody.innerHTML = '<tr><td colspan="3" class="empty-state">No bands yet.</td></tr>';
+    return;
+  }
+  const total = msResourceRows.length;
+  tbody.innerHTML = names.map((name) => {
+    const count = counts[name] || 0;
+    return `<tr><td>${escapeHtml(name)}</td><td>${count}</td><td>${pctOf(count, total)}%</td></tr>`;
+  }).join("");
+}
+
+function renderAccountSummarySowTable(custSows) {
+  const tbody = document.getElementById("asSowTableBody");
+  if (!custSows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No SOWs tracked for this account yet.</td></tr>';
+    return;
+  }
+  const sorted = [...custSows].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  tbody.innerHTML = sorted.map((s, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${escapeHtml(s.title)}</td>
+      <td>${escapeHtml(s.status)}</td>
+      <td>${escapeHtml(s.billing_model_name) || "—"}</td>
+      <td>${escapeHtml(s.revenue_type_name) || "—"}</td>
+      <td>${fmtDate(s.start_date)}</td>
+      <td>${fmtDate(s.end_date)}</td>
+      <td>${fmt(s.total_value)}</td>
+      <td>${fmt(s.acv)}</td>
+    </tr>
+  `).join("");
+}
+
+async function loadAccountSummary() {
+  const fy = fiscalYearForToday();
+
+  const [customers, sows, revenueTypes, billingModels, statuses, bands, msData, tmData, msResourceData, realizedTmData, realizedMsData] = await Promise.all([
+    fetch(`${API}/customers`).then((r) => r.json()),
+    fetch(`${API}/sows`).then((r) => r.json()),
+    fetch(`${API}/revenue-types`).then((r) => r.json()),
+    fetch(`${API}/billing-models`).then((r) => r.json()),
+    fetch(`${API}/statuses`).then((r) => r.json()),
+    fetch(`${API}/bands`).then((r) => r.json()),
+    fetch(`${API}/revenue/sows?fiscal_year=${fy}`).then((r) => r.json()),
+    fetch(`${API}/tm/assignments?fiscal_year=${fy}`).then((r) => r.json()),
+    fetch(`${API}/revenue/ms-resources/all?fiscal_year=${fy}`).then((r) => r.json()),
+    fetch(`${API}/realized/tm?fiscal_year=${fy}`).then((r) => r.json()),
+    fetch(`${API}/realized/ms?fiscal_year=${fy}`).then((r) => r.json()),
+  ]);
+  currentRevenueTypes = revenueTypes;
+
+  populateCustomerFilterSelect(customers, "accountSummaryCustomerFilter", { includeAll: false });
+  accountSummaryCustomerFilter = document.getElementById("accountSummaryCustomerFilter").value;
+  const customer = customers.find((c) => String(c.id) === accountSummaryCustomerFilter) || null;
+
+  const profileFields = {
+    asCode: customer && customer.customer_code, asClientPartner: customer && customer.client_partner,
+    asDeliveryDirector: customer && customer.delivery_director, asDeliveryHead: customer && customer.delivery_head,
+    asSalesHead: customer && customer.sales_head, asIndustry: customer && customer.industry,
+    asHq: customer && customer.headquarters, asGeo: customer && customer.geo,
+  };
+  Object.keys(profileFields).forEach((id) => { document.getElementById(id).textContent = profileFields[id] || "—"; });
+
+  destroyAccountSummaryCharts();
+
+  if (!customer) {
+    // No customers configured at all yet (Configuration | Customer is
+    // empty) - nothing to scope this page to, so every widget clears to an
+    // explicit empty state rather than showing stale/undefined data.
+    ["asCircleActiveSows", "asCircleResources", "asCircleExpiring"].forEach((id) => { document.getElementById(id).textContent = "0"; });
+    ["asCircleTcv", "asCircleProjected", "asCircleRealized"].forEach((id) => { document.getElementById(id).textContent = "$0"; });
+    document.getElementById("asLocationCount").textContent = "0";
+    document.getElementById("asSowStatusTableBody").innerHTML = '<tr><td colspan="3" class="empty-state">No customers configured yet - add one under Configuration | Customer.</td></tr>';
+    document.getElementById("asBillingModelTableBody").innerHTML = '<tr><td colspan="3" class="empty-state">No customers configured yet.</td></tr>';
+    document.getElementById("asBandTableBody").innerHTML = '<tr><td colspan="3" class="empty-state">No customers configured yet.</td></tr>';
+    document.getElementById("asRevenueTypeBody").innerHTML = '<tr><td colspan="18" class="empty-state">No customers configured yet.</td></tr>';
+    document.getElementById("asSowTableBody").innerHTML = '<tr><td colspan="9" class="empty-state">No customers configured yet.</td></tr>';
+    return;
+  }
+
+  const custId = customer.id;
+  const custSows = sows.filter((s) => s.customer_id === custId);
+  const msRows = (msData.rows || []).filter((r) => r.customer_id === custId);
+  const tmRows = (tmData.rows || []).filter((r) => r.customer_id === custId);
+  const msResourceRows = (msResourceData.rows || []).filter((r) => r.customer_id === custId);
+  const realizedTmRows = (realizedTmData.rows || []).filter((r) => r.customer_id === custId);
+  const realizedMsRows = (realizedMsData.rows || []).filter((r) => r.customer_id === custId);
+
+  // KPI tiles - same conventions as the main Dashboard's own circle row
+  // (see loadHome above): TCV/Active SOWs/Expiring across every SOW
+  // regardless of status (TCV, Expiring) or matched case-insensitively
+  // (Active, since SOW Status is free-text master data).
+  const statusCounts = {};
+  custSows.forEach((s) => { statusCounts[s.status] = (statusCounts[s.status] || 0) + 1; });
+  document.getElementById("asCircleActiveSows").textContent = countStatusCI(statusCounts, "active");
+
+  const totalTcv = custSows.reduce((sum, s) => sum + (s.total_value || 0), 0);
+  const tcvEl = document.getElementById("asCircleTcv");
+  tcvEl.textContent = fmtCompact(totalTcv);
+  tcvEl.title = fmt(totalTcv);
+
+  document.getElementById("asCircleResources").textContent = tmRows.length + msResourceRows.length;
+
+  const combinedProjected = combinedMonthlyRevenueTotals(msRows, tmRows);
+  const projectedEl = document.getElementById("asCircleProjected");
+  const totalProjected = combinedProjected.reduce((a, v) => a + v, 0);
+  projectedEl.textContent = fmtCompact(totalProjected);
+  projectedEl.title = fmt(totalProjected);
+
+  const combinedRealized = realizedMonthlyTotals(realizedTmRows, "total_invoice_amount")
+    .map((v, i) => v + realizedMonthlyTotals(realizedMsRows, "invoice_amount")[i]);
+  const realizedEl = document.getElementById("asCircleRealized");
+  const totalRealized = combinedRealized.reduce((a, v) => a + v, 0);
+  realizedEl.textContent = fmtCompact(totalRealized);
+  realizedEl.title = fmt(totalRealized);
+
+  document.getElementById("asCircleExpiring").textContent =
+    custSows.filter((s) => (s.alerts || []).includes("expiring_soon")).length;
+
+  // Projected (Best Estimates, bar) vs Realized (actuals, line) revenue,
+  // Apr-Mar - a "plan vs actual" trend Reports > Revenue doesn't show
+  // itself (that page only ever looks at Best Estimates projections).
+  accountSummaryCharts.revenue = new Chart(document.getElementById("chartAccountSummaryRevenue"), {
+    type: "bar",
+    data: {
+      labels: FY_MONTH_LABELS,
+      datasets: [
+        { type: "bar", label: "Projected", data: combinedProjected, backgroundColor: CHART_COLORS.indigo, borderRadius: 4 },
+        { type: "line", label: "Realized", data: combinedRealized, borderColor: CHART_COLORS.emerald, backgroundColor: CHART_COLORS.emerald, tension: .3, pointRadius: 3, fill: false },
+      ],
+    },
+    options: {
+      responsive: true, aspectRatio: 2.6,
+      scales: { y: { beginAtZero: true, ticks: { callback: (v) => fmtCompact(v) } } },
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } },
+    },
+  });
+
+  // Resources by Location - Time and Material assignments + Managed
+  // Services Resources combined (both carry location_name - see
+  // list_all_ms_resources/_TM_ASSIGNMENT_SELECT in main.py), same combined
+  // scope as Reports > Resources' own Headcount by Month table's Total row.
+  const combinedResourceRows = tmRows.concat(msResourceRows);
+  document.getElementById("asLocationCount").textContent = combinedResourceRows.length;
+  const locCounts = {};
+  combinedResourceRows.forEach((r) => {
+    const key = r.location_name || "Unspecified";
+    locCounts[key] = (locCounts[key] || 0) + 1;
+  });
+  const locLabels = Object.keys(locCounts);
+  if (locLabels.length) {
+    const palette = Object.values(CHART_COLORS);
+    accountSummaryCharts.location = new Chart(document.getElementById("chartAccountSummaryLocation"), {
+      type: "pie",
+      data: {
+        labels: locLabels,
+        datasets: [{ data: locLabels.map((l) => locCounts[l]), backgroundColor: locLabels.map((_, i) => palette[i % palette.length]), borderWidth: 0 }],
+      },
+      options: { responsive: true, aspectRatio: 1.5, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } } },
+      plugins: [sliceLabelPlugin],
+    });
+  }
+
+  renderSowStatusTable(statuses, statusCounts, "asSowStatusTableBody", "asSowStatusCount", true);
+  renderBillingModelTable(custSows, billingModels, "asBillingModelTableBody", "asBillingModelCount", true);
+  renderAccountSummaryBandTable(msResourceRows, bands);
+  renderRevenueReportSummaryTable(msRows, tmRows, "asRevenueTypeBody");
+  renderAccountSummarySowTable(custSows);
+
+  setFooterRowCount(custSows.length);
 }
 
 // SOW details popup - shows the full list of SOWs behind whichever count on

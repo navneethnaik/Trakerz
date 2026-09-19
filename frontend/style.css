@@ -739,6 +739,20 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
 .dash-circle-tile.circle-pink { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, #f472b6, #db2777); }
 .dash-circle-tile .circle-value { font-size: 22px; font-weight: 800; color: var(--text); line-height: 1.1; }
 .dash-circle-tile .circle-label { font-size: 11px; font-weight: 700; color: var(--text-muted); margin-top: 4px; }
+/* Reports > Account Summary - Account Profile card (Customer master
+   attributes, read-only) sits above this page's own circle-tile/chart/list
+   rows (see index.html) - a plain label-over-value grid, since nothing else
+   in the app needed one before this page. Its circle row reuses
+   .dash-circle-row/.dash-circle-tile as-is (same 6-tile layout the main
+   Dashboard uses), and its chart row overrides .dash-chart-row's fixed
+   3-column layout down to 2 (Revenue trend + Resources by Location only,
+   no third card here). */
+.account-profile-card { margin-bottom: 18px; }
+.account-profile-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px 14px; }
+.account-profile-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.account-profile-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .02em; }
+.account-profile-value { font-size: 14px; color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-summary-chart-row { grid-template-columns: 2fr 1fr; }
 /* Trailing "Total" row appended to a breakdown table (see the includeTotal
    flag on renderSowStatusTable/renderBillingModelTable in app.js, used by
    Reports > Statement of Work) - bold with a heavier top border so it reads
