@@ -1536,7 +1536,7 @@
             <th class="rev-leading-th" rowspan="2">Sl. No</th>
             <th colspan="3" class="group-header">Customer and SoW Details</th>
             <th colspan="3" class="group-header group-divider">Milestone Details</th>
-            <th colspan="3" class="group-header group-divider">Revenue Details</th>
+            <th colspan="4" class="group-header group-divider">Revenue Details</th>
             <th class="rev-leading-th group-divider" rowspan="2">Additional Details</th>
           </tr>
           <tr>
@@ -1546,6 +1546,7 @@
             <th class="rev-leading-th">Milestone</th>
             <th class="rev-leading-th">Milestone Amount</th>
             <th class="rev-leading-th group-divider">Milestone Date</th>
+            <th class="rev-leading-th">Invoice Month</th>
             <th class="rev-leading-th">Invoice Date</th>
             <th class="rev-leading-th">Invoice Amount ($)</th>
             <th class="rev-leading-th group-divider">Billing Advice#</th>
@@ -2285,8 +2286,30 @@
         <label>Milestone Date<input type="text" class="rms-f-milestone-date" readonly /></label>
       </div>
 
+      <!-- Invoice Month (Apr-Mar) is its own dropdown, independent of Invoice
+           Date's own calendar day - per explicit request, it's what actually
+           sets the fiscal month this entry's revenue is booked under (see
+           add_realized_ms/update_realized_ms in main.py), so an invoice
+           dated early next month for last month's revenue can still be
+           booked to the right month. -->
       <div class="form-section-title">Revenue Details</div>
-      <div class="three-col">
+      <div class="four-col">
+        <label>Invoice Month
+          <select class="rms-f-invoice-month" required>
+            <option value="1">Apr</option>
+            <option value="2">May</option>
+            <option value="3">Jun</option>
+            <option value="4">Jul</option>
+            <option value="5">Aug</option>
+            <option value="6">Sep</option>
+            <option value="7">Oct</option>
+            <option value="8">Nov</option>
+            <option value="9">Dec</option>
+            <option value="10">Jan</option>
+            <option value="11">Feb</option>
+            <option value="12">Mar</option>
+          </select>
+        </label>
         <label>Invoice Date<input type="date" class="rms-f-invoice-date" required /></label>
         <label>Invoice Amount ($)<input type="number" step="0.01" class="rms-f-invoice-amount" value="0" /></label>
         <label>Billing Advice#<input type="text" class="rms-f-billing-advice" /></label>
@@ -2472,6 +2495,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=177"></script>
+<script src="app.js?v=178"></script>
 </body>
 </html>

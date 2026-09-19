@@ -469,11 +469,16 @@ CREATE TABLE IF NOT EXISTS realized_tm_entries (
 -- that milestone's own amount/due_date, never stored here), and
 -- invoice_date/invoice_amount/billing_advice_number are plain user-typed
 -- values - unlike Best Estimates > Managed Services, which computes its
--- Apr-Mar monthly revenue from ms_resources. fiscal_year/fiscal_month are
--- derived from invoice_date (see _fiscal_year_month_of in main.py) and
--- stored here, same treatment as realized_tm_entries' own start_date-
--- derived bucketing, so "Billing Model wise Monthly Revenue" (the page's
--- own Table 1) stays summable with a plain GROUP BY. milestone_id is ON
+-- Apr-Mar monthly revenue from ms_resources. fiscal_year is derived from
+-- invoice_date's own calendar year (see _fiscal_year_month_of in main.py),
+-- same treatment as realized_tm_entries' own start_date-derived bucketing,
+-- but fiscal_month is NOT - per explicit request, it's read straight off
+-- its own Invoice Month dropdown (Apr-Mar) instead, so the document's actual
+-- date and the fiscal month its revenue is booked to can differ (e.g. an
+-- invoice raised early next month for the prior month's revenue). Either
+-- way, "Billing Model wise Monthly Revenue" (the page's own Table 1) stays
+-- summable with a plain GROUP BY on the stored fiscal_year/fiscal_month.
+-- milestone_id is ON
 -- DELETE SET NULL (like sow_id) so deleting a SOW - which cascades to its
 -- milestones - doesn't fail trying to delete a milestone still referenced
 -- here. This replaced an earlier "monthly revenue" shape (12 stored

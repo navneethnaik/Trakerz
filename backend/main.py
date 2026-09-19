@@ -328,24 +328,31 @@ class RealizedTmIn(BaseModel):
 # Realized Revenue > Managed Services Add/Edit popup payload (see
 # realized_ms_accounts in db.py) - converted from a monthly-revenue ledger
 # (12 stored per-fiscal-month amounts) to a per-invoice, per-milestone
-# ledger per explicit request: milestone_id/invoice_date/invoice_amount/
-# billing_advice_number replace the old months list. fiscal_year/
-# fiscal_month are derived server-side from invoice_date (see
-# _fiscal_year_month_of), never taken from the client, mirroring RealizedTmIn
-# above deriving them from start_date. Unlike Best Estimates > Managed
-# Services' #revenueEntryModal, Customer Name and Statement of Work stay
-# editable on an existing row too (per explicit request this is a
-# standalone actuals ledger, same "everything editable in Edit mode"
-# convention as RealizedTmIn above), so both are accepted on every save, not
-# just the initial Add. sow_id is optional since Billing Model/Milestone
-# have nothing to auto-populate from until a SOW is actually picked, but the
-# front end requires one before Save (see openRealizedMsEntryModal()/its
-# submit handler in app.js) - enforced there rather than here so the same
-# 400-style message used elsewhere in this app is easy to keep consistent.
+# ledger per explicit request: milestone_id/invoice_month/invoice_date/
+# invoice_amount/billing_advice_number replace the old months list.
+# fiscal_year is derived server-side from invoice_date's own calendar year
+# (see _fiscal_year_month_of), same as RealizedTmIn above deriving it from
+# start_date, but fiscal_month is NOT - per explicit request, Invoice Month
+# is its own dropdown (Apr-Mar) that directly sets the fiscal month this
+# entry's revenue is bucketed under, independent of Invoice Date's own
+# calendar day (e.g. an invoice dated early next month for last month's
+# revenue). invoice_month is a plain 1=Apr...12=Mar fiscal-month position,
+# same convention as fiscal_month everywhere else in this app. Unlike Best
+# Estimates > Managed Services' #revenueEntryModal, Customer Name and
+# Statement of Work stay editable on an existing row too (per explicit
+# request this is a standalone actuals ledger, same "everything editable in
+# Edit mode" convention as RealizedTmIn above), so both are accepted on
+# every save, not just the initial Add. sow_id is optional since Billing
+# Model/Milestone have nothing to auto-populate from until a SOW is
+# actually picked, but the front end requires one before Save (see
+# openRealizedMsEntryModal()/its submit handler in app.js) - enforced there
+# rather than here so the same 400-style message used elsewhere in this app
+# is easy to keep consistent.
 class RealizedMsIn(BaseModel):
     customer_id: Optional[int] = None
     sow_id: Optional[int] = None
     milestone_id: Optional[int] = None
+    invoice_month: int
     invoice_date: str
     invoice_amount: Optional[float] = None
     billing_advice_number: Optional[str] = None
@@ -3170,6 +3177,8 @@ def _validate_realized_ms_refs(conn, payload: RealizedMsIn):
             raise HTTPException(status_code=400, detail="Selected milestone does not exist")
         if payload.sow_id is None or milestone["sow_id"] != payload.sow_id:
             raise HTTPException(status_code=400, detail="Selected milestone does not belong to the selected Statement of Work")
+    if not 1 <= payload.invoice_month <= 12:
+        raise HTTPException(status_code=400, detail="Invoice Month must be between 1 and 12")
 
 
 def _realized_ms_row_dict(account_row) -> dict:
@@ -3197,13 +3206,17 @@ def list_realized_ms(fiscal_year: Optional[int] = None):
 
 @app.post("/api/realized/ms", status_code=201)
 def add_realized_ms(payload: RealizedMsIn):
-    """Add Entry on the Realized Managed Services grid. fiscal_year/
-    fiscal_month are always derived from Invoice Date (see
-    _fiscal_year_month_of), never taken from the client, mirroring
-    add_realized_tm above."""
+    """Add Entry on the Realized Managed Services grid. fiscal_year is
+    derived from Invoice Date's own calendar year (see
+    _fiscal_year_month_of), same as add_realized_tm above, but fiscal_month
+    comes straight from the Invoice Month dropdown instead - per explicit
+    request, so an invoice's document date and the fiscal month its revenue
+    is booked to can differ (e.g. an invoice raised early next month for the
+    prior month's revenue)."""
     with db.get_db() as conn:
         _validate_realized_ms_refs(conn, payload)
-        fiscal_year, fiscal_month = _fiscal_year_month_of(payload.invoice_date)
+        fiscal_year, _ = _fiscal_year_month_of(payload.invoice_date)
+        fiscal_month = payload.invoice_month
         cur = conn.execute(
             """INSERT INTO realized_ms_accounts (customer_id, sow_id, milestone_id, invoice_date, invoice_amount,
                billing_advice_number, fiscal_year, fiscal_month, additional_info, updated_at)
@@ -3222,14 +3235,16 @@ def update_realized_ms(account_id: int, payload: RealizedMsIn):
     action. Customer Name and Statement of Work stay editable here (unlike
     Best Estimates > Managed Services, which locks both once a row exists) -
     per explicit request this is a standalone ledger, same "everything
-    editable in Edit mode" convention as Realized T&M. Re-derives
-    fiscal_year/fiscal_month from the (possibly changed) Invoice Date every
-    time, same as update_realized_tm above."""
+    editable in Edit mode" convention as Realized T&M. Re-derives fiscal_year
+    from the (possibly changed) Invoice Date every time, same as
+    update_realized_tm above, and re-reads fiscal_month straight off the
+    (possibly changed) Invoice Month dropdown."""
     with db.get_db() as conn:
         if not conn.execute("SELECT 1 FROM realized_ms_accounts WHERE id = ?", (account_id,)).fetchone():
             raise HTTPException(status_code=404, detail="Entry not found")
         _validate_realized_ms_refs(conn, payload)
-        fiscal_year, fiscal_month = _fiscal_year_month_of(payload.invoice_date)
+        fiscal_year, _ = _fiscal_year_month_of(payload.invoice_date)
+        fiscal_month = payload.invoice_month
         conn.execute(
             """UPDATE realized_ms_accounts SET customer_id=?, sow_id=?, milestone_id=?, invoice_date=?, invoice_amount=?,
                billing_advice_number=?, fiscal_year=?, fiscal_month=?, additional_info=?,

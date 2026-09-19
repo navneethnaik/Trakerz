@@ -6612,7 +6612,7 @@ function renderRealizedMsTable() {
   const tbody = document.getElementById("realizedMsTableBody");
   tbody.innerHTML = "";
   if (!filteredRows.length) {
-    tbody.innerHTML = `<tr><td colspan="12" class="empty-state">${
+    tbody.innerHTML = `<tr><td colspan="13" class="empty-state">${
       allRows.length ? "No entries match the selected filter." : 'No entries yet. Click "Add Entry" to start tracking realized Managed Services revenue.'
     }</td></tr>`;
   } else {
@@ -6718,6 +6718,7 @@ function buildRealizedMsRow(r) {
     <td>${escapeHtml(r.milestone_description) || "—"}</td>
     <td>${r.milestone_amount != null ? fmtPlain(r.milestone_amount) : "—"}</td>
     <td class="group-divider">${fmtDate(r.milestone_date)}</td>
+    <td>${r.fiscal_month ? FY_MONTH_LABELS[r.fiscal_month - 1] : "—"}</td>
     <td>${fmtDate(r.invoice_date)}</td>
     <td>${r.invoice_amount != null ? fmtPlain(r.invoice_amount) : "—"}</td>
     <td class="group-divider">${escapeHtml(r.billing_advice_number) || "—"}</td>
@@ -6736,8 +6737,8 @@ function buildRealizedMsRow(r) {
     // brand-new row.
     openRealizedMsEntryModal(null, {
       customerId: r.customer_id, sowId: r.sow_id, milestoneId: r.milestone_id,
-      invoiceDate: r.invoice_date, invoiceAmount: r.invoice_amount, billingAdviceNumber: r.billing_advice_number,
-      additionalInfo: r.additional_info,
+      invoiceMonth: r.fiscal_month, invoiceDate: r.invoice_date, invoiceAmount: r.invoice_amount,
+      billingAdviceNumber: r.billing_advice_number, additionalInfo: r.additional_info,
     });
   });
   tr.querySelector(".rms-edit-btn").addEventListener("click", () => {
@@ -6779,6 +6780,7 @@ function openRealizedMsEntryModal(r = null, prefill = {}, viewOnly = false) {
   const milestoneSelect = box.querySelector(".rms-f-milestone");
   const milestoneAmountInput = box.querySelector(".rms-f-milestone-amount");
   const milestoneDateInput = box.querySelector(".rms-f-milestone-date");
+  const invoiceMonthSelect = box.querySelector(".rms-f-invoice-month");
   const invoiceDateInput = box.querySelector(".rms-f-invoice-date");
   const invoiceAmountInput = box.querySelector(".rms-f-invoice-amount");
   const billingAdviceInput = box.querySelector(".rms-f-billing-advice");
@@ -6885,6 +6887,7 @@ function openRealizedMsEntryModal(r = null, prefill = {}, viewOnly = false) {
   }
   refreshMilestoneOptions(r ? r.milestone_id : prefill.milestoneId);
 
+  invoiceMonthSelect.value = String((r ? r.fiscal_month : prefill.invoiceMonth) || 1);
   invoiceDateInput.value = (r ? r.invoice_date : prefill.invoiceDate) || "";
   invoiceAmountInput.value = (r ? r.invoice_amount : prefill.invoiceAmount) ?? 0;
   billingAdviceInput.value = (r ? r.billing_advice_number : prefill.billingAdviceNumber) || "";
@@ -6898,9 +6901,9 @@ function openRealizedMsEntryModal(r = null, prefill = {}, viewOnly = false) {
   milestoneSelect.onchange = refreshMilestoneAutofill;
 
   // View mode disables/read-onlys every field that's otherwise editable
-  // (Customer Name, Statement of Work, Milestone, Invoice Date/Amount,
-  // Billing Advice# and Additional Details) and swaps the Save button for
-  // an Edit button, same convention as openRealizedTmEntryModal()'s own
+  // (Customer Name, Statement of Work, Milestone, Invoice Month, Invoice
+  // Date/Amount, Billing Advice# and Additional Details) and swaps the Save
+  // button for an Edit button, same convention as openRealizedTmEntryModal()'s own
   // setMode(). Not offered for a brand-new ("Add Entry") row. Milestone
   // Amount/Milestone Date and Billing Model stay read-only regardless of
   // mode - they're always auto-populated, never hand-picked.
@@ -6912,6 +6915,7 @@ function openRealizedMsEntryModal(r = null, prefill = {}, viewOnly = false) {
     sowSelect.disabled = isViewOnly || !customerSelect.value;
     msViewOnlyState = isViewOnly;
     milestoneSelect.disabled = isViewOnly || !currentSowMilestones.length;
+    invoiceMonthSelect.disabled = isViewOnly;
     invoiceDateInput.readOnly = isViewOnly;
     invoiceAmountInput.readOnly = isViewOnly;
     billingAdviceInput.readOnly = isViewOnly;
@@ -6938,6 +6942,7 @@ document.getElementById("realizedMsEntryForm").addEventListener("submit", async 
   const sowVal = box.querySelector(".rms-f-sow").value;
   if (!sowVal) { alert("Please select a Statement of Work."); return; }
   const milestoneVal = box.querySelector(".rms-f-milestone").value;
+  const invoiceMonthVal = box.querySelector(".rms-f-invoice-month").value;
   const invoiceDateVal = box.querySelector(".rms-f-invoice-date").value;
   if (!invoiceDateVal) { alert("Please enter an Invoice Date."); return; }
 
@@ -6945,6 +6950,7 @@ document.getElementById("realizedMsEntryForm").addEventListener("submit", async 
     customer_id: customerVal ? parseInt(customerVal, 10) : null,
     sow_id: sowVal ? parseInt(sowVal, 10) : null,
     milestone_id: milestoneVal ? parseInt(milestoneVal, 10) : null,
+    invoice_month: parseInt(invoiceMonthVal, 10),
     invoice_date: invoiceDateVal,
     invoice_amount: parseFloat(box.querySelector(".rms-f-invoice-amount").value) || 0,
     billing_advice_number: box.querySelector(".rms-f-billing-advice").value.trim() || null,
