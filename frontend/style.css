@@ -41,8 +41,8 @@
 :root {
   /* Selectable color themes (see "---------- Color themes ----------" below)
      replaced the old single fixed palette plus light/dark toggle - :root now
-     just holds the *default* theme's values, and each html[data-theme="..."]
-     block overrides the same handful of theme tokens (--bg/--border/
+     just holds the *default* theme's ("Deep Navy Teal") values, and each
+     html[data-theme="..."] block overrides the same handful of theme tokens (--bg/--border/
      --primary/--primary-2/--primary-hover/--primary-rgb/--primary-pale-bg/
      --row-hover/--table-border) for its own palette. --text/--text-muted/
      --surface/--shadow-sm and the decorative multi-hue accents used for
@@ -51,18 +51,18 @@
      distinguish unrelated categories (SOW statuses, resource locations, KPI
      groupings) from each other or to guarantee legible body text regardless
      of which theme is active, not to carry the theme color.
-     Default theme: https://colorhunt.co/palette/fff2f2a9b5df7886c72d336b */
-  --bg: #fff2f2;
+     Default theme: https://colorhunt.co/palette/061e291d546d5f9598f3f4f4 */
+  --bg: #f3f4f4;
   --surface: #ffffff;
-  --border: #e2d7df;
+  --border: #d5dee1;
   --text: #524646;
   --text-muted: #8c8178;
-  --primary: #a9b5df;
-  --primary-2: #7886c7;
-  --primary-hover: #2d336b;
-  --primary-rgb: 169, 181, 223;
-  --primary-pale-bg: #f1f3fa;
-  --row-hover: #f6eaea;
+  --primary: #5f9598;
+  --primary-2: #3e7482;
+  --primary-hover: #1d546d;
+  --primary-rgb: 95, 149, 152;
+  --primary-pale-bg: #e5eeef;
+  --row-hover: #eaebeb;
   --pink: #ec4899;
   --cyan: #1dced8;
   --danger: #ef4444;
@@ -71,7 +71,7 @@
   --radius: 12px;
   --shadow-sm: 0 1px 3px rgba(82, 70, 70, .10);
   --shadow-md: 0 6px 20px rgba(var(--primary-rgb), .18);
-  --table-border: #bcb5c7;
+  --table-border: #afc1c9;
   /* Shared background for every table header (<th>) app-wide. Built from
      the active theme's own --primary-hover/--primary-2 tokens (same trick
      as .topbar's gradient below) rather than a fixed value, so it changes
@@ -80,37 +80,29 @@
      its own palette, so this cascades to every table header with no
      further changes needed per theme. White header text stays legible
      against every theme's --primary-hover/--primary-2 pair (verified
-     against all six palettes, same pair the topbar already uses). */
+     against all four palettes, same pair the topbar already uses). */
   --table-header-bg: linear-gradient(90deg, var(--primary-hover) 0%, var(--primary-2) 100%);
 }
 
 /* ---------- Color themes ----------
-   Six selectable palettes (see the theme-picker menu in the topbar, wired up
+   Four selectable palettes (see the theme-picker menu in the topbar, wired up
    in app.js's "---------- Theme picker ----------" section) - the chosen
    theme's slug is stored as a `data-theme` attribute on <html> (persisted in
    localStorage, applied inline in <head> before first paint to avoid a flash
    of the default theme), with :root above already holding the default
-   theme's ("Blush Navy") own values so no data-theme attribute is needed for
-   it. Each block here only redefines the small set of tokens that actually
-   carry a theme's color; everything else (--text/--surface/--shadow-sm, the
-   dark table-header chrome, and the decorative multi-hue accents used for
-   chart slices, stat tiles and card-icon badges) is already read from :root
-   and re-themes for free by inheritance. The topbar (.topbar below) is the
-   one dark-chrome exception - it's built from --primary-2/--primary-hover
-   directly (not a fixed color) precisely so it changes with the theme too,
-   per explicit instruction. */
-html[data-theme="sky"] {
-  /* https://colorhunt.co/palette/30afff92eeffd8ffc5c4f7ca */
-  --bg: #d8ffc5;
-  --border: #92eeff;
-  --primary: #30afff;
-  --primary-2: #1894e2;
-  --primary-hover: #0078c4;
-  --primary-rgb: 48, 175, 255;
-  --primary-pale-bg: #def2ff;
-  --row-hover: #d0f6be;
-  --table-border: #97d6c5;
-}
+   theme's ("Deep Navy Teal") own values so no data-theme attribute is needed
+   for it. Each block here only redefines the small set of tokens that
+   actually carry a theme's color; everything else (--text/--surface/
+   --shadow-sm, the dark table-header chrome, and the decorative multi-hue
+   accents used for chart slices, stat tiles and card-icon badges) is already
+   read from :root and re-themes for free by inheritance. The topbar (.topbar
+   below) is the one dark-chrome exception - it's built from --primary-2/
+   --primary-hover directly (not a fixed color) precisely so it changes with
+   the theme too, per explicit instruction.
+   ("Sky & Mint" and "Blush Navy" were removed per explicit request - Blush
+   Navy was the previous default, replaced above by Deep Navy Teal's own
+   values; Deep Navy Teal's own html[data-theme="navy"] block below it was
+   removed the same way, since its palette now lives in :root instead.) */
 html[data-theme="sage"] {
   /* https://colorhunt.co/palette/65928788bda4b1d3b9e6f2dd */
   --bg: #e6f2dd;
@@ -134,18 +126,6 @@ html[data-theme="taupe"] {
   --primary-pale-bg: #f6f3ef;
   --row-hover: #f0efed;
   --table-border: #d9cfc7;
-}
-html[data-theme="navy"] {
-  /* https://colorhunt.co/palette/061e291d546d5f9598f3f4f4 */
-  --bg: #f3f4f4;
-  --border: #d5dee1;
-  --primary: #5f9598;
-  --primary-2: #3e7482;
-  --primary-hover: #1d546d;
-  --primary-rgb: 95, 149, 152;
-  --primary-pale-bg: #e5eeef;
-  --row-hover: #eaebeb;
-  --table-border: #afc1c9;
 }
 html[data-theme="blueteal"] {
   /* https://colorhunt.co/palette/3368a066a3bfc8dfdbf2efe7 */
@@ -361,20 +341,13 @@ body.scroll-locked #tab-config-leaves,
 body.scroll-locked #tab-customers,
 body.scroll-locked #tab-config-billing-hours,
 body.scroll-locked #tab-config-holidays { flex: 1 1 auto; min-height: 0; }
-/* Resource and Leave's toolbar+table sit inside a plain .list-card
-   (.config-card) wrapper rather than being direct children of the tab panel
-   the way #tab-sows/#tab-resources are - same "not a flex container yet"
-   issue the Revenue Management .rev-category-section comment above
-   describes, so it needs the same nested-flex-column treatment to let its
-   .table-scroll child's flex:1 1 auto below actually take effect. Billing
-   Hours and Holiday Calendar share that same .list-card wrapper shape, so
-   they need the identical override; Customer doesn't (its toolbar/table are
-   direct children of #tab-customers, same as #tab-sows/#tab-resources). */
-body.scroll-locked #tab-config-leaves > .list-card,
-body.scroll-locked #tab-config-billing-hours > .list-card,
-body.scroll-locked #tab-config-holidays > .list-card {
-  display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
-}
+/* Resource and Leave/Billing Hours/Holiday Calendar's toolbar+table are
+   direct children of their own tab panel, same as #tab-sows/#tab-resources/
+   #tab-customers (their old .list-card/.config-card wrapper was removed per
+   explicit request, to match Customer's own format) - so, like those three,
+   they need no extra flex-container override here: .tab-panel.active above
+   already makes the tab panel itself a flex column, which is all their
+   .table-scroll child's flex:1 1 auto below needs to take effect. */
 /* Managed Services and Time and Material each live in their own
    .rev-category-section (see index.html) so only one shows at a time - each
    needs to be its own nested flex column (rather than a plain block) for the
@@ -864,6 +837,14 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
    Managed Services popup's Edit/Save buttons swapping visibility - see
    openRevenueEntryModal's setMode() in app.js) would leave it visible. */
 .primary-btn[hidden] { display: none; }
+/* Same fix, same reasoning, for .ghost-btn's own `display: inline-flex`
+   (declared above) - without this override every setMode()/setSowFormMode()
+   toggle of .hidden on a .ghost-btn stayed visible and clickable in View
+   mode, even though the button was meant to disappear: the SOW popup's
+   Upload/+ Add milestone/remove-milestone (x) buttons, and Managed
+   Services' own "+ Add resource" button (#msAddResourceBtn), per explicit
+   bug report. */
+.ghost-btn[hidden] { display: none; }
 
 .ghost-btn {
   background: rgba(91, 118, 134, .06); border: 1px solid var(--border); border-radius: 8px;

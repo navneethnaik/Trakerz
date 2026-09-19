@@ -369,16 +369,17 @@ function renderAlertBanner(data) {
 }
 
 // ---------- Theme picker ----------
-// Six selectable Color Hunt palettes replace the old light/dark toggle - see
-// the "---------- Color themes ----------" block in style.css for what each
-// slug actually redefines. "" (empty string / no data-theme attribute) is
-// the default theme ("Blush Navy"), matching every other slug's absence
-// meaning "default" the same way the old dark-mode toggle worked. Kept in
-// sync with the validThemes list in index.html's early inline <script>
-// (which applies the saved choice before first paint, so the page never
-// flashes the default theme) and with the six .theme-swatch-item buttons in
-// #themeMenu.
-const THEMES = ["", "sky", "sage", "taupe", "navy", "blueteal"];
+// Four selectable Color Hunt palettes replace the old light/dark toggle -
+// see the "---------- Color themes ----------" block in style.css for what
+// each slug actually redefines. "" (empty string / no data-theme attribute)
+// is the default theme ("Deep Navy Teal"), matching every other slug's
+// absence meaning "default" the same way the old dark-mode toggle worked.
+// "Sky & Mint" and the old "Blush Navy" default were removed per explicit
+// request. Kept in sync with the validThemes list in index.html's early
+// inline <script> (which applies the saved choice before first paint, so
+// the page never flashes the default theme) and with the four
+// .theme-swatch-item buttons in #themeMenu.
+const THEMES = ["", "sage", "taupe", "blueteal"];
 
 function applyTheme(themeId) {
   if (themeId && THEMES.includes(themeId)) {
@@ -4515,8 +4516,13 @@ function buildRevenueSowRow(r) {
 // renderMsResourceSubtable's own re-fetch-and-rebuild closure - every
 // mutation (save/delete) just calls it and lets the whole subtable rebuild,
 // the same "reload rather than patch" approach loadSows()/loadRevenueTab()
-// use elsewhere in the app, since a resource list is always small.
-function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh) {
+// use elsewhere in the app, since a resource list is always small. viewOnly
+// (see renderMsResourceSubtable/openRevenueEntryModal's own setMode()) - per
+// explicit bug report, a resource row must not offer Edit/Delete at all while
+// its parent popup is in View mode, so that branch's actions column is left
+// empty instead of showing those two icons - editing is never true at the
+// same time as viewOnly (View mode never opens a row already editing).
+function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh, viewOnly = false) {
   const tr = document.createElement("tr");
   tr.dataset.resourceId = res?.id ?? "";
 
@@ -4525,6 +4531,8 @@ function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh) {
         <button type="button" class="ghost-btn btn-edit icon-btn ms-res-save-btn" title="Save">${icon("check")}</button>
         <button type="button" class="ghost-btn icon-btn ms-res-cancel-btn" title="Cancel">${icon("x")}</button>
       </td>`
+    : viewOnly
+    ? `<td class="row-actions"></td>`
     : `<td class="row-actions">
         <button type="button" class="ghost-btn btn-edit icon-btn ms-res-edit-btn" title="Edit">${icon("edit")}</button>
         <button type="button" class="ghost-btn btn-danger icon-btn ms-res-del-btn" title="Delete">${icon("trash")}</button>
@@ -4649,7 +4657,7 @@ function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh) {
         cancelBtn.disabled = false;
       }
     });
-  } else {
+  } else if (!viewOnly) {
     tr.querySelector(".ms-res-edit-btn").addEventListener("click", () => {
       tr.replaceWith(buildMsResourceRow(res, sowId, fiscalYear, true, refresh));
     });
@@ -4684,8 +4692,10 @@ function buildMsResourceRow(res, sowId, fiscalYear, editing, refresh) {
 // popup's own Revenue Projections and Monthly Breakdown - always the
 // read-only sum of these resources' own monthly revenue, per explicit
 // request - stays in sync with every add/edit/delete here, not just on next
-// reload.
-async function renderMsResourceSubtable(container, sowId, fiscalYear, onResourcesChange) {
+// reload. viewOnly (see openRevenueEntryModal's own setMode()) - per explicit
+// bug report, "+ Add resource" must not add a row, and every existing row's
+// own Edit/Delete must not appear, while the parent popup is in View mode.
+async function renderMsResourceSubtable(container, sowId, fiscalYear, onResourcesChange, viewOnly = false) {
   container.innerHTML = `
     <div class="table-scroll">
       <table class="sow-table ms-resource-table">
@@ -4714,12 +4724,13 @@ async function renderMsResourceSubtable(container, sowId, fiscalYear, onResource
     if (!resources.length) {
       tbody.innerHTML = '<tr><td colspan="22" class="empty-state empty-state-tight">No resources added yet.</td></tr>';
     } else {
-      resources.forEach((res) => tbody.appendChild(buildMsResourceRow(res, sowId, fiscalYear, false, refresh)));
+      resources.forEach((res) => tbody.appendChild(buildMsResourceRow(res, sowId, fiscalYear, false, refresh, viewOnly)));
     }
     if (onResourcesChange) onResourcesChange(resources);
   }
 
   addBtn.onclick = () => {
+    if (viewOnly) return;
     if (tbody.querySelector(".empty-state")) tbody.innerHTML = "";
     tbody.appendChild(buildMsResourceRow(null, sowId, fiscalYear, true, refresh));
   };
@@ -4947,6 +4958,13 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
   // selected at the moment Cancel is clicked (the user may pick SOW A, add a
   // resource, then switch to SOW B before abandoning the popup).
   const touchedSowIds = new Set();
+  // Tracks the popup's own current View/Edit mode (set by setMode() below) so
+  // refreshResourcesSection() - re-run on every Customer/SOW change as well as
+  // every Edit click - always knows whether "+ Add resource" and each row's
+  // own Edit/Delete should be offered right now, per explicit bug report (the
+  // Resources subtable used to ignore the popup's mode entirely and always
+  // show them, even while the rest of the popup was read-only in View mode).
+  let currentViewOnly = false;
   function refreshResourcesSection() {
     const selectedSowId = sowSelect.value ? parseInt(sowSelect.value, 10) : null;
     if (selectedSowId) {
@@ -4961,8 +4979,8 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
       if (!isEditing) touchedSowIds.add(selectedSowId);
       resourcesSection.hidden = false;
       resourcesHint.hidden = true;
-      addResourceBtn.hidden = false;
-      renderMsResourceSubtable(resourcesContainer, selectedSowId, currentFiscalYear, applyResourceSums);
+      addResourceBtn.hidden = currentViewOnly;
+      renderMsResourceSubtable(resourcesContainer, selectedSowId, currentFiscalYear, applyResourceSums, currentViewOnly);
     } else {
       resourcesSection.hidden = true;
       resourcesHint.hidden = false;
@@ -5090,6 +5108,17 @@ async function openRevenueEntryModal(r = null, prefill = {}, viewOnly = false) {
     editRevenueEntryBtn.hidden = !isViewOnly;
     saveRevenueEntryBtnTop.hidden = isViewOnly;
     saveRevenueEntryBtn.hidden = isViewOnly;
+    // Import from Excel mutates this SOW's Resources, so it's hidden in View
+    // mode same as every other mutating control here - Export stays offered
+    // either way since it's read-only. "+ Add resource" and each existing
+    // row's own Edit/Delete are handled by refreshResourcesSection() below,
+    // re-run here so re-entering Edit mode (or first opening in View mode)
+    // immediately reflects the new mode instead of only on the next
+    // Customer/SOW change - per explicit bug report, these previously stayed
+    // clickable in View mode regardless.
+    msImportBtn.hidden = isViewOnly;
+    currentViewOnly = isViewOnly;
+    refreshResourcesSection();
   }
   editRevenueEntryBtnTop.onclick = () => setMode(false);
   editRevenueEntryBtn.onclick = () => setMode(false);

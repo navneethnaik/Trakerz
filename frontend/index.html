@@ -13,12 +13,12 @@
   (function () {
     try {
       var saved = localStorage.getItem("trakerz_theme");
-      var validThemes = ["sky", "sage", "taupe", "navy", "blueteal"];
+      var validThemes = ["sage", "taupe", "blueteal"];
       if (validThemes.indexOf(saved) !== -1) document.documentElement.setAttribute("data-theme", saved);
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=141" />
+<link rel="stylesheet" href="style.css?v=143" />
 </head>
 <body>
 <header class="topbar">
@@ -214,32 +214,25 @@
     <button class="theme-picker-btn dropdown-toggle" id="themePickerBtn" title="Choose color theme">
       <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>
     </button>
-    <!-- Six selectable Color Hunt palettes (see THEMES in app.js) - each item
+    <!-- Four selectable Color Hunt palettes (see THEMES in app.js) - each item
          previews its own bg/primary/primary-2/primary-hover swatches so the
          picker doubles as a preview, not just a name list. Picked up by the
          generic .nav-dropdown open/close wiring in app.js; the actual
          selection click is wired separately (theme items carry data-theme-id
          rather than data-tab, so the generic dropdown-item[data-tab] handler
-         skips them). -->
+         skips them). "Sky & Mint" and the old "Blush Navy" default were
+         removed per explicit request - Deep Navy Teal (below, data-theme-id
+         "") is the new default, its own palette having moved into :root in
+         style.css. -->
     <div class="dropdown-menu theme-menu" id="themeMenu" hidden>
       <button class="dropdown-item theme-swatch-item" data-theme-id="">
         <span class="theme-swatch-preview">
-          <span class="theme-swatch-dot" style="background:#fff2f2"></span>
-          <span class="theme-swatch-dot" style="background:#a9b5df"></span>
-          <span class="theme-swatch-dot" style="background:#7886c7"></span>
-          <span class="theme-swatch-dot" style="background:#2d336b"></span>
+          <span class="theme-swatch-dot" style="background:#f3f4f4"></span>
+          <span class="theme-swatch-dot" style="background:#5f9598"></span>
+          <span class="theme-swatch-dot" style="background:#1d546d"></span>
+          <span class="theme-swatch-dot" style="background:#061e29"></span>
         </span>
-        <span class="theme-swatch-name">Blush Navy</span>
-        <svg class="icon theme-swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-      </button>
-      <button class="dropdown-item theme-swatch-item" data-theme-id="sky">
-        <span class="theme-swatch-preview">
-          <span class="theme-swatch-dot" style="background:#d8ffc5"></span>
-          <span class="theme-swatch-dot" style="background:#30afff"></span>
-          <span class="theme-swatch-dot" style="background:#92eeff"></span>
-          <span class="theme-swatch-dot" style="background:#c4f7ca"></span>
-        </span>
-        <span class="theme-swatch-name">Sky &amp; Mint</span>
+        <span class="theme-swatch-name">Deep Navy Teal</span>
         <svg class="icon theme-swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
       </button>
       <button class="dropdown-item theme-swatch-item" data-theme-id="sage">
@@ -260,16 +253,6 @@
           <span class="theme-swatch-dot" style="background:#c9b59c"></span>
         </span>
         <span class="theme-swatch-name">Warm Taupe</span>
-        <svg class="icon theme-swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-      </button>
-      <button class="dropdown-item theme-swatch-item" data-theme-id="navy">
-        <span class="theme-swatch-preview">
-          <span class="theme-swatch-dot" style="background:#f3f4f4"></span>
-          <span class="theme-swatch-dot" style="background:#5f9598"></span>
-          <span class="theme-swatch-dot" style="background:#1d546d"></span>
-          <span class="theme-swatch-dot" style="background:#061e29"></span>
-        </span>
-        <span class="theme-swatch-name">Deep Navy Teal</span>
         <svg class="icon theme-swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
       </button>
       <button class="dropdown-item theme-swatch-item" data-theme-id="blueteal">
@@ -662,13 +645,12 @@
       <h2 class="page-header-title">Billing Hours</h2>
       <p class="page-header-desc">Set standard billing hours per day by customer and location (Onsite, Offshore, Nearshore), used to calculate Time and Material projections.</p>
     </div>
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <button id="newBillingHoursBtn" class="primary-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add Billing Hours
-        </button>
-      </div>
+    <div class="toolbar">
+      <button id="newBillingHoursBtn" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Billing Hours
+      </button>
+    </div>
       <!-- One row per Customer (see billing_hour_configs in db.py) - Onsite/
            Offshore/Nearshore are three separate "billing hours per day"
            number inputs grouped under one spanning header, replacing the
@@ -678,7 +660,7 @@
            gives this table its own internal scrollbar so the sticky <thead>
            below has a scrolling ancestor to stick within - see the
            scroll-locked rules in style.css. -->
-      <div class="table-scroll">
+    <div class="table-scroll">
       <table class="sow-table billing-hours-table">
         <!-- Explicit per-column widths via colgroup, plus table-layout:
              fixed (see .billing-hours-table in style.css) - without this,
@@ -706,7 +688,6 @@
         </thead>
         <tbody id="billingHoursTableBody"></tbody>
       </table>
-      </div>
     </div>
   </section>
 
@@ -717,34 +698,32 @@
       <h2 class="page-header-title">Holiday Calendar</h2>
       <p class="page-header-desc">Maintain holiday dates by customer and location, used alongside Billing Hours to calculate accurate Time and Material projections.</p>
     </div>
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <select id="holidayCustomerFilter">
-          <option value="">All customers</option>
-        </select>
-        <select id="holidayLocationFilter">
-          <option value="">All locations</option>
-        </select>
-        <button id="newHolidayBtn" class="primary-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add Holiday
-        </button>
-      </div>
-      <!-- One row per Customer + Holiday Date (see holiday_calendar in
-           db.py) - Onsite/Offshore/Nearshore are checkboxes marking which of
-           the fixed three locations observe that date, replacing the old
-           one-row-per-Customer+Location+Date shape (where the same date for
-           two locations needed two rows). -->
-      <!-- .table-scroll wrapper (matching Resource and Leave/SOWs/Staffing)
-           gives this table its own internal scrollbar so the sticky <thead>
-           below has a scrolling ancestor to stick within - see the
-           scroll-locked rules in style.css. -->
-      <div class="table-scroll">
+    <div class="toolbar">
+      <select id="holidayCustomerFilter">
+        <option value="">All customers</option>
+      </select>
+      <select id="holidayLocationFilter">
+        <option value="">All locations</option>
+      </select>
+      <button id="newHolidayBtn" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Holiday
+      </button>
+    </div>
+    <!-- One row per Customer + Holiday Date (see holiday_calendar in
+         db.py) - Onsite/Offshore/Nearshore are checkboxes marking which of
+         the fixed three locations observe that date, replacing the old
+         one-row-per-Customer+Location+Date shape (where the same date for
+         two locations needed two rows). -->
+    <!-- .table-scroll wrapper (matching Resource and Leave/SOWs/Staffing)
+         gives this table its own internal scrollbar so the sticky <thead>
+         below has a scrolling ancestor to stick within - see the
+         scroll-locked rules in style.css. -->
+    <div class="table-scroll">
       <table class="sow-table">
         <thead><tr><th>Actions</th><th>Sl. No</th><th>Customer Name</th><th>Holiday Date</th><th>Onsite</th><th>Offshore</th><th>Nearshore</th><th>Holiday Details</th></tr></thead>
         <tbody id="holidayTableBody"></tbody>
       </table>
-      </div>
     </div>
   </section>
 
@@ -755,58 +734,56 @@
       <h2 class="page-header-title">Resource and Leave</h2>
       <p class="page-header-desc">Record monthly leave days by customer and employee, used to adjust Time and Material projections for time off.</p>
     </div>
-    <div class="list-card config-card">
-      <div class="toolbar">
-        <input id="leaveSearchInput" type="search" placeholder="Search customer or employee..." />
-        <select id="leaveCustomerFilter">
-          <option value="">All customers</option>
-        </select>
-        <select id="leaveBandFilter">
-          <option value="">All bands</option>
-        </select>
-        <select id="leaveLocationFilter">
-          <option value="">All locations</option>
-        </select>
-        <select id="leaveEmployeeTypeFilter">
-          <option value="">All employee types</option>
-        </select>
-        <a id="leaveTemplateLink" class="template-link" href="/api/leaves/import-template">Download template</a>
-        <button id="exportLeaveBtn" type="button" class="ghost-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-          Export to Excel
-        </button>
-        <button id="importLeaveBtn" type="button" class="ghost-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-          Import from Excel
-        </button>
-        <input type="file" id="leaveImportFile" accept=".xlsx" hidden />
-        <button id="newLeaveBtn" class="primary-btn">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add Leave Record
-        </button>
-      </div>
-      <!-- Feeds the Time and Material Projections formula (see
-           _compute_tm_projections in main.py): a flat leave-day count per
-           fiscal month (Apr-Mar) against Customer + Employee ID, same
-           free-text Employee ID/Name as the Time and Material grid itself
-           (not linked to Staffing/Resources). Location/Band/Employee Type
-           are dropdowns sourced from the same Global Settings lookup tables
-           Resource Management uses. Statement of Work and WBS ID were both
-           removed per explicit instruction - a leave record is scoped to
-           Customer + Employee only, not a specific SOW. Wide (20 columns),
-           so it scrolls horizontally like the other month-grid tables
-           rather than wrapping. -->
-      <div class="table-scroll">
-        <table class="sow-table leave-table">
-          <thead><tr>
-            <th>Actions</th><th>Sl. No</th><th>Customer Name</th><th>Employee ID</th><th>Employee Name</th>
-            <th>Location</th><th>Band</th><th>Employee Type</th>
-            <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
-            <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
-          </tr></thead>
-          <tbody id="leaveTableBody"></tbody>
-        </table>
-      </div>
+    <div class="toolbar">
+      <input id="leaveSearchInput" type="search" placeholder="Search customer or employee..." />
+      <select id="leaveCustomerFilter">
+        <option value="">All customers</option>
+      </select>
+      <select id="leaveBandFilter">
+        <option value="">All bands</option>
+      </select>
+      <select id="leaveLocationFilter">
+        <option value="">All locations</option>
+      </select>
+      <select id="leaveEmployeeTypeFilter">
+        <option value="">All employee types</option>
+      </select>
+      <a id="leaveTemplateLink" class="template-link" href="/api/leaves/import-template">Download template</a>
+      <button id="exportLeaveBtn" type="button" class="ghost-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Export to Excel
+      </button>
+      <button id="importLeaveBtn" type="button" class="ghost-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        Import from Excel
+      </button>
+      <input type="file" id="leaveImportFile" accept=".xlsx" hidden />
+      <button id="newLeaveBtn" class="primary-btn">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Leave Record
+      </button>
+    </div>
+    <!-- Feeds the Time and Material Projections formula (see
+         _compute_tm_projections in main.py): a flat leave-day count per
+         fiscal month (Apr-Mar) against Customer + Employee ID, same
+         free-text Employee ID/Name as the Time and Material grid itself
+         (not linked to Staffing/Resources). Location/Band/Employee Type
+         are dropdowns sourced from the same Global Settings lookup tables
+         Resource Management uses. Statement of Work and WBS ID were both
+         removed per explicit instruction - a leave record is scoped to
+         Customer + Employee only, not a specific SOW. Wide (20 columns),
+         so it scrolls horizontally like the other month-grid tables
+         rather than wrapping. -->
+    <div class="table-scroll">
+      <table class="sow-table leave-table">
+        <thead><tr>
+          <th>Actions</th><th>Sl. No</th><th>Customer Name</th><th>Employee ID</th><th>Employee Name</th>
+          <th>Location</th><th>Band</th><th>Employee Type</th>
+          <th>Apr</th><th>May</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th>
+          <th>Oct</th><th>Nov</th><th>Dec</th><th>Jan</th><th>Feb</th><th>Mar</th>
+        </tr></thead>
+        <tbody id="leaveTableBody"></tbody>
+      </table>
     </div>
   </section>
 
@@ -1037,6 +1014,14 @@
           <div class="landing-tech-name">Configuration | Resource and Leave</div>
           <div class="landing-tech-desc">Bulk-add employee leave records on the Configuration &gt; Resource and Leave grid.</div>
           <a class="primary-btn download-center-btn" href="/api/leaves/import-template">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Download Template
+          </a>
+        </div>
+        <div class="landing-tech-card download-center-card">
+          <div class="landing-tech-name">Realized Revenue | Time and Material</div>
+          <div class="landing-tech-desc">Bulk-add actuals on the Realized Revenue &gt; Time and Material grid.</div>
+          <a class="primary-btn download-center-btn" href="/api/realized/tm/import-template">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             Download Template
           </a>
@@ -2484,6 +2469,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=174"></script>
+<script src="app.js?v=175"></script>
 </body>
 </html>
