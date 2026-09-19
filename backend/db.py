@@ -463,18 +463,33 @@ CREATE TABLE IF NOT EXISTS realized_tm_entries (
 -- just because its Contract record is later removed. No UNIQUE(sow_id,
 -- fiscal_year): per explicit request this grid supports Copy (duplicating a
 -- row), so, like realized_tm_entries, the same SOW can appear on more than
--- one row in the same fiscal year. Apr-Mar monthly revenue is plain
--- user-typed numbers (unlike Best Estimates > Managed Services, which
--- computes them from ms_resources), normalized into realized_ms_entries
--- below exactly like revenue_entries/ms_resource_entries (one row per
--- fiscal month, fiscal_month 1=Apr...12=Mar) rather than flattened into 12
--- columns on this row - the same shape makes "Billing Model wise Monthly
--- Revenue" (the page's own Table 1) summable with a plain GROUP BY.
+-- one row in the same fiscal year. One flat row per invoice event (per
+-- explicit request): milestone_id links back to one of the selected SOW's
+-- own milestones (Milestone Amount/Milestone Date are read straight off
+-- that milestone's own amount/due_date, never stored here), and
+-- invoice_date/invoice_amount/billing_advice_number are plain user-typed
+-- values - unlike Best Estimates > Managed Services, which computes its
+-- Apr-Mar monthly revenue from ms_resources. fiscal_year/fiscal_month are
+-- derived from invoice_date (see _fiscal_year_month_of in main.py) and
+-- stored here, same treatment as realized_tm_entries' own start_date-
+-- derived bucketing, so "Billing Model wise Monthly Revenue" (the page's
+-- own Table 1) stays summable with a plain GROUP BY. milestone_id is ON
+-- DELETE SET NULL (like sow_id) so deleting a SOW - which cascades to its
+-- milestones - doesn't fail trying to delete a milestone still referenced
+-- here. This replaced an earlier "monthly revenue" shape (12 stored
+-- per-fiscal-month amounts, normalized into realized_ms_entries below) -
+-- see the migration in _migrate() for the conversion; realized_ms_entries
+-- itself is kept but no longer read/written, so no historical data is lost.
 CREATE TABLE IF NOT EXISTS realized_ms_accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_id INTEGER REFERENCES customers(id),
     sow_id INTEGER REFERENCES sows(id) ON DELETE SET NULL,
+    milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL,
+    invoice_date TEXT,
+    invoice_amount REAL,
+    billing_advice_number TEXT,
     fiscal_year INTEGER NOT NULL,
+    fiscal_month INTEGER,
     additional_info TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -483,7 +498,11 @@ CREATE TABLE IF NOT EXISTS realized_ms_accounts (
 -- One row per (account, fiscal month) - mirrors revenue_entries' shape
 -- exactly (fiscal_month is the same 1=Apr...12=Mar position), just scoped to
 -- a Realized Revenue > Managed Services account instead of a Best Estimates
--- revenue_sow_accounts row.
+-- revenue_sow_accounts row. Superseded by realized_ms_accounts' own flat
+-- invoice_date/invoice_amount columns above (per explicit request, "Monthly
+-- Revenue (Apr-Mar)" became "Revenue Details" with one Invoice Amount per
+-- row) - this table is kept in place, unread and unwritten by the app, so
+-- any historical data already in it isn't destroyed.
 CREATE TABLE IF NOT EXISTS realized_ms_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL REFERENCES realized_ms_accounts(id) ON DELETE CASCADE,
@@ -963,6 +982,38 @@ def _migrate(conn):
     # recomputed server-side on read.
     if _table_exists(conn, "realized_tm_entries") and not _column_exists(conn, "realized_tm_entries", "practice_id"):
         conn.execute("ALTER TABLE realized_tm_entries ADD COLUMN practice_id INTEGER REFERENCES practices(id)")
+
+    # Realized Revenue > Managed Services converted from a "monthly revenue"
+    # ledger (12 stored per-fiscal-month amounts per account, mirroring Best
+    # Estimates > Managed Services, normalized into realized_ms_entries) to a
+    # per-invoice, per-milestone ledger per explicit request: a new
+    # "Milestone Details" section (Milestone/Milestone Amount/Milestone Date,
+    # the latter two auto-populated read-only off the picked milestone) plus
+    # a "Revenue Details" section (Invoice Date/Invoice Amount ($)/Billing
+    # Advice#) replace the old Apr-Mar monthly grid, one flat row per invoice
+    # event - mirroring how Realized Revenue > Time and Material already
+    # works (a single start_date-derived fiscal_month/total_invoice_amount
+    # instead of a stored months array). fiscal_year/fiscal_month are now
+    # derived from Invoice Date (see _fiscal_year_month_of) and stored here,
+    # same treatment as realized_tm_entries' own start_date-derived
+    # bucketing, rather than recomputed on every read, so "Billing Model wise
+    # Monthly Revenue" (Table 1) stays a plain GROUP BY. milestone_id is ON
+    # DELETE SET NULL (like sow_id above) so deleting a SOW - which cascades
+    # to its milestones - doesn't fail trying to delete a milestone still
+    # referenced here. realized_ms_entries (the old per-fiscal-month table)
+    # is deliberately left in place, untouched and simply no longer
+    # read/written, rather than dropped, so no existing historical data is
+    # destroyed.
+    if _table_exists(conn, "realized_ms_accounts") and not _column_exists(conn, "realized_ms_accounts", "milestone_id"):
+        conn.execute("ALTER TABLE realized_ms_accounts ADD COLUMN milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL")
+    if _table_exists(conn, "realized_ms_accounts") and not _column_exists(conn, "realized_ms_accounts", "invoice_date"):
+        conn.execute("ALTER TABLE realized_ms_accounts ADD COLUMN invoice_date TEXT")
+    if _table_exists(conn, "realized_ms_accounts") and not _column_exists(conn, "realized_ms_accounts", "invoice_amount"):
+        conn.execute("ALTER TABLE realized_ms_accounts ADD COLUMN invoice_amount REAL")
+    if _table_exists(conn, "realized_ms_accounts") and not _column_exists(conn, "realized_ms_accounts", "billing_advice_number"):
+        conn.execute("ALTER TABLE realized_ms_accounts ADD COLUMN billing_advice_number TEXT")
+    if _table_exists(conn, "realized_ms_accounts") and not _column_exists(conn, "realized_ms_accounts", "fiscal_month"):
+        conn.execute("ALTER TABLE realized_ms_accounts ADD COLUMN fiscal_month INTEGER")
 
 
 DEFAULT_STATUSES = ["draft", "active", "completed", "expired", "cancelled"]

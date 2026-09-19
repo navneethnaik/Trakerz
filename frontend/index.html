@@ -18,7 +18,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=143" />
+<link rel="stylesheet" href="style.css?v=144" />
 </head>
 <body>
 <header class="topbar">
@@ -1521,13 +1521,13 @@
       </button>
     </div>
 
-    <!-- Table 2 - two-row grouped header ("Customer and SoW Details" /
-         "Monthly Revenue (Apr-Mar)"), verbatim from #realizedMsEntryModal's
+    <!-- Table 2 - grouped header ("Customer and SoW Details" / "Milestone
+         Details" / "Revenue Details"), verbatim from #realizedMsEntryModal's
          own layout, per explicit request. .rms-table also carries
-         .rev-grid-table (Best Estimates' generic centered/nowrap/
-         banded-month cell styling - see style.css), so only its own sticky
-         header positioning needs a dedicated rule (#tab-realized-ms
-         .rms-table thead tr:first-child/tr:last-child in style.css). -->
+         .rev-grid-table (Best Estimates' generic centered/nowrap cell
+         styling - see style.css), so only its own sticky header positioning
+         needs a dedicated rule (#tab-realized-ms .rms-table thead
+         tr:first-child/tr:last-child in style.css). -->
     <div class="table-scroll">
       <table class="sow-table rev-grid-table rms-table">
         <thead>
@@ -1535,25 +1535,20 @@
             <th class="rev-leading-th" rowspan="2">Actions</th>
             <th class="rev-leading-th" rowspan="2">Sl. No</th>
             <th colspan="3" class="group-header">Customer and SoW Details</th>
-            <th colspan="12" class="group-header group-divider">Monthly Revenue (Apr-Mar)</th>
+            <th colspan="3" class="group-header group-divider">Milestone Details</th>
+            <th colspan="3" class="group-header group-divider">Revenue Details</th>
             <th class="rev-leading-th group-divider" rowspan="2">Additional Details</th>
           </tr>
           <tr>
             <th class="rev-leading-th">Customer Name</th>
             <th class="rev-leading-th">SoW Name</th>
             <th class="rev-leading-th group-divider">Billing Model</th>
-            <th class="rev-band-a rev-month-hdr">Apr</th>
-            <th class="rev-band-b rev-month-hdr">May</th>
-            <th class="rev-band-a rev-month-hdr">Jun</th>
-            <th class="rev-band-b rev-month-hdr">Jul</th>
-            <th class="rev-band-a rev-month-hdr">Aug</th>
-            <th class="rev-band-b rev-month-hdr">Sep</th>
-            <th class="rev-band-a rev-month-hdr">Oct</th>
-            <th class="rev-band-b rev-month-hdr">Nov</th>
-            <th class="rev-band-a rev-month-hdr">Dec</th>
-            <th class="rev-band-b rev-month-hdr">Jan</th>
-            <th class="rev-band-a rev-month-hdr">Feb</th>
-            <th class="rev-band-b rev-month-hdr">Mar</th>
+            <th class="rev-leading-th">Milestone</th>
+            <th class="rev-leading-th">Milestone Amount</th>
+            <th class="rev-leading-th group-divider">Milestone Date</th>
+            <th class="rev-leading-th">Invoice Date</th>
+            <th class="rev-leading-th">Invoice Amount ($)</th>
+            <th class="rev-leading-th group-divider">Billing Advice#</th>
           </tr>
         </thead>
         <tbody id="realizedMsTableBody"></tbody>
@@ -2252,7 +2247,10 @@
      once a row exists) - per explicit request this is a standalone ledger,
      same "everything editable" convention as Realized T&M. Billing Model is
      always read-only, auto-populated from the selected Statement of Work
-     (sows.billing_model_id) - never hand-picked or stored. -->
+     (sows.billing_model_id) - never hand-picked or stored, same treatment as
+     Milestone Amount/Milestone Date just below, always read-only and
+     auto-populated from the selected Milestone (milestones.amount/
+     due_date) - never hand-picked or stored. -->
 <div id="realizedMsEntryModal" class="modal" hidden>
   <div class="modal-box modal-wide modal-xwide">
     <div class="modal-header">
@@ -2264,6 +2262,7 @@
       </div>
     </div>
     <form id="realizedMsEntryForm">
+      <div class="form-section-title">Customer and SoW Details</div>
       <div class="three-col">
         <label>Customer Name<select class="rms-f-customer"></select></label>
         <label>Statement of Work
@@ -2272,22 +2271,26 @@
         <label>Billing Model<input type="text" class="rms-f-billing-model" readonly /></label>
       </div>
 
-      <div class="form-section-title">Monthly Revenue (Apr-Mar)</div>
-      <div class="rev-modal-months-grid">
-        <label>Apr<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="1" value="0" /></label>
-        <label>May<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="2" value="0" /></label>
-        <label>Jun<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="3" value="0" /></label>
-        <label>Jul<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="4" value="0" /></label>
-        <label>Aug<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="5" value="0" /></label>
-        <label>Sep<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="6" value="0" /></label>
-        <label>Oct<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="7" value="0" /></label>
-        <label>Nov<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="8" value="0" /></label>
-        <label>Dec<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="9" value="0" /></label>
-        <label>Jan<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="10" value="0" /></label>
-        <label>Feb<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="11" value="0" /></label>
-        <label>Mar<input type="number" step="0.01" class="rms-f-month" data-fiscal-month="12" value="0" /></label>
+      <!-- Milestone Details - Milestone is scoped to the currently selected
+           SOW's own milestones (re-fetched via GET /api/sows/{id} whenever
+           the SOW changes - see refreshMilestoneOptions() in app.js).
+           Milestone Amount/Milestone Date are always read-only,
+           auto-populated from that milestone's own amount/due_date. -->
+      <div class="form-section-title">Milestone Details</div>
+      <div class="three-col">
+        <label>Milestone
+          <select class="rms-f-milestone" disabled><option value="">Select SOW first&hellip;</option></select>
+        </label>
+        <label>Milestone Amount<input type="text" class="rms-f-milestone-amount" readonly /></label>
+        <label>Milestone Date<input type="text" class="rms-f-milestone-date" readonly /></label>
       </div>
-      <div class="rev-modal-total">Total: <span id="realizedMsEntryModalTotal">0.00</span></div>
+
+      <div class="form-section-title">Revenue Details</div>
+      <div class="three-col">
+        <label>Invoice Date<input type="date" class="rms-f-invoice-date" required /></label>
+        <label>Invoice Amount ($)<input type="number" step="0.01" class="rms-f-invoice-amount" value="0" /></label>
+        <label>Billing Advice#<input type="text" class="rms-f-billing-advice" /></label>
+      </div>
 
       <div class="form-section-title">Additional Details</div>
       <label>Additional Details<textarea class="rms-f-notes" rows="3"></textarea></label>
@@ -2469,6 +2472,6 @@
 </div>
 
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=175"></script>
+<script src="app.js?v=176"></script>
 </body>
 </html>

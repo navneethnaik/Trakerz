@@ -434,12 +434,12 @@ body.scroll-locked #tab-realized-tm .location-revenue-summary-scroll {
    Time and Material just above: a plain single-row "Billing Model wise
    Monthly Revenue" summary table (Table 1, reusing .revenue-type-summary-
    table) above a two-row grouped grid (Table 2, .rms-table - "Customer and
-   SoW Details"/"Monthly Revenue (Apr-Mar)", verbatim from
+   SoW Details"/"Milestone Details"/"Revenue Details", verbatim from
    #realizedMsEntryModal's own layout, per explicit request - see
    index.html). .rms-table also carries .rev-grid-table (Best Estimates'
-   generic centered/nowrap/banded-month styling further below in this file,
-   not scoped to #tab-revenue except its own sticky rule), so only the
-   sticky positioning needs its own rule here. */
+   generic centered/nowrap styling further below in this file, not scoped to
+   #tab-revenue except its own sticky rule), so only the sticky positioning
+   needs its own rule here. */
 #tab-realized-ms .revenue-type-summary-table thead th { position: sticky; top: 0; z-index: 2; }
 #tab-realized-ms .rms-table thead tr:first-child th { position: sticky; top: 0; z-index: 3; }
 #tab-realized-ms .rms-table thead tr:last-child th { position: sticky; top: 29px; z-index: 2; }

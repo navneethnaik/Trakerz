@@ -6500,8 +6500,10 @@ wireExcelImport("importRealizedTmBtn", "realizedTmImportFile", "/realized/tm/imp
 // Standalone actuals ledger, structurally parallel to Realized Revenue >
 // Time and Material above, but keeps a live link to a real Contract
 // (sow_id) so Billing Model is always read straight off the selected SOW
-// rather than hand-picked (see realized_ms_accounts/realized_ms_entries in
-// db.py).
+// rather than hand-picked, plus a live link to one of that SOW's own
+// milestones (milestone_id) so Milestone Amount/Milestone Date are likewise
+// always read straight off the picked milestone (see realized_ms_accounts
+// in db.py).
 let realizedMsCache = new Map();
 let currentRealizedMsCustomers = [];
 // Every SOW in the system (not filtered by fiscal year) - the Add/Edit
@@ -6610,7 +6612,7 @@ function renderRealizedMsTable() {
   const tbody = document.getElementById("realizedMsTableBody");
   tbody.innerHTML = "";
   if (!filteredRows.length) {
-    tbody.innerHTML = `<tr><td colspan="18" class="empty-state">${
+    tbody.innerHTML = `<tr><td colspan="12" class="empty-state">${
       allRows.length ? "No entries match the selected filter." : 'No entries yet. Click "Add Entry" to start tracking realized Managed Services revenue.'
     }</td></tr>`;
   } else {
@@ -6633,11 +6635,12 @@ function renumberRealizedMsRows() {
 // Billing Model x Month summary above the grid (Table 1) - one row per
 // Billing Model (every billing model in the master list except Time and
 // Material, per explicit request, plus "Unassigned" only if at least one
-// visible row has none), summing Apr-Mar revenue across every row currently
-// visible below. Mirrors renderRealizedTmLocationSummary()'s shape exactly,
-// just keyed by billing_model_name and reading each row's own months array
-// (r.months[i].amount, one entry per fiscal month) instead of a single
-// fiscal_month bucket.
+// visible row has none), summing Invoice Amount across every row currently
+// visible below into its own Invoice Date-derived fiscal month. Mirrors
+// renderRealizedTmLocationSummary()'s shape exactly, just keyed by
+// billing_model_name and bucketing each row's own single invoice_amount by
+// its own fiscal_month (like that function's own total_invoice_amount
+// bucketing) instead of a stored months array.
 function renderRealizedMsBillingModelSummary(filteredRows) {
   const tbody = document.getElementById("realizedMsBillingModelSummaryBody");
   if (!tbody) return;
@@ -6647,7 +6650,7 @@ function renderRealizedMsBillingModelSummary(filteredRows) {
     const key = r.billing_model_name || "";
     if (!sumsByModel.has(key)) sumsByModel.set(key, new Array(12).fill(0));
     const sums = sumsByModel.get(key);
-    (r.months || []).forEach((m) => { sums[m.fiscal_month - 1] += m.amount || 0; });
+    if (r.fiscal_month) sums[r.fiscal_month - 1] += r.invoice_amount || 0;
   });
 
   let labels = currentRealizedMsBillingModels.filter((m) => m.name !== "Time and Material").map((m) => m.name);
@@ -6712,13 +6715,13 @@ function buildRealizedMsRow(r) {
     <td>${escapeHtml(r.customer_name) || "—"}</td>
     <td>${escapeHtml(r.sow_title) || "—"}</td>
     <td class="group-divider">${escapeHtml(r.billing_model_name) || "—"}</td>
+    <td>${escapeHtml(r.milestone_description) || "—"}</td>
+    <td>${r.milestone_amount != null ? fmtPlain(r.milestone_amount) : "—"}</td>
+    <td class="group-divider">${fmtDate(r.milestone_date)}</td>
+    <td>${fmtDate(r.invoice_date)}</td>
+    <td>${r.invoice_amount != null ? fmtPlain(r.invoice_amount) : "—"}</td>
+    <td class="group-divider">${escapeHtml(r.billing_advice_number) || "—"}</td>
   `;
-  // Alternating background per month (rev-band-a/rev-band-b), same
-  // convention as Best Estimates' own buildRevenueSowRow().
-  (r.months || []).forEach((m, i) => {
-    const band = i % 2 === 0 ? "rev-band-a" : "rev-band-b";
-    cells += `<td class="${band}">${fmtPlain(m.amount || 0)}</td>`;
-  });
   cells += `<td class="group-divider">${r.additional_info ? `<span class="notes-cell" title="${escapeHtml(r.additional_info)}">${escapeHtml(r.additional_info)}</span>` : "—"}</td>`;
 
   tr.innerHTML = cells;
@@ -6728,10 +6731,13 @@ function buildRealizedMsRow(r) {
   });
   tr.querySelector(".rms-copy-btn").addEventListener("click", () => {
     // No uniqueness rule here (same as Realized T&M) - "Copy" opens the same
-    // Add Entry popup, pre-filled with this row's Customer/SOW/months/
-    // Additional Details but no account id, so Save creates a brand-new row.
+    // Add Entry popup, pre-filled with this row's Customer/SOW/Milestone/
+    // Revenue/Additional Details but no account id, so Save creates a
+    // brand-new row.
     openRealizedMsEntryModal(null, {
-      customerId: r.customer_id, sowId: r.sow_id, months: r.months, additionalInfo: r.additional_info,
+      customerId: r.customer_id, sowId: r.sow_id, milestoneId: r.milestone_id,
+      invoiceDate: r.invoice_date, invoiceAmount: r.invoice_amount, billingAdviceNumber: r.billing_advice_number,
+      additionalInfo: r.additional_info,
     });
   });
   tr.querySelector(".rms-edit-btn").addEventListener("click", () => {
@@ -6770,9 +6776,13 @@ function openRealizedMsEntryModal(r = null, prefill = {}, viewOnly = false) {
   const customerSelect = box.querySelector(".rms-f-customer");
   const sowSelect = box.querySelector(".rms-f-sow");
   const billingModelInput = box.querySelector(".rms-f-billing-model");
+  const milestoneSelect = box.querySelector(".rms-f-milestone");
+  const milestoneAmountInput = box.querySelector(".rms-f-milestone-amount");
+  const milestoneDateInput = box.querySelector(".rms-f-milestone-date");
+  const invoiceDateInput = box.querySelector(".rms-f-invoice-date");
+  const invoiceAmountInput = box.querySelector(".rms-f-invoice-amount");
+  const billingAdviceInput = box.querySelector(".rms-f-billing-advice");
   const notesInput = box.querySelector(".rms-f-notes");
-  const monthInputs = box.querySelectorAll(".rms-f-month");
-  const totalEl = document.getElementById("realizedMsEntryModalTotal");
 
   customerSelect.innerHTML = '<option value="">Select customer&hellip;</option>' +
     currentRealizedMsCustomers.map((c) => `<option value="${c.id}">${escapeHtml(c.customer_name)}</option>`).join("");
@@ -6811,40 +6821,87 @@ function openRealizedMsEntryModal(r = null, prefill = {}, viewOnly = false) {
   }
   refreshBillingModel();
 
-  function refreshTotal() {
-    const sum = Array.from(monthInputs).reduce((acc, input) => acc + (parseFloat(input.value) || 0), 0);
-    totalEl.textContent = fmtPlain(sum);
+  let currentSowMilestones = [];
+  function refreshMilestoneAutofill() {
+    const selected = currentSowMilestones.find((m) => String(m.id) === milestoneSelect.value);
+    milestoneAmountInput.value = selected ? fmtPlain(selected.amount || 0) : "";
+    milestoneDateInput.value = selected ? fmtDate(selected.due_date) : "";
   }
 
-  const monthValues = {};
-  (r ? r.months : (prefill.months || [])).forEach((m) => { monthValues[m.fiscal_month] = m.amount; });
-  monthInputs.forEach((input) => {
-    const fm = parseInt(input.dataset.fiscalMonth, 10);
-    input.value = monthValues[fm] ?? 0;
-  });
-  refreshTotal();
+  // Milestone dropdown is scoped to the currently selected SOW's own
+  // milestones - milestones are a SOW-level concept everywhere else in this
+  // app, and currentRealizedMsSows (from GET /api/sows) doesn't embed them,
+  // so this re-fetches the full SOW record whenever the SOW changes, same
+  // "re-fetch the full record on selection" pattern openSowModal() uses.
+  // requestId guards against a slower, now-stale fetch (from a SOW the user
+  // has since changed away from) clobbering a faster, newer one. viewOnly
+  // is tracked separately (rather than read off isViewOnly, which only
+  // reflects the state at modal-open time) and re-applied after every
+  // options refresh, since this is async and setMode() may already have run
+  // (disabling the field for View mode) before the fetch resolves and
+  // re-enables it - the exact "async re-enable undoes View mode" bug
+  // View mode's Upload/Add buttons had (see the .ghost-btn[hidden] and
+  // Managed Services resource-button fixes elsewhere in this app).
+  let milestoneRequestId = 0;
+  let msViewOnlyState = false;
+  async function refreshMilestoneOptions(selectedMilestoneId) {
+    const sowVal = sowSelect.value;
+    const thisRequestId = ++milestoneRequestId;
+    currentSowMilestones = [];
+    if (!sowVal) {
+      milestoneSelect.innerHTML = '<option value="">Select SOW first&hellip;</option>';
+      milestoneSelect.disabled = true;
+      refreshMilestoneAutofill();
+      return;
+    }
+    milestoneSelect.innerHTML = '<option value="">Loading&hellip;</option>';
+    milestoneSelect.disabled = true;
+    const sow = await fetch(`${API}/sows/${sowVal}`).then((resp) => resp.json()).catch(() => null);
+    if (thisRequestId !== milestoneRequestId) return;
+    currentSowMilestones = (sow && sow.milestones) || [];
+    if (!currentSowMilestones.length) {
+      milestoneSelect.innerHTML = '<option value="">No milestones on this SOW</option>';
+      milestoneSelect.disabled = true;
+    } else {
+      milestoneSelect.innerHTML = '<option value="">Select milestone&hellip;</option>' +
+        currentSowMilestones.map((m) => `<option value="${m.id}">${escapeHtml(m.description)}</option>`).join("");
+      milestoneSelect.disabled = msViewOnlyState;
+    }
+    milestoneSelect.value = selectedMilestoneId != null ? String(selectedMilestoneId) : "";
+    refreshMilestoneAutofill();
+  }
+  refreshMilestoneOptions(r ? r.milestone_id : prefill.milestoneId);
 
+  invoiceDateInput.value = (r ? r.invoice_date : prefill.invoiceDate) || "";
+  invoiceAmountInput.value = (r ? r.invoice_amount : prefill.invoiceAmount) ?? 0;
+  billingAdviceInput.value = (r ? r.billing_advice_number : prefill.billingAdviceNumber) || "";
   notesInput.value = (r ? r.additional_info : prefill.additionalInfo) || "";
 
-  // Assigned via .onchange/.oninput (not addEventListener) since these same
-  // elements persist across every open of this modal - addEventListener
-  // would stack a new listener on top of the last one each time.
-  customerSelect.onchange = () => { refreshSowOptions(); refreshBillingModel(); };
-  sowSelect.onchange = refreshBillingModel;
-  monthInputs.forEach((input) => { input.oninput = refreshTotal; });
+  // Assigned via .onchange (not addEventListener) since these same elements
+  // persist across every open of this modal - addEventListener would stack
+  // a new listener on top of the last one each time.
+  customerSelect.onchange = () => { refreshSowOptions(); refreshBillingModel(); refreshMilestoneOptions(); };
+  sowSelect.onchange = () => { refreshBillingModel(); refreshMilestoneOptions(); };
+  milestoneSelect.onchange = refreshMilestoneAutofill;
 
   // View mode disables/read-onlys every field that's otherwise editable
-  // (Customer Name, Statement of Work, the 12 months and Additional
-  // Details) and swaps the Save button for an Edit button, same convention
-  // as openRealizedTmEntryModal()'s own setMode(). Not offered for a
-  // brand-new ("Add Entry") row.
+  // (Customer Name, Statement of Work, Milestone, Invoice Date/Amount,
+  // Billing Advice# and Additional Details) and swaps the Save button for
+  // an Edit button, same convention as openRealizedTmEntryModal()'s own
+  // setMode(). Not offered for a brand-new ("Add Entry") row. Milestone
+  // Amount/Milestone Date and Billing Model stay read-only regardless of
+  // mode - they're always auto-populated, never hand-picked.
   function setMode(isViewOnly) {
     document.getElementById("realizedMsEntryModalTitle").textContent = isViewOnly
       ? "View Realized Revenue Entry"
       : (isEditing ? "Edit Realized Revenue Entry" : "Add Realized Revenue Entry");
     customerSelect.disabled = isViewOnly;
     sowSelect.disabled = isViewOnly || !customerSelect.value;
-    monthInputs.forEach((input) => { input.readOnly = isViewOnly; });
+    msViewOnlyState = isViewOnly;
+    milestoneSelect.disabled = isViewOnly || !currentSowMilestones.length;
+    invoiceDateInput.readOnly = isViewOnly;
+    invoiceAmountInput.readOnly = isViewOnly;
+    billingAdviceInput.readOnly = isViewOnly;
     notesInput.readOnly = isViewOnly;
     editRealizedMsEntryBtnTop.hidden = !isViewOnly;
     editRealizedMsEntryBtn.hidden = !isViewOnly;
@@ -6867,18 +6924,17 @@ document.getElementById("realizedMsEntryForm").addEventListener("submit", async 
   const customerVal = box.querySelector(".rms-f-customer").value;
   const sowVal = box.querySelector(".rms-f-sow").value;
   if (!sowVal) { alert("Please select a Statement of Work."); return; }
+  const milestoneVal = box.querySelector(".rms-f-milestone").value;
+  const invoiceDateVal = box.querySelector(".rms-f-invoice-date").value;
+  if (!invoiceDateVal) { alert("Please enter an Invoice Date."); return; }
 
-  const months = Array.from(box.querySelectorAll(".rms-f-month")).map((input) => ({
-    fiscal_month: parseInt(input.dataset.fiscalMonth, 10),
-    amount: parseFloat(input.value) || 0,
-  }));
-
-  if (currentFiscalYear === null) currentFiscalYear = fiscalYearForToday();
   const payload = {
     customer_id: customerVal ? parseInt(customerVal, 10) : null,
     sow_id: sowVal ? parseInt(sowVal, 10) : null,
-    fiscal_year: currentFiscalYear,
-    months,
+    milestone_id: milestoneVal ? parseInt(milestoneVal, 10) : null,
+    invoice_date: invoiceDateVal,
+    invoice_amount: parseFloat(box.querySelector(".rms-f-invoice-amount").value) || 0,
+    billing_advice_number: box.querySelector(".rms-f-billing-advice").value.trim() || null,
     additional_info: box.querySelector(".rms-f-notes").value.trim() || null,
   };
 

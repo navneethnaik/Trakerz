@@ -325,30 +325,30 @@ class RealizedTmIn(BaseModel):
     additional_info: Optional[str] = None
 
 
-# Realized Revenue > Managed Services - one row per fiscal month, mirroring
-# RevenueCellIn's shape (see realized_ms_accounts/realized_ms_entries in
-# db.py). amount is a plain user-typed figure, never computed.
-class RealizedMsMonthIn(BaseModel):
-    fiscal_month: int
-    amount: float = 0
-
-
 # Realized Revenue > Managed Services Add/Edit popup payload (see
-# realized_ms_accounts/realized_ms_entries in db.py) - unlike Best Estimates
-# > Managed Services' #revenueEntryModal, Customer Name and Statement of
-# Work stay editable on an existing row too (per explicit request this is a
+# realized_ms_accounts in db.py) - converted from a monthly-revenue ledger
+# (12 stored per-fiscal-month amounts) to a per-invoice, per-milestone
+# ledger per explicit request: milestone_id/invoice_date/invoice_amount/
+# billing_advice_number replace the old months list. fiscal_year/
+# fiscal_month are derived server-side from invoice_date (see
+# _fiscal_year_month_of), never taken from the client, mirroring RealizedTmIn
+# above deriving them from start_date. Unlike Best Estimates > Managed
+# Services' #revenueEntryModal, Customer Name and Statement of Work stay
+# editable on an existing row too (per explicit request this is a
 # standalone actuals ledger, same "everything editable in Edit mode"
 # convention as RealizedTmIn above), so both are accepted on every save, not
-# just the initial Add. sow_id is optional since Billing Model has nothing
-# to auto-populate from until a SOW is actually picked, but the front end
-# requires one before Save (see openRealizedMsEntryModal()/its submit
-# handler in app.js) - enforced there rather than here so the same 400-style
-# message used elsewhere in this app is easy to keep consistent.
+# just the initial Add. sow_id is optional since Billing Model/Milestone
+# have nothing to auto-populate from until a SOW is actually picked, but the
+# front end requires one before Save (see openRealizedMsEntryModal()/its
+# submit handler in app.js) - enforced there rather than here so the same
+# 400-style message used elsewhere in this app is easy to keep consistent.
 class RealizedMsIn(BaseModel):
     customer_id: Optional[int] = None
     sow_id: Optional[int] = None
-    fiscal_year: int
-    months: List[RealizedMsMonthIn]
+    milestone_id: Optional[int] = None
+    invoice_date: str
+    invoice_amount: Optional[float] = None
+    billing_advice_number: Optional[str] = None
     additional_info: Optional[str] = None
 
 
@@ -3131,19 +3131,25 @@ async def import_realized_tm(fiscal_year: Optional[int] = None, file: UploadFile
 
 # ---------- Realized Revenue > Managed Services ----------
 # Standalone actuals ledger, structurally parallel to Realized Revenue > Time
-# and Material above (see realized_ms_accounts/realized_ms_entries in
-# db.py), but keeps a live link to a real Contract (sow_id) so Billing Model
-# is always read straight off the selected SOW rather than hand-picked or
-# stored here.
+# and Material above (see realized_ms_accounts in db.py), but keeps a live
+# link to a real Contract (sow_id) so Billing Model is always read straight
+# off the selected SOW rather than hand-picked or stored here, plus a live
+# link to one of that SOW's own milestones (milestone_id) so Milestone
+# Amount/Milestone Date are likewise always read straight off the picked
+# milestone rather than hand-picked or stored here.
 
 _REALIZED_MS_SELECT = """
     SELECT a.id AS account_id, a.customer_id, c.customer_name, a.sow_id, s.title AS sow_title,
            s.billing_model_id, bm.name AS billing_model_name,
-           a.fiscal_year, a.additional_info, a.created_at, a.updated_at
+           a.milestone_id, ms.description AS milestone_description,
+           ms.amount AS milestone_amount, ms.due_date AS milestone_date,
+           a.invoice_date, a.invoice_amount, a.billing_advice_number,
+           a.fiscal_year, a.fiscal_month, a.additional_info, a.created_at, a.updated_at
     FROM realized_ms_accounts a
     LEFT JOIN customers c ON c.id = a.customer_id
     LEFT JOIN sows s ON s.id = a.sow_id
     LEFT JOIN billing_models bm ON bm.id = s.billing_model_id
+    LEFT JOIN milestones ms ON ms.id = a.milestone_id
 """
 
 
@@ -3156,66 +3162,58 @@ def _validate_realized_ms_refs(conn, payload: RealizedMsIn):
         "SELECT 1 FROM sows WHERE id = ?", (payload.sow_id,)
     ).fetchone():
         raise HTTPException(status_code=400, detail="Selected Statement of Work does not exist")
+    if payload.milestone_id is not None:
+        milestone = conn.execute(
+            "SELECT sow_id FROM milestones WHERE id = ?", (payload.milestone_id,)
+        ).fetchone()
+        if not milestone:
+            raise HTTPException(status_code=400, detail="Selected milestone does not exist")
+        if payload.sow_id is None or milestone["sow_id"] != payload.sow_id:
+            raise HTTPException(status_code=400, detail="Selected milestone does not belong to the selected Statement of Work")
 
 
-def _realized_ms_row_dict(conn, account_row) -> dict:
-    d = dict(account_row)
-    entries = {
-        e["fiscal_month"]: e["amount"]
-        for e in conn.execute(
-            "SELECT fiscal_month, amount FROM realized_ms_entries WHERE account_id = ?", (d["account_id"],)
-        ).fetchall()
-    }
-    d["months"] = [
-        {"fiscal_month": fm, "month_label": FISCAL_MONTH_LABELS[fm - 1], "amount": entries.get(fm, 0)}
-        for fm in range(1, 13)
-    ]
-    return d
+def _realized_ms_row_dict(account_row) -> dict:
+    return dict(account_row)
 
 
 @app.get("/api/realized/ms")
 def list_realized_ms(fiscal_year: Optional[int] = None):
     """Realized Revenue > Managed Services grid (Table 2): one row per
-    Customer+SOW entry booked to this fiscal year - a standalone actuals
-    ledger like Realized Revenue > Time and Material, so rows are simply
-    everything on file for this fiscal year, in Customer/SOW order. "Billing
-    Model wise Monthly Revenue" (Table 1) is built client-side from these
-    same rows (see renderRealizedMsBillingModelSummary in app.js), the same
-    way Realized T&M's own Location wise Monthly Revenue summary is."""
+    invoice event booked to this fiscal year - a standalone actuals ledger
+    like Realized Revenue > Time and Material, so rows are simply everything
+    on file for this fiscal year, in Invoice Date order. "Billing Model wise
+    Monthly Revenue" (Table 1) is built client-side from these same rows
+    (see renderRealizedMsBillingModelSummary in app.js), the same way
+    Realized T&M's own Location wise Monthly Revenue summary is."""
     fy = fiscal_year if fiscal_year is not None else _current_fiscal_year()
     with db.get_db() as conn:
         rows = conn.execute(
             _REALIZED_MS_SELECT
-            + "WHERE a.fiscal_year = ? ORDER BY c.customer_name COLLATE NOCASE, s.title COLLATE NOCASE",
+            + "WHERE a.fiscal_year = ? ORDER BY a.invoice_date, c.customer_name COLLATE NOCASE, s.title COLLATE NOCASE",
             (fy,),
         ).fetchall()
-        return {"fiscal_year": fy, "rows": [_realized_ms_row_dict(conn, r) for r in rows]}
+        return {"fiscal_year": fy, "rows": [_realized_ms_row_dict(r) for r in rows]}
 
 
 @app.post("/api/realized/ms", status_code=201)
 def add_realized_ms(payload: RealizedMsIn):
-    """Add Entry on the Realized Managed Services grid - creates the account
-    row and all twelve of its month entries together in one call, unlike
-    Best Estimates > Managed Services' separate create-then-PUT-each-cell
-    flow, since this popup (like Realized T&M's own) submits everything at
-    once on Save."""
+    """Add Entry on the Realized Managed Services grid. fiscal_year/
+    fiscal_month are always derived from Invoice Date (see
+    _fiscal_year_month_of), never taken from the client, mirroring
+    add_realized_tm above."""
     with db.get_db() as conn:
         _validate_realized_ms_refs(conn, payload)
+        fiscal_year, fiscal_month = _fiscal_year_month_of(payload.invoice_date)
         cur = conn.execute(
-            """INSERT INTO realized_ms_accounts (customer_id, sow_id, fiscal_year, additional_info, updated_at)
-               VALUES (?, ?, ?, ?, datetime('now'))""",
-            (payload.customer_id, payload.sow_id, payload.fiscal_year, payload.additional_info),
+            """INSERT INTO realized_ms_accounts (customer_id, sow_id, milestone_id, invoice_date, invoice_amount,
+               billing_advice_number, fiscal_year, fiscal_month, additional_info, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (payload.customer_id, payload.sow_id, payload.milestone_id, payload.invoice_date, payload.invoice_amount,
+             payload.billing_advice_number, fiscal_year, fiscal_month, payload.additional_info),
         )
         account_id = cur.lastrowid
-        for m in payload.months:
-            if not 1 <= m.fiscal_month <= 12:
-                raise HTTPException(status_code=400, detail="fiscal_month must be between 1 and 12")
-            conn.execute(
-                "INSERT INTO realized_ms_entries (account_id, fiscal_month, amount) VALUES (?, ?, ?)",
-                (account_id, m.fiscal_month, m.amount),
-            )
         row = conn.execute(_REALIZED_MS_SELECT + "WHERE a.id = ?", (account_id,)).fetchone()
-        return _realized_ms_row_dict(conn, row)
+        return _realized_ms_row_dict(row)
 
 
 @app.put("/api/realized/ms/{account_id}")
@@ -3224,36 +3222,30 @@ def update_realized_ms(account_id: int, payload: RealizedMsIn):
     action. Customer Name and Statement of Work stay editable here (unlike
     Best Estimates > Managed Services, which locks both once a row exists) -
     per explicit request this is a standalone ledger, same "everything
-    editable in Edit mode" convention as Realized T&M."""
+    editable in Edit mode" convention as Realized T&M. Re-derives
+    fiscal_year/fiscal_month from the (possibly changed) Invoice Date every
+    time, same as update_realized_tm above."""
     with db.get_db() as conn:
         if not conn.execute("SELECT 1 FROM realized_ms_accounts WHERE id = ?", (account_id,)).fetchone():
             raise HTTPException(status_code=404, detail="Entry not found")
         _validate_realized_ms_refs(conn, payload)
+        fiscal_year, fiscal_month = _fiscal_year_month_of(payload.invoice_date)
         conn.execute(
-            """UPDATE realized_ms_accounts SET customer_id=?, sow_id=?, fiscal_year=?, additional_info=?,
+            """UPDATE realized_ms_accounts SET customer_id=?, sow_id=?, milestone_id=?, invoice_date=?, invoice_amount=?,
+               billing_advice_number=?, fiscal_year=?, fiscal_month=?, additional_info=?,
                updated_at=datetime('now') WHERE id=?""",
-            (payload.customer_id, payload.sow_id, payload.fiscal_year, payload.additional_info, account_id),
+            (payload.customer_id, payload.sow_id, payload.milestone_id, payload.invoice_date, payload.invoice_amount,
+             payload.billing_advice_number, fiscal_year, fiscal_month, payload.additional_info, account_id),
         )
-        for m in payload.months:
-            if not 1 <= m.fiscal_month <= 12:
-                raise HTTPException(status_code=400, detail="fiscal_month must be between 1 and 12")
-            conn.execute(
-                """INSERT INTO realized_ms_entries (account_id, fiscal_month, amount, updated_at)
-                   VALUES (?, ?, ?, datetime('now'))
-                   ON CONFLICT(account_id, fiscal_month)
-                   DO UPDATE SET amount = excluded.amount, updated_at = datetime('now')""",
-                (account_id, m.fiscal_month, m.amount),
-            )
         row = conn.execute(_REALIZED_MS_SELECT + "WHERE a.id = ?", (account_id,)).fetchone()
-        return _realized_ms_row_dict(conn, row)
+        return _realized_ms_row_dict(row)
 
 
 @app.delete("/api/realized/ms/{account_id}", status_code=204)
 def delete_realized_ms(account_id: int):
     """Unlike Best Estimates > Managed Services, an entry here isn't
     separately "registered" via a (sow_id, fiscal_year) natural key, so
-    Delete just removes the account row outright - its month entries cascade
-    automatically via realized_ms_entries' ON DELETE CASCADE FK."""
+    Delete just removes the account row outright."""
     with db.get_db() as conn:
         _execute_delete(conn, "DELETE FROM realized_ms_accounts WHERE id = ?", (account_id,), "entry")
     return None
